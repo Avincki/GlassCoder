@@ -1,0 +1,39 @@
+{
+  "profiles": {
+    "tools": {
+      "commandName": "Project",
+      "commandLineArgs": "tools",
+      "workingDirectory": "..\\.."
+    },
+    "help": {
+      "commandName": "Project",
+      "commandLineArgs": "help",
+      "workingDirectory": "..\\.."
+    },
+    "fixtures (runs on this machine)": {
+      "commandName": "Project",
+      "commandLineArgs": "fixtures --config config/local-sandbox.json --work .\\.debug\\fixtures",
+      "workingDirectory": "..\\.."
+    },
+    "run (edit the goal)": {
+      "commandName": "Project",
+      "commandLineArgs": "run --task debug --goal \"Find where the controller loop is implemented. Use glob and grep before reading whole files, then answer with the file path.\"",
+      "workingDirectory": "..\\.."
+    },
+    "suite - phase 0 (read-only)": {
+      "commandName": "Project",
+      "commandLineArgs": "suite --config config/phase0.json --work .\\.debug\\suite",
+      "workingDirectory": "..\\.."
+    },
+    "suite - phase 1 (edit + verify)": {
+      "commandName": "Project",
+      "commandLineArgs": "suite --config config/phase1.json --work .\\.debug\\suite",
+      "workingDirectory": "..\\.."
+    },
+    "ablate (all standard arms)": {
+      "commandName": "Project",
+      "commandLineArgs": "ablate --work .\\.debug\\ablation",
+      "workingDirectory": "..\\.."
+    }
+  }
+}

@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Setting up a model server on an NVIDIA DGX Spark for GlassCoder: choosing an MoE model that fits the bandwidth, serving it with vLLM, and verifying tool calls work.">
+<title>Serving a model to GlassCoder on DGX Spark</title>
+
+<style>
+  :root {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #101414;
+      --surface: #171C1D;
+      --sunk: #1C2223;
+      --ink: #E7EBEB;
+      --muted: #93A0A1;
+      --faint: #6A7677;
+      --rule: #263030;
+      --rule-strong: #3A4647;
+      --signal: #45C4DA;
+      --signal-soft: #10282C;
+      --pass: #86C34A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #1A2412;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101414;
+    --surface: #171C1D;
+    --sunk: #1C2223;
+    --ink: #E7EBEB;
+    --muted: #93A0A1;
+    --faint: #6A7677;
+    --rule: #263030;
+    --rule-strong: #3A4647;
+    --signal: #45C4DA;
+    --signal-soft: #10282C;
+    --pass: #86C34A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #1A2412;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 56ch;
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 2.25rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.67rem;
+    display: block;
+  }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.7rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.22rem; font-weight: 600; margin: 2.3rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.77rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.7rem 0 0.6rem;
+  }
+
+  p, ul.prose, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+    word-break: break-word;
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.6;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; word-break: normal; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.06rem; }
+
+  dl.spec { border-top: 1px solid var(--rule); margin: 0 0 1.4rem; }
+
+  dl.spec > div {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  dl.spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  dl.spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: 0.9rem; }
+
+  th {
+    text-align: left;
+    font-size: 0.69rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td { padding: 0.62rem 1rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.83rem; }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.caution { border-left-color: var(--warn); }
+  .note p:last-child, .note pre:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.caution .tag { color: var(--warn); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.71rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+
+  /* ---- memory budget: the binding constraint, drawn ---- */
+
+  .budget { max-width: var(--measure); margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .budget-row { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .budget-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: 0.92rem;
+  }
+
+  .budget-head b { font-weight: 600; }
+  .budget-head span { font-family: var(--mono); font-size: 0.79rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .bar {
+    display: flex;
+    height: 1.6rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sunk);
+  }
+
+  .bar i {
+    display: block;
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    line-height: 1.6rem;
+    padding-left: 0.4rem;
+    color: var(--surface);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .bar .weights { background: var(--signal); }
+  .bar .kv { background: var(--rule-strong); color: var(--ink); }
+  .bar .free { background: transparent; color: var(--faint); border-left: 1px dashed var(--rule-strong); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.2rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: -0.4rem 0 1.5rem;
+  }
+
+  .legend b { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: baseline; }
+  .legend .w { background: var(--signal); }
+  .legend .k { background: var(--rule-strong); }
+  .legend .f { border: 1px dashed var(--rule-strong); }
+
+  /* ---- throughput bars ---- */
+
+  .tput td.bar-cell { width: 40%; }
+  .tput .tbar { display: flex; align-items: center; gap: 0.5rem; }
+  .tput .tbar i { display: block; height: 0.55rem; background: var(--signal); border-radius: 2px; }
+  .tput .tbar span { font-family: var(--mono); font-size: 0.79rem; font-variant-numeric: tabular-nums; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+
+  footer a { color: var(--muted); }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    dl.spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Companion to the operator's guide</div>
+    <h1>Serving a model to GlassCoder on DGX&nbsp;Spark</h1>
+    <p class="standfirst">
+      The Spark has enough memory to hold a very large model and not enough bandwidth to read it
+      quickly. Everything below follows from that one fact.
+    </p>
+    <div class="specstrip">
+      <div><b>Silicon</b> GB10 Grace Blackwell · sm_121 · arm64</div>
+      <div><b>Memory</b> 128 GB unified LPDDR5x</div>
+      <div><b>Bandwidth</b> 273 GB/s</div>
+      <div><b>Compute</b> ~1 PFLOP FP4</div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#constraint">The binding constraint</a></li>
+      <li><a href="#pick">Picking the model</a></li>
+      <li><a href="#install">Standing up vLLM</a></li>
+      <li><a href="#roles">Serving the three roles</a></li>
+      <li><a href="#wire">Wiring GlassCoder to it</a></li>
+      <li><a href="#verify">Verifying it properly</a></li>
+      <li><a href="#budget">Budgets that now make sense</a></li>
+      <li><a href="#scale">If one Spark isn't enough</a></li>
+      <li><a href="#trouble">Known rough edges</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= 1 ================= -->
+    <section class="part" id="constraint">
+      <div class="part-head"><span class="num">01</span><h2>The binding constraint</h2></div>
+
+      <p>
+        A DGX Spark holds 128&nbsp;GB of unified LPDDR5x that the CPU and GPU share, at roughly
+        <b>273&nbsp;GB/s</b>. For comparison, an RTX PRO 6000 moves memory around five times
+        faster. So the Spark is not a small machine that runs small models — it is a
+        <em>capacious</em> machine that reads memory slowly.
+      </p>
+
+      <p>
+        Autoregressive decoding reads the active weights once per generated token. That gives you
+        a ceiling you can work out on the back of an envelope:
+      </p>
+
+      <pre><code>tokens/second  ≈  273 GB/s  ÷  bytes read per token
+
+<span class="c">70B dense, 4-bit  → ~35 GB/token  →  ~7 tok/s   (unusable for an agent)</span>
+<span class="c">120B MoE, 12B active, NVFP4 → ~6 GB/token → ~23 tok/s  (workable)</span>
+<span class="c">80B MoE, 3B active,  4-bit  → ~2 GB/token → fast, but a smaller brain</span></code></pre>
+
+      <p>
+        The conclusion is unusually clean, and it is the opposite of the advice you would give for
+        a bandwidth-rich GPU: <b>on this box, pick a sparse mixture-of-experts model, not a dense
+        one.</b> An MoE reads only its active experts per token, so it buys you a large parameter
+        count at a small bandwidth cost. vLLM's own guidance for the Spark is to look for
+        <b>100–130B total parameters with 10–15B active, in NVFP4</b>.
+      </p>
+
+      <div class="note">
+        <span class="tag">Why this matters for an agent specifically</span>
+        <p>
+          GlassCoder measures <b>wall-clock per solved task</b> alongside pass@1 for exactly this
+          reason. A thirty-step run at 23 tok/s is minutes of decoding; the same run on a dense
+          70B at 7 tok/s is a coffee break. The model that scores better on a benchmark can still
+          be the wrong model for the loop.
+        </p>
+      </div>
+
+      <h3>What actually fits</h3>
+
+      <p>
+        NVFP4 weights are roughly half a byte per parameter. After the model, you need room for
+        the KV cache, the container runtime and the OS — vLLM's own recipe leaves ~15% headroom.
+      </p>
+
+      <div class="budget">
+        <div class="budget-row">
+          <div class="budget-head">
+            <b>Nemotron-3-Super-120B-A12B, NVFP4</b>
+            <span>~66 GB weights · 128 GB total</span>
+          </div>
+          <div class="bar">
+            <i class="weights" style="width:52%">weights ~66 GB</i>
+            <i class="kv" style="width:28%">KV cache</i>
+            <i class="free" style="width:20%">headroom</i>
+          </div>
+        </div>
+
+        <div class="budget-row">
+          <div class="budget-head">
+            <b>Qwen3.5-122B-A10B, NVFP4</b>
+            <span>~76 GB weights · 128 GB total</span>
+          </div>
+          <div class="bar">
+            <i class="weights" style="width:59%">weights ~76 GB</i>
+            <i class="kv" style="width:24%">KV cache</i>
+            <i class="free" style="width:17%">headroom</i>
+          </div>
+        </div>
+
+        <div class="budget-row">
+          <div class="budget-head">
+            <b>A dense 70B at 8-bit</b>
+            <span>~70 GB weights — fits, but reads all of it every token</span>
+          </div>
+          <div class="bar">
+            <i class="weights" style="width:55%">weights ~70 GB</i>
+            <i class="kv" style="width:25%">KV cache</i>
+            <i class="free" style="width:20%">headroom</i>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <span><b class="w"></b>model weights</span>
+        <span><b class="k"></b>KV cache at 128K context</span>
+        <span><b class="f"></b>OS, runtime, growth</span>
+      </div>
+
+      <p>
+        Note that the dense 70B <em>fits</em> perfectly well. Fitting was never the problem.
+      </p>
+    </section>
+
+    <!-- ================= 2 ================= -->
+    <section class="part" id="pick">
+      <div class="part-head"><span class="num">02</span><h2>Picking the model</h2></div>
+
+      <p>
+        Named models age fast — treat the table below as a snapshot taken in July 2026 and the
+        criteria under it as the part that lasts.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Model</th><th class="m">Total / active</th><th>Fit on one Spark</th><th>Why</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>NVIDIA Nemotron-3-Super NVFP4<br><span style="color:var(--faint)">start here</span></td>
+              <td class="m">120B / 12B</td>
+              <td><span class="pill pass">good fit</span></td>
+              <td>vLLM's own reference recipe for this box, with published numbers: ~23 tok/s
+                  decode. Ships as NVFP4, so no quantising yourself.</td>
+            </tr>
+            <tr>
+              <td>Qwen3.5-122B-A10B NVFP4</td>
+              <td class="m">122B / 10B</td>
+              <td><span class="pill pass">good fit</span></td>
+              <td>~76 GB quantised, leaving ~52 GB for cache. Community-quantised specifically
+                  for the Spark.</td>
+            </tr>
+            <tr>
+              <td>Qwen3-Coder-Next</td>
+              <td class="m">80B / 3B</td>
+              <td><span class="pill warn">verify first</span></td>
+              <td>Very few active parameters, so potentially fast, and coding-tuned. Reported
+                  throughput varies a lot by quantisation and runtime — measure before you
+                  commit to it.</td>
+            </tr>
+            <tr>
+              <td>GLM-5.2</td>
+              <td class="m">very large</td>
+              <td><span class="pill fail">needs ~4 Sparks</span></td>
+              <td>Currently the strongest open-weight coding scores, and out of reach of a single
+                  128 GB box. Relevant only if you cluster.</td>
+            </tr>
+            <tr>
+              <td>Any dense 70B+</td>
+              <td class="m">70B / 70B</td>
+              <td><span class="pill fail">too slow</span></td>
+              <td>Fits in memory, reads all of it per token. Around 7 tok/s — the loop will feel
+                  broken even when it is working.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The criteria that outlive the table</h3>
+
+      <ol class="prose">
+        <li>
+          <b>Tool-call fidelity first.</b> GlassCoder is a tool-calling harness; a model that
+          writes beautiful code but emits malformed tool calls is worthless to it. Check that
+          vLLM has a <code>--tool-call-parser</code> matching the model's chat template
+          <em>before</em> you download 70 GB.
+        </li>
+        <li>
+          <b>Sparse, not dense.</b> 10–15B active parameters is the target. Below that you lose
+          capability; above it you lose the wall-clock.
+        </li>
+        <li>
+          <b>NVFP4 checkpoints where they exist.</b> Blackwell has native FP4 kernels. Prefer a
+          pre-quantised NVFP4 release over quantising a BF16 checkpoint yourself.
+        </li>
+        <li>
+          <b>Long context, but do not pay for it twice.</b> 128K served is plenty; GlassCoder
+          budgets ~48K and compacts, so you are not sizing the KV cache for the worst case.
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================= 3 ================= -->
+    <section class="part" id="install">
+      <div class="part-head"><span class="num">03</span><h2>Standing up vLLM</h2></div>
+
+      <div class="note caution">
+        <span class="tag">Check this before anything else</span>
+        <p>
+          The Spark is <b>arm64 with sm_121</b>, and upstream stable vLLM has not always built for
+          it. Use NVIDIA's container or the CUDA-13 track, not the default
+          <code>vllm/vllm-openai:latest</code>. This is the single most common way to lose an
+          afternoon here.
+        </p>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Confirm the box</h3>
+<pre><code>nvidia-smi                       <span class="c"># GB10, driver, CUDA 13</span>
+uname -m                         <span class="c"># aarch64</span>
+free -g                          <span class="c"># ~128 GB unified</span>
+docker info | grep -i runtime    <span class="c"># nvidia runtime present</span></code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Pull a container that knows about GB10</h3>
+            <p>
+              Either NVIDIA's NGC build or vLLM's CUDA-13 track. Pin the tag — "nightly" is a
+              compatibility track, not a reproducible one, and you want the ability to say which
+              build produced a given metrics row.
+            </p>
+<pre><code><span class="c"># NVIDIA's build (recommended starting point)</span>
+docker pull nvcr.io/nvidia/vllm:26.02-py3
+
+<span class="c"># or vLLM's CUDA-13 track</span>
+docker pull vllm/vllm-openai:cu130-nightly</code></pre>
+            <p>
+              NVIDIA also publishes step-by-step recipes for this hardware in the
+              <a href="https://github.com/NVIDIA/dgx-spark-playbooks">dgx-spark-playbooks</a>
+              repository, including a vLLM playbook. Start from there if the container route
+              fights you.
+            </p>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Serve the worker</h3>
+            <p>
+              Every flag below is load-bearing on this hardware. The two that matter most to
+              GlassCoder are the served name and the tool-call parser.
+            </p>
+<pre><code>docker run -d --name vllm-worker --restart unless-stopped \
+  --gpus all --ipc=host -p 8001:8000 \
+  -e HF_TOKEN="$HF_TOKEN" \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  nvcr.io/nvidia/vllm:26.02-py3 \
+  vllm serve nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 \
+    <span class="k">--served-model-name worker</span> \
+    --max-model-len 131072 \
+    --gpu-memory-utilization 0.85 \
+    --max-num-seqs 4 \
+    <span class="k">--enable-auto-tool-choice</span> \
+    <span class="k">--tool-call-parser qwen3_coder</span> \
+    --guided-decoding-backend xgrammar \
+    --trust-remote-code</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Wait, then warm it</h3>
+            <p>
+              First load reads tens of gigabytes from disk — expect <b>10–15 minutes</b>. The
+              first request after that triggers kernel compilation, around <b>25 seconds</b>.
+              Fire a throwaway request so a real one never pays for it.
+            </p>
+<pre><code>curl -s localhost:8001/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"worker","messages":[{"role":"user","content":"hi"}],"max_tokens":3}'</code></pre>
+          </div>
+        </li>
+      </ol>
+
+      <h4>What each flag is doing</h4>
+
+      <dl class="spec">
+        <div>
+          <dt>--served-model-name</dt>
+          <dd>The alias clients address. GlassCoder <em>requires</em> an alias and rejects
+              anything that looks like a checkpoint path at startup, so name it
+              <code>worker</code> and keep serving topology out of your configuration.</dd>
+        </div>
+        <div>
+          <dt>--gpu-memory-utilization</dt>
+          <dd>0.85 on a unified pool. This memory is also the operating system's — take it all
+              and you will meet the OOM killer rather than a clean error.</dd>
+        </div>
+        <div>
+          <dt>--max-num-seqs</dt>
+          <dd>4. Above roughly four concurrent decode streams the per-token bandwidth tax
+              outweighs what continuous batching gives back. This is a bandwidth limit, not a
+              compute one.</dd>
+        </div>
+        <div>
+          <dt>--enable-auto-tool-choice</dt>
+          <dd>Without this, tool calls come back as prose in the message body and every one of
+              them is an invalid call.</dd>
+        </div>
+        <div>
+          <dt>--tool-call-parser</dt>
+          <dd>Must match the model's chat template — <code>qwen3_coder</code>,
+              <code>hermes</code>, <code>llama3_json</code> and others. Wrong parser looks
+              exactly like a stupid model.</dd>
+        </div>
+        <div>
+          <dt>--guided-decoding-backend</dt>
+          <dd>The grammar engine behind constrained decoding. GlassCoder leans on this hard: it
+              is what makes a malformed tool call structurally impossible rather than merely
+              unlikely.</dd>
+        </div>
+        <div>
+          <dt>--reasoning-parser</dt>
+          <dd>Only for models that emit reasoning blocks, and only the parser that model
+              documents. Omit it otherwise.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ================= 4 ================= -->
+    <section class="part" id="roles">
+      <div class="part-head"><span class="num">04</span><h2>Serving the three roles</h2></div>
+
+      <p>
+        GlassCoder addresses three served aliases: <code>worker</code> drives the loop,
+        <code>drafter</code> is there for a larger model on hard sub-problems, and
+        <code>critic</code> runs the refutation pass. You do not need three models to start.
+      </p>
+
+      <h3>One Spark, one model</h3>
+
+      <p>
+        Point all three roles at the same endpoint and alias. Phases 0 and 1 only ever use
+        <code>worker</code>, so this costs you nothing until Phase 2.
+      </p>
+
+      <div class="note caution">
+        <span class="tag">The caveat to write down</span>
+        <p>
+          When the critic is the same model as the worker, its blind spots are the worker's blind
+          spots — it will happily approve the reasoning it just produced. That is not a fatal
+          problem, but it means <b>recovery rate from a same-model critic is an optimistic
+          number</b>. Note it next to the metric, or the Phase 2 result will read better than it
+          is.
+        </p>
+      </div>
+
+      <h3>One Spark, two models</h3>
+
+      <p>
+        A better arrangement once you reach Phase 2: keep the big MoE as the worker, and put a
+        small dense model from a <em>different family</em> on a second port as the critic.
+        Refutation is a much easier job than authoring, so a 7–14B model does it well and costs
+        little memory.
+      </p>
+
+<pre><code>docker run -d --name vllm-critic --gpus all --ipc=host -p 8003:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  nvcr.io/nvidia/vllm:26.02-py3 \
+  vllm serve &lt;a-small-model-from-another-family&gt; \
+    --served-model-name critic \
+    --max-model-len 32768 \
+    --gpu-memory-utilization 0.10 \
+    --max-num-seqs 4</code></pre>
+
+      <p>
+        The two utilisation fractions must add up to something below 1.0 with room to spare —
+        they are drawing on the same pool. Drop the worker to <code>0.75</code> if you do this.
+      </p>
+    </section>
+
+    <!-- ================= 5 ================= -->
+    <section class="part" id="wire">
+      <div class="part-head"><span class="num">05</span><h2>Wiring GlassCoder to it</h2></div>
+
+      <p>
+        In <code>config/appsettings.json</code>, the roles point at the ports you just opened.
+        Nothing else in the harness needs to know what hardware this is.
+      </p>
+
+<pre><code>"Models": {
+  "DefaultRole": "worker",
+  "Roles": {
+    "worker": {
+      <span class="k">"Endpoint"</span>: "http://spark.local:8001/v1",
+      <span class="k">"ModelAlias"</span>: "worker",
+      "TimeoutSeconds": 900,
+      "Temperature": 0.2,
+      "ConstrainedDecoding": {
+        "Enabled": true,
+        "StrictToolSchemas": true,
+        "SingleToolCallPerStep": true,
+        <span class="k">"GuidedDecodingBackend"</span>: "xgrammar"
+      }
+    },
+    "critic": {
+      "Endpoint": "http://spark.local:8003/v1",
+      "ModelAlias": "critic",
+      "Temperature": 0.0
+    }
+  }
+}</code></pre>
+
+      <h3>Settings worth changing for this hardware</h3>
+
+      <dl class="spec">
+        <div>
+          <dt>TimeoutSeconds</dt>
+          <dd>Raise to 900. A long prefill plus a slow decode can legitimately exceed the 600
+              default on a large prompt.</dd>
+        </div>
+        <div>
+          <dt>Agent:MaxWallClockSeconds</dt>
+          <dd>At ~23 tok/s, a thirty-step run is genuinely minutes. Budget 1800 rather than 900,
+              or you will record time-limit stops that are really just honest slowness.</dd>
+        </div>
+        <div>
+          <dt>Orchestration:<br>MaxDegreeOfParallelism</dt>
+          <dd>Keep at 3, below the server's <code>--max-num-seqs 4</code>. Fanning out wider does
+              not go faster on a bandwidth-bound box — it just makes every sub-agent slower.</dd>
+        </div>
+        <div>
+          <dt>Context:<br>MaxContextTokens</dt>
+          <dd>48000 against 131072 served is a deliberate gap. Prefill is charged on every step,
+              so a bloated window costs wall-clock on every turn, not just the one that grew it.</dd>
+        </div>
+        <div>
+          <dt>Cost per million<br>tokens</dt>
+          <dd>Leave at 0 for a local arm, and compare on wall-clock instead. If you want a real
+              figure, divide the box's power draw and amortised cost by tokens produced and put
+              <em>that</em> in — then a local arm and a hosted arm become comparable.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- ================= 6 ================= -->
+    <section class="part" id="verify">
+      <div class="part-head"><span class="num">06</span><h2>Verifying it properly</h2></div>
+
+      <p>
+        "The endpoint returns text" is a much weaker claim than "the endpoint calls tools
+        correctly". Check the second one, because that is what the harness needs.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>The endpoint answers</h3>
+<pre><code>curl -s localhost:8001/v1/models | jq '.data[].id'   <span class="c"># → "worker"</span></code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>It emits a real tool call</h3>
+            <p>
+              The response must contain a <code>tool_calls</code> array. If the function name
+              and arguments appear as text inside <code>content</code> instead, your parser flag
+              is wrong — fix that now, not after a confusing run.
+            </p>
+<pre><code>curl -s localhost:8001/v1/chat/completions \
+  -H 'content-type: application/json' -d '{
+  "model": "worker",
+  "messages": [{"role":"user","content":"Read the file src/Program.cs"}],
+  "tools": [{"type":"function","function":{
+    "name":"read_file",
+    "description":"Read a text file from the workspace.",
+    "parameters":{"type":"object","properties":{
+      "path":{"type":"string","description":"Repo-relative path."}},
+      "required":["path"]}}}],
+  "tool_choice": "auto"
+}' | jq '.choices[0].message.tool_calls'</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>GlassCoder resolves against it</h3>
+<pre><code>glasscoder tools                     <span class="c"># config binds, services resolve</span>
+glasscoder run --repo /path/to/repo \
+  --goal "Find where retries are implemented and explain the backoff."</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Read the number that decides everything</h3>
+            <p>
+              Tool-call validity rate is the acceptance test for this whole setup. Near 1.0 means
+              the seam is healthy and you can start measuring the harness. Anything much lower is
+              a server or parser problem, not a model problem — go back to step 2.
+            </p>
+<pre><code>jq -r '"\(.taskId)  validity=\(.toolCallValidityRate)  steps=\(.steps)"' \
+  metrics/metrics.jsonl | tail -5</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Take the Phase 0 baseline</h3>
+            <p>
+              Read-only, so nothing can be damaged, and it gives you the number every later
+              change is measured against.
+            </p>
+<pre><code>glasscoder suite --config config/phase0.json</code></pre>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================= 7 ================= -->
+    <section class="part" id="budget">
+      <div class="part-head"><span class="num">07</span><h2>Budgets that now make sense</h2></div>
+
+      <p>
+        Published figures for a 120B/12B NVFP4 model on a single Spark, to calibrate what "slow"
+        and "broken" look like:
+      </p>
+
+      <div class="scroller">
+        <table class="tput">
+          <thead>
+            <tr><th>Measure</th><th class="bar-cell">Observed</th><th>What it implies</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Decode</td>
+              <td class="bar-cell"><span class="tbar"><i style="width:24%"></i><span>~23 tok/s</span></span></td>
+              <td>A 500-token step takes ~22s. Ten steps is about four minutes of pure decoding.</td>
+            </tr>
+            <tr>
+              <td>Prefill, short prompt</td>
+              <td class="bar-cell"><span class="tbar"><i style="width:12%"></i><span>~140 tok/s</span></span></td>
+              <td>Small prompts are dominated by fixed overhead.</td>
+            </tr>
+            <tr>
+              <td>Prefill, long prompt</td>
+              <td class="bar-cell"><span class="tbar"><i style="width:100%"></i><span>~1,884 tok/s</span></span></td>
+              <td>Prefill parallelises well — it is decode that is bandwidth-bound.</td>
+            </tr>
+            <tr>
+              <td>Time to first token</td>
+              <td class="bar-cell"><span class="tbar"><i style="width:20%"></i><span>0.4 – 3.9 s</span></span></td>
+              <td>Scales with prompt length. This is why context compaction pays on every step.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">The measurement this hardware makes interesting</span>
+        <p>
+          Because prefill is fast and decode is slow, anything that shortens the <em>output</em>
+          is worth more here than anything that shortens the input. That is a real, testable
+          hypothesis — and it is exactly what the ablation runner exists for. Run
+          <code>no-context</code> against <code>baseline</code> and see whether the context you
+          are loading actually buys enough to justify itself.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 8 ================= -->
+    <section class="part" id="scale">
+      <div class="part-head"><span class="num">08</span><h2>If one Spark isn't enough</h2></div>
+
+      <p>
+        Two Sparks connect directly over their 200GbE ConnectX-7 ports, giving a combined
+        256&nbsp;GB pool; larger clusters go through a switch. People report running
+        300B-class MoE models across four units, and current flagship open-weight coding models
+        need roughly that.
+      </p>
+
+      <p>Before you buy a second box, be honest about which problem you have:</p>
+
+      <dl class="spec">
+        <div>
+          <dt>Model too big</dt>
+          <dd>More Sparks genuinely help — you are buying memory capacity.</dd>
+        </div>
+        <div>
+          <dt>Runs feel slow</dt>
+          <dd>More Sparks help far less than you would hope. Aggregate bandwidth rises but so
+              does interconnect latency, and decode stays the bottleneck. Try a smaller active
+              parameter count first.</dd>
+        </div>
+        <div>
+          <dt>Want a real critic</dt>
+          <dd>A second small model on the <em>same</em> box is usually the better spend than a
+              second box.</dd>
+        </div>
+      </dl>
+
+      <p>
+        Whatever you choose, keep the aliases stable. If a second machine serves
+        <code>drafter</code>, GlassCoder needs one line of configuration and no code change —
+        which is the entire point of the seam.
+      </p>
+    </section>
+
+    <!-- ================= 9 ================= -->
+    <section class="part" id="trouble">
+      <div class="part-head"><span class="num">09</span><h2>Known rough edges</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Container exits immediately, CUDA arch error</td>
+              <td>Stable upstream vLLM built without sm_121. Use NVIDIA's NGC image or the CUDA-13
+                  track, or follow the DGX Spark playbook to build with sm_120 forward
+                  compatibility.</td>
+            </tr>
+            <tr>
+              <td>Tool-call validity near zero</td>
+              <td>Almost always <code>--enable-auto-tool-choice</code> missing, or a
+                  <code>--tool-call-parser</code> that does not match the chat template. Verify
+                  with the raw <code>curl</code> above before suspecting the model.</td>
+            </tr>
+            <tr>
+              <td>First GlassCoder run times out</td>
+              <td>Model load is 10–15 minutes and first-request JIT is ~25s. Warm the server
+                  before pointing the harness at it.</td>
+            </tr>
+            <tr>
+              <td>OOM killer, or the desktop stalls</td>
+              <td><code>--gpu-memory-utilization</code> too high. This pool is shared with the
+                  operating system. Back off to 0.80 and re-measure.</td>
+            </tr>
+            <tr>
+              <td>Throughput collapses under load</td>
+              <td>Too many concurrent sequences for the bandwidth. Lower
+                  <code>--max-num-seqs</code>, and keep GlassCoder's fan-out below it.</td>
+            </tr>
+            <tr>
+              <td>Startup takes forever every time</td>
+              <td>Default safetensors loading. Look at faster loaders, and keep the HuggingFace
+                  cache on the internal NVMe rather than a network mount.</td>
+            </tr>
+            <tr>
+              <td>Quality drops after long runs</td>
+              <td>If you enabled <code>--kv-cache-dtype fp8</code> to save memory, turn it back
+                  off — it trades predictability for space. Prefer compaction, which GlassCoder
+                  already does.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">Dated material</span>
+        <p>
+          Everything above was checked in July 2026. Container tags, sm_121 support and the
+          model landscape all move quickly; the arithmetic in section 1 does not. When a
+          recommendation here has gone stale, re-derive from bandwidth ÷ bytes-per-token and you
+          will land somewhere sensible.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  Sources —
+  <a href="https://vllm.ai/blog/2026-06-01-vllm-dgx-spark">vLLM on the DGX Spark</a> ·
+  <a href="https://github.com/NVIDIA/dgx-spark-playbooks">NVIDIA DGX Spark playbooks</a> ·
+  <a href="https://www.lmsys.org/blog/2025-10-13-nvidia-dgx-spark/">LMSYS DGX Spark review</a> ·
+  <a href="https://docs.vllm.ai/en/latest/features/tool_calling/">vLLM tool calling</a> ·
+  <a href="https://forums.developer.nvidia.com/c/accelerated-computing/dgx-spark-gb10/">NVIDIA DGX Spark forums</a>
+</footer>
+</body>
+</html>

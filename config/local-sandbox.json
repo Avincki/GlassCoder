@@ -1,0 +1,31 @@
+{
+  // Layer this over appsettings.json to run builds and tests DIRECTLY ON THIS MACHINE
+  // instead of inside a container:
+  //
+  //     glasscoder fixtures --config config/local-sandbox.json
+  //
+  // It exists because verifying the task suite, or debugging the build and run_tests tools,
+  // needs them to actually execute - and a dev box may not have Docker running.
+  //
+  // Understand what it turns off. A build is arbitrary code execution: MSBuild targets, source
+  // generators and test static constructors are all code, running with your privileges, against
+  // your filesystem. The default refuses precisely so that never happens by accident.
+  //
+  // Do not use this arm for a real agent run against code you did not write.
+  "GlassCoder": {
+    "Sandbox": {
+      "Mode": "Local",
+      "AllowUnsandboxedExecution": true,
+      "CommandTimeoutSeconds": 300
+    },
+
+    // Debug runs should not pollute the metrics file that real measurements live in.
+    "Metrics": {
+      "Enabled": false
+    },
+
+    "Telemetry": {
+      "Enabled": false
+    }
+  }
+}

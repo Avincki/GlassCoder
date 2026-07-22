@@ -33,3 +33,6 @@ appsettings.Development.json
 appsettings.Local.json
 *.env
 secrets.json
+
+## Debug scratch output from launch profiles
+.debug/
