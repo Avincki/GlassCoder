@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using GlassCoder.Core.Agent;
 
@@ -30,6 +31,21 @@ public sealed class ArchitectureTests
         IEnumerable<string> referenced = assembly.GetReferencedAssemblies().Select(a => a.Name!);
 
         referenced.Intersect(UiAssemblies, StringComparer.OrdinalIgnoreCase).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Globalization_data_is_available_to_the_whole_solution()
+    {
+        // Guards a real crash: with InvariantGlobalization=true the WPF app dies inside
+        // Window.Show(), because the binding engine resolves every element's xml:lang="en-us"
+        // through XmlLanguage.GetSpecificCulture() and there is no culture data to resolve it
+        // against. The test projects inherit the same Directory.Build.props, so re-introducing
+        // the switch anywhere shared fails here instead of at the user's first launch.
+        CultureInfo.GetCultures(CultureTypes.SpecificCultures).Length.ShouldBeGreaterThan(1);
+
+        CultureInfo english = CultureInfo.GetCultureInfo("en-US");
+        english.IsNeutralCulture.ShouldBeFalse();
+        english.Name.ShouldBe("en-US");
     }
 
     [Fact]

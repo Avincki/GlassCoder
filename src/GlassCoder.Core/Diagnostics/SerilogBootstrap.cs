@@ -1,3 +1,4 @@
+using System.Globalization;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -60,6 +61,7 @@ public static class SerilogBootstrap
                 .WriteTo.File(
                     Path.Combine(directory, options.TextFileName),
                     outputTemplate: HumanTemplate,
+                    formatProvider: CultureInfo.InvariantCulture,
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: options.RetainedFileCountLimit));
 
@@ -67,7 +69,7 @@ public static class SerilogBootstrap
         {
             configuration = configuration.WriteTo.Logger(console => console
                 .Filter.ByExcluding(e => e.Properties.ContainsKey(StepPropertyName) || e.Properties.ContainsKey(RunPropertyName))
-                .WriteTo.Console(outputTemplate: HumanTemplate));
+                .WriteTo.Console(outputTemplate: HumanTemplate, formatProvider: CultureInfo.InvariantCulture));
         }
 
         return configuration.CreateLogger();

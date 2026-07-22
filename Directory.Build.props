@@ -5,7 +5,16 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!--
+      Do NOT set InvariantGlobalization here. WPF is incompatible with it: every FrameworkElement
+      carries xml:lang="en-us", and the binding engine calls XmlLanguage.GetSpecificCulture() on
+      the first data-bound element. Without ICU culture data that call throws
+      InvalidOperationException, and the app dies inside Window.Show() before rendering anything.
+
+      The harness itself does not need culture data - it formats with InvariantCulture explicitly
+      and compares with Ordinal - so the setting looked free. It is not, and the front ends must
+      share one globalization mode or the same services can behave differently in each.
+    -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <AnalysisLevel>latest</AnalysisLevel>
