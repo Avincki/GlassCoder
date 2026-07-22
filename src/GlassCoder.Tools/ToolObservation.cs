@@ -66,6 +66,12 @@ public static class ToolErrorCodes
     /// <summary>The tool name was not in the registry.</summary>
     public const string UnknownTool = "unknown_tool";
 
+    /// <summary>A verification rung refused the change before it was applied.</summary>
+    public const string VerificationFailed = "verification_failed";
+
+    /// <summary>The sandbox required to run this tool was unavailable.</summary>
+    public const string SandboxUnavailable = "sandbox_unavailable";
+
     /// <summary>An unexpected failure. The loop turns escaped exceptions into this.</summary>
     public const string Unexpected = "unexpected";
 }

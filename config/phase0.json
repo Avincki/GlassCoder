@@ -1,0 +1,50 @@
+{
+  // Phase 0 arm (CLAUDE.md §17, workplan task 13): one worker model, read/grep/glob, full
+  // logging, constrained decoding, NO editing. Layer this over appsettings.json:
+  //   glasscoder --config ../../config/phase0.json
+  //
+  // Watch: tool-call validity rate. Nothing else moves until that is high.
+  "GlassCoder": {
+    "Models": {
+      "DefaultRole": "worker",
+      "Roles": {
+        "worker": {
+          "Temperature": 0.0,
+          "ConstrainedDecoding": {
+            "Enabled": true,
+            "StrictToolSchemas": true,
+            "SingleToolCallPerStep": true
+          }
+        }
+      }
+    },
+
+    // No writable paths at all: Phase 0 must be unable to change anything, not merely
+    // uninterested in doing so.
+    "Workspace": {
+      "WritablePaths": []
+    },
+
+    "Agent": {
+      "MaxSteps": 20,
+      "MaxTotalTokens": 120000,
+      "MaxWallClockSeconds": 600
+    },
+
+    "Context": {
+      "MaxContextTokens": 32000,
+      "EnableCompaction": true,
+      "KeepRecentTurns": 6
+    },
+
+    "Logging": {
+      "MinimumLevel": "Information",
+      "LogSourceContent": true
+    },
+
+    "Metrics": {
+      "Enabled": true,
+      "FileName": "phase0-metrics.jsonl"
+    }
+  }
+}

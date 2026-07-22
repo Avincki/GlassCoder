@@ -85,6 +85,12 @@ public sealed record StepRecord
     /// <summary>Finish reason the server reported.</summary>
     public string? FinishReason { get; init; }
 
+    /// <summary>Estimated size of the window that was sent, for context-budget analysis.</summary>
+    public int? EstimatedContextTokens { get; init; }
+
+    /// <summary>Whether older turns were compacted before this step was sent.</summary>
+    public bool ContextCompacted { get; init; }
+
     /// <summary>What the loop did next: continued, completed, or the limit that stopped it.</summary>
     public required string Outcome { get; init; }
 

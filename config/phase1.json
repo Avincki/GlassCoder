@@ -1,0 +1,54 @@
+{
+  // Phase 1 arm (CLAUDE.md §17, workplan task 19): everything in Phase 0 plus edit_file, build
+  // and run_tests, with the diagnostic summariser active from day one.
+  //
+  // Watch: compile-error rate per edit, and edits-to-green.
+  "GlassCoder": {
+    "Models": {
+      "DefaultRole": "worker",
+      "Roles": {
+        "worker": {
+          "Temperature": 0.0,
+          "ConstrainedDecoding": {
+            "Enabled": true,
+            "StrictToolSchemas": true,
+            "SingleToolCallPerStep": true
+          }
+        }
+      }
+    },
+
+    // Writing is opt-in and narrow. The agent can change source and tests, nothing else.
+    "Workspace": {
+      "WritablePaths": [ "src", "tests" ]
+    },
+
+    "Verification": {
+      // Refuse an edit that would introduce a new compile error, before it reaches disk.
+      "VerifyEditsBeforeWrite": true,
+      "RejectEditsThatBreakTheBuild": true,
+      "MaxSummarisedDiagnostics": 10
+    },
+
+    // A build is arbitrary code execution: containerised, network dropped except for restore.
+    "Sandbox": {
+      "Mode": "Docker",
+      "Image": "mcr.microsoft.com/dotnet/sdk:10.0",
+      "AllowNetwork": false,
+      "AllowNetworkForRestore": true,
+      "AllowUnsandboxedExecution": false,
+      "CommandTimeoutSeconds": 600
+    },
+
+    "Agent": {
+      "MaxSteps": 40,
+      "MaxTotalTokens": 250000,
+      "MaxWallClockSeconds": 1800
+    },
+
+    "Metrics": {
+      "Enabled": true,
+      "FileName": "phase1-metrics.jsonl"
+    }
+  }
+}

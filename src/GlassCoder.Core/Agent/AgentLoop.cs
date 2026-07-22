@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Metrics;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Registry;
@@ -25,6 +27,8 @@ public sealed class AgentLoop : IAgentLoop
     private readonly IChatClientFactory _clients;
     private readonly IToolRegistry _tools;
     private readonly IStepLogger _stepLogger;
+    private readonly IContextAssembler _context;
+    private readonly IMetricsRecorder _metrics;
     private readonly AgentOptions _defaults;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentLoop> _logger;
@@ -34,6 +38,8 @@ public sealed class AgentLoop : IAgentLoop
         IChatClientFactory clients,
         IToolRegistry tools,
         IStepLogger stepLogger,
+        IContextAssembler context,
+        IMetricsRecorder metrics,
         IOptions<AgentOptions> options,
         TimeProvider? timeProvider = null,
         ILogger<AgentLoop>? logger = null)
@@ -43,6 +49,8 @@ public sealed class AgentLoop : IAgentLoop
         _clients = clients;
         _tools = tools;
         _stepLogger = stepLogger;
+        _context = context;
+        _metrics = metrics;
         _defaults = options.Value;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
@@ -59,14 +67,15 @@ public sealed class AgentLoop : IAgentLoop
         ModelRoleOptions roleOptions = _clients.GetRoleOptions(role);
         ChatOptions chatOptions = new() { Tools = [.. _tools.Tools], ToolMode = ChatToolMode.Auto };
 
+        // `messages` is the complete history and stays complete - it is the transcript. What
+        // goes over the wire each step is the assembled window, which may be compacted.
         List<ChatMessage> messages =
-        [
-            new(ChatRole.System, request.SystemPrompt ?? limits.SystemPrompt),
-            new(ChatRole.User, request.Goal),
-        ];
+            [.. _context.CreateInitialMessages(request.SystemPrompt ?? limits.SystemPrompt, request.Goal)];
 
         RunBudget budget = new(limits, roleOptions, _time);
+        RunMetricsCollector metrics = new();
         IReadOnlyDictionary<string, object?>? requestProperties = DescribeRequestProperties(client, chatOptions);
+        DateTimeOffset startedAt = _time.GetUtcNow();
 
         using Activity? runActivity = GlassCoderActivity.Source.StartActivity("glasscoder.run");
         runActivity?.SetTag("glasscoder.run_id", request.RunId);
@@ -89,14 +98,19 @@ public sealed class AgentLoop : IAgentLoop
                 break;
             }
 
-            StepContext step = new(request, role, budget.Steps, _time.GetUtcNow(), requestProperties);
+            // Observe: assemble the leanest window that still contains what the agent needs.
+            AssembledContext window = _context.Assemble(messages);
+            StepContext step = new(request, role, budget.Steps, _time.GetUtcNow(), requestProperties)
+            {
+                Context = window,
+            };
 
-            // Observe → Think.
+            // Think.
             ChatResponse response;
             long modelStart = Stopwatch.GetTimestamp();
             try
             {
-                response = await client.GetResponseAsync(messages, chatOptions, cancellationToken).ConfigureAwait(false);
+                response = await client.GetResponseAsync(window.Messages, chatOptions, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -115,7 +129,11 @@ public sealed class AgentLoop : IAgentLoop
 
             TimeSpan modelLatency = Stopwatch.GetElapsedTime(modelStart);
             budget.AddUsage(response.Usage);
-            IReadOnlyList<ChatMessage> prompt = [.. messages];
+
+            // The prompt recorded in the transcript is the window that was actually sent, and it
+            // must be a snapshot: when the window is not compacted it *is* the history list, and
+            // the next lines are about to append to that list.
+            IReadOnlyList<ChatMessage> prompt = [.. window.Messages];
             messages.AddMessages(response);
 
             // Act: exactly the calls the model asked for, no more.
@@ -132,7 +150,8 @@ public sealed class AgentLoop : IAgentLoop
             }
 
             // Result: every observation goes back to the model, successes and failures alike.
-            List<ToolInvocation> invocations = await ExecuteAsync(calls, budget, cancellationToken).ConfigureAwait(false);
+            List<ToolInvocation> invocations =
+                await ExecuteAsync(calls, budget, metrics, cancellationToken).ConfigureAwait(false);
             messages.Add(new ChatMessage(
                 ChatRole.Tool,
                 [.. invocations.Select(i => (AIContent)new FunctionResultContent(i.CallId, i.Result))]));
@@ -159,6 +178,36 @@ public sealed class AgentLoop : IAgentLoop
             Error = error,
         };
 
+        // The run record closes the transcript: the steps say what happened, this says what the
+        // run was and how it ended (workplan task 11).
+        _stepLogger.LogRun(new RunRecord
+        {
+            RunId = request.RunId,
+            TaskId = request.TaskId,
+            Role = role,
+            Goal = request.Goal,
+            SystemPrompt = request.SystemPrompt ?? limits.SystemPrompt,
+            StartedAt = startedAt,
+            CompletedAt = _time.GetUtcNow(),
+            StopReason = stopReason.ToString(),
+            Steps = budget.Steps,
+            FinalText = finalText,
+            InputTokens = budget.InputTokens,
+            OutputTokens = budget.OutputTokens,
+            TotalTokens = budget.TotalTokens,
+            EstimatedCostUsd = budget.EstimatedCostUsd,
+            ElapsedMs = budget.Elapsed.TotalMilliseconds,
+            ToolCallsTotal = budget.ToolCallsTotal,
+            ToolCallsValid = budget.ToolCallsValid,
+            Error = error,
+        });
+
+        // Performance indicators, per run, in a shape that is comparable across runs and
+        // across ablation arms (CLAUDE.md §11, workplan task 20).
+        RunMetrics runMetrics = metrics.Build(result, source: "loop", oraclePassed: null, recordedAt: _time.GetUtcNow());
+        result = result with { Metrics = runMetrics };
+        _metrics.Record(runMetrics);
+
         runActivity?.SetTag("glasscoder.stop_reason", stopReason.ToString());
         runActivity?.SetTag("glasscoder.steps", budget.Steps);
         runActivity?.SetTag("glasscoder.total_tokens", budget.TotalTokens);
@@ -173,6 +222,7 @@ public sealed class AgentLoop : IAgentLoop
     private async Task<List<ToolInvocation>> ExecuteAsync(
         List<FunctionCallContent> calls,
         RunBudget budget,
+        RunMetricsCollector metrics,
         CancellationToken cancellationToken)
     {
         List<ToolInvocation> invocations = new(calls.Count);
@@ -184,6 +234,7 @@ public sealed class AgentLoop : IAgentLoop
 
             ToolInvocation invocation = await _tools.InvokeAsync(call, cancellationToken).ConfigureAwait(false);
             budget.CountToolCall(invocation.IsValid);
+            metrics.Observe(invocation);
             activity?.SetTag("glasscoder.tool_status", invocation.Status.ToString());
             invocations.Add(invocation);
         }
@@ -228,6 +279,8 @@ public sealed class AgentLoop : IAgentLoop
             ModelLatencyMs = modelLatency.TotalMilliseconds,
             StepLatencyMs = (_time.GetUtcNow() - step.StartedAt).TotalMilliseconds,
             FinishReason = response?.FinishReason?.Value,
+            EstimatedContextTokens = step.Context?.EstimatedTokens,
+            ContextCompacted = step.Context?.Compacted ?? false,
             Outcome = outcome,
             Error = error,
         });
@@ -288,5 +341,7 @@ public sealed class AgentLoop : IAgentLoop
         IReadOnlyDictionary<string, object?>? RequestProperties)
     {
         public IReadOnlyList<ChatMessage>? Prompt { get; init; }
+
+        public AssembledContext? Context { get; init; }
     }
 }

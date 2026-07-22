@@ -1,5 +1,8 @@
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Metrics;
+using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Models.DependencyInjection;
 using GlassCoder.Tools.DependencyInjection;
@@ -34,14 +37,28 @@ public static class GlassCoderServiceCollectionExtensions
             .Bind(configuration.GetSection(AgentOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddOptions<ContextOptions>()
+            .Bind(configuration.GetSection(ContextOptions.SectionName));
+
         services.AddOptions<LoggingOptions>()
             .Bind(configuration.GetSection(LoggingOptions.SectionName));
 
         services.AddOptions<TelemetryOptions>()
             .Bind(configuration.GetSection(TelemetryOptions.SectionName));
 
+        services.AddOptions<MetricsOptions>()
+            .Bind(configuration.GetSection(MetricsOptions.SectionName));
+
+        services.AddOptions<VerificationLadderOptions>()
+            .Bind(configuration.GetSection(VerificationLadderOptions.SectionName));
+
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IStepLogger, StepLogger>();
+        services.TryAddSingleton<ITokenEstimator, HeuristicTokenEstimator>();
+        services.TryAddSingleton<IConversationCompactor, DigestCompactor>();
+        services.TryAddSingleton<IContextAssembler, ContextAssembler>();
+        services.TryAddSingleton<IMetricsRecorder, JsonlMetricsRecorder>();
+        services.TryAddSingleton<IVerificationLadder, VerificationLadder>();
         services.TryAddTransient<IAgentLoop, AgentLoop>();
 
         services.AddGlassCoderTelemetry(configuration);

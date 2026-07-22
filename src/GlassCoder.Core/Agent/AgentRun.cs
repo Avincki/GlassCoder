@@ -1,3 +1,4 @@
+using GlassCoder.Core.Metrics;
 using Microsoft.Extensions.AI;
 
 namespace GlassCoder.Core.Agent;
@@ -102,6 +103,13 @@ public sealed record AgentRunResult
 
     /// <summary>Failure detail when <see cref="StopReason"/> is <see cref="AgentStopReason.ModelError"/>.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// What the run measured (CLAUDE.md §11). Carried on the result so a caller that knows the
+    /// oracle verdict - a checkpoint, an ablation arm - can record the same numbers with pass@1
+    /// filled in, rather than recomputing them and getting a subtly different answer.
+    /// </summary>
+    public RunMetrics? Metrics { get; init; }
 
     /// <summary>Whether the run ended by the model deciding it was done.</summary>
     public bool RanToCompletion => StopReason == AgentStopReason.Completed;

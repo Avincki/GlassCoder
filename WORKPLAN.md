@@ -66,61 +66,61 @@ In `GlassCoder.Core`, implement the ~40-line Observe→Think→Act→Result loop
 
 ## 11. Integrate per-step transcript logging into the loop
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Wire the loop to emit the full per-step log record defined in task 5 for every iteration, ensuring a run is fully reconstructable as a transcript from the logs alone. Verify token counts and latencies are captured per call. Acceptance: a completed run's JSONL log can be replayed into a complete transcript. Depends on tasks 5, 10.
 
 ## 12. Build lean context assembly and compaction
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement context assembly in `GlassCoder.Core`: system prompt + lean always-loaded root context + retrieval on demand. Do not dump the full doc tree. Implement compaction/summarization of older turns when the token budget is exceeded. Reserve intent enrichment for the ~10-20% of files that carry intent. Acceptance: context stays within budget under long runs and compacts correctly. Depends on task 10.
 
 ## 13. Phase 0 checkpoint: instrument bare loop and validate on task suite
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Assemble the Phase 0 configuration (one worker model, read/grep/glob, full logging, constrained decoding, no editing) and validate it runs green on a couple of task-suite items where applicable. Confirm tool-call validity rate is being recorded. Acceptance: bare loop is instrumented and stable end-to-end. Depends on tasks 11, 12.
 
 ## 14. Implement Roslyn-based syntax check and in-memory compile
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement rungs 1-2 of the verification ladder for C# targets using `Microsoft.CodeAnalysis`. Prefer in-process Roslyn for sub-second per-document diagnostics using typed `Diagnostic` objects (never regex over compiler text). Support applying an edit to an in-memory `Document` to pull diagnostics and reject bad edits before writing to disk. Acceptance: syntax errors detected per-file; compile errors detected per-project. Depends on tasks 7-8.
 
 ## 15. Implement the diagnostic summarizer
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Implement mandatory diagnostic summarization before any diagnostics reach the model: first error per file, cap the list (~10 entries), deduplicate by error code, always report the true total, and sort by file position. Never hand raw compiler output to the model. Acceptance: unit tests confirm a 200-error cascade summarizes to a capped, deduplicated, position-sorted list with the true total reported. Depends on task 14.
 
 ## 16. Implement edit_file tool with guardrail and pre-write verification
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Implement `edit_file` to replace an exact, unique string, erroring if the target is absent or ambiguous. Every write must pass the path allow-list guardrail (task 8) and optionally the in-memory Roslyn diagnostic check (task 14) before persisting. Errors return as observations. Acceptance: exact-match edits apply, ambiguous/absent targets error cleanly, out-of-set paths are rejected. Depends on tasks 8, 14.
 
 ## 17. Implement build and run_tests tools with sandboxing
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement `build` (parsed `dotnet build` output as the authoritative gate) and `run_tests`, with `build` ordered before `run_tests` in the tool list and loop priority. Run builds and tests inside a sandboxed container via `Docker.DotNet` with the repo mounted and network dropped unless restore requires it — treat build as arbitrary code execution. Feed parsed diagnostics through the summarizer. Acceptance: builds/tests run in an isolated container and return summarized observations. Depends on tasks 15, 16.
 
 ## 18. Implement the verification ladder orchestration
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Wire the fail-fast verification ladder in `GlassCoder.Core`: syntax after every edit → compile before tests → analyzers (warn only, do not gate) → unit tests once compiling → full suite before accepting a change. Each rung runs only if the one below passed. Acceptance: ladder short-circuits at the first failing rung and never runs tests on non-compiling code. Depends on task 17.
 
 ## 19. Phase 1 checkpoint: close the loop with editing and verification
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Assemble the Phase 1 configuration adding `edit`/`build`/`run_tests` with the summarizer active from day one, and validate the full edit-verify loop runs green on a couple of task-suite items. Confirm compile-error-rate-per-edit and edits-to-green metrics are recorded. Acceptance: closed loop is instrumented and stable. Depends on tasks 13, 18.
 
 ## 20. Implement performance-indicator metrics recording
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement recording of all Section 11 metrics per task and per run: pass@1, tool-call validity rate, steps/tokens-to-solve, recovery rate, wall-clock per solved task, compile-error rate per edit, edits-to-green, cascade ratio, cost per solved task. Emit metrics as JSONL for downstream analysis. Acceptance: a run produces a complete metrics JSONL record. Depends on task 11.
 

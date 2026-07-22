@@ -20,6 +20,9 @@ public static class SerilogBootstrap
     /// <summary>Property that marks an event as carrying a full <see cref="StepRecord"/>.</summary>
     public const string StepPropertyName = "Step";
 
+    /// <summary>Property that marks an event as carrying a full <see cref="RunRecord"/>.</summary>
+    public const string RunPropertyName = "Run";
+
     private const string HumanTemplate =
         "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}";
 
@@ -53,7 +56,7 @@ public static class SerilogBootstrap
 
             // Human-readable view: the same events minus the per-step blobs.
             .WriteTo.Logger(human => human
-                .Filter.ByExcluding(e => e.Properties.ContainsKey(StepPropertyName))
+                .Filter.ByExcluding(e => e.Properties.ContainsKey(StepPropertyName) || e.Properties.ContainsKey(RunPropertyName))
                 .WriteTo.File(
                     Path.Combine(directory, options.TextFileName),
                     outputTemplate: HumanTemplate,
@@ -63,7 +66,7 @@ public static class SerilogBootstrap
         if (options.Console)
         {
             configuration = configuration.WriteTo.Logger(console => console
-                .Filter.ByExcluding(e => e.Properties.ContainsKey(StepPropertyName))
+                .Filter.ByExcluding(e => e.Properties.ContainsKey(StepPropertyName) || e.Properties.ContainsKey(RunPropertyName))
                 .WriteTo.Console(outputTemplate: HumanTemplate));
         }
 

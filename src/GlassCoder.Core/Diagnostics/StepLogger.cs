@@ -44,6 +44,26 @@ public sealed class StepLogger : IStepLogger
             record.StepLatencyMs);
     }
 
+    /// <inheritdoc />
+    public void LogRun(RunRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        bool content = _options.LogSourceContent;
+        int max = _options.MaxLoggedTextLength;
+
+        RunRecord sanitised = record with
+        {
+            Goal = SecretRedactor.Sanitise(record.Goal, content, max),
+            SystemPrompt = SecretRedactor.Sanitise(record.SystemPrompt, content, max),
+            FinalText = SecretRedactor.Sanitise(record.FinalText, content, max),
+        };
+
+        // Same routing trick as the step record: the property name is what sends this to the
+        // JSONL transcript and keeps it out of the console.
+        _logger.LogInformation("glasscoder.run {@Run}", sanitised);
+    }
+
     private static string DescribeTools(StepRecord record) =>
         record.ToolCalls.Count == 0
             ? "no tool call"

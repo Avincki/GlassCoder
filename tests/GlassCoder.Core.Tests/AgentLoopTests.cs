@@ -48,7 +48,7 @@ public sealed class AgentLoopTests
         // leg of Observe → Think → Act → Result.
         IReadOnlyList<ChatMessage> secondPrompt = harness.Client.Requests[1].Messages;
         secondPrompt.ShouldContain(m => m.Role == ChatRole.Tool);
-        secondPrompt.Last().Contents.OfType<FunctionResultContent>().ShouldHaveSingleItem();
+        secondPrompt[^1].Contents.OfType<FunctionResultContent>().ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class AgentLoopTests
 
         await harness.RunAsync();
 
-        harness.Client.Requests[0].Options!.Tools!.Select(t => t.Name).ShouldBe(["echo", "fails"]);
+        harness.Client.Requests[0].Options!.Tools!.Select(t => t.Name).ToList().ShouldBe(["echo", "fails"]);
     }
 
     [Fact]
@@ -249,6 +249,8 @@ public sealed class AgentLoopTests
 
         public RecordingStepLogger StepLogger { get; } = new();
 
+        public RecordingMetricsRecorder Metrics { get; } = new();
+
         public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 
         public ModelRoleOptions RoleOptions { get; init; } =
@@ -260,6 +262,8 @@ public sealed class AgentLoopTests
                 new FakeChatClientFactory(Client, RoleOptions),
                 new ToolRegistry([new TestTools()]),
                 StepLogger,
+                TestContextAssembler.Create(),
+                Metrics,
                 Options.Create(_options),
                 TimeProvider);
 
