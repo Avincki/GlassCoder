@@ -1,0 +1,1446 @@
+<title>Building a Local AI Coding Agent — Evaluation & Build Guide</title>
+<style>
+  :root{
+    --bg:#F5F7F8; --surface:#FFFFFF; --surface-2:#EDF1F2;
+    --ink:#14191E; --ink-soft:#3C464E; --muted:#68727B; --line:#DCE3E6;
+    --accent:#0C7A75; --accent-ink:#095F5B; --accent-soft:#E0EFEE;
+    --amber:#9F6612; --amber-soft:#F5EAD5; --amber-line:#E6D0A3;
+    --green:#2C7A4E; --green-soft:#E0EEE6; --green-line:#BCDcc8;
+    --rose:#A9463A; --rose-soft:#F5E3DF; --rose-line:#E6C6BF;
+    --shadow:0 1px 2px rgba(20,25,30,.04),0 8px 24px rgba(20,25,30,.06);
+
+    --font-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --font-mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,"SFMono-Regular",monospace;
+
+    --fs-xs:.72rem; --fs-sm:.82rem; --fs-base:1.0625rem; --fs-lg:1.2rem;
+    --fs-xl:1.55rem; --fs-2xl:2.1rem; --fs-3xl:clamp(2.1rem,5vw,3rem);
+    --sp:1.15rem; --measure:66ch; --radius:12px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0D1114; --surface:#151B20; --surface-2:#1B232A;
+      --ink:#E7ECEF; --ink-soft:#BAC3CA; --muted:#8A96A0; --line:#273038;
+      --accent:#35B7AE; --accent-ink:#5CCcC4; --accent-soft:#123330;
+      --amber:#D6A24A; --amber-soft:#2A2415; --amber-line:#40361D;
+      --green:#63B382; --green-soft:#16271D; --green-line:#26402F;
+      --rose:#D3796C; --rose-soft:#2A1915; --rose-line:#3E2620;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#F5F7F8; --surface:#FFFFFF; --surface-2:#EDF1F2;
+    --ink:#14191E; --ink-soft:#3C464E; --muted:#68727B; --line:#DCE3E6;
+    --accent:#0C7A75; --accent-ink:#095F5B; --accent-soft:#E0EFEE;
+    --amber:#9F6612; --amber-soft:#F5EAD5; --amber-line:#E6D0A3;
+    --green:#2C7A4E; --green-soft:#E0EEE6; --green-line:#BCDCC8;
+    --rose:#A9463A; --rose-soft:#F5E3DF; --rose-line:#E6C6BF;
+    --shadow:0 1px 2px rgba(20,25,30,.04),0 8px 24px rgba(20,25,30,.06);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D1114; --surface:#151B20; --surface-2:#1B232A;
+    --ink:#E7ECEF; --ink-soft:#BAC3CA; --muted:#8A96A0; --line:#273038;
+    --accent:#35B7AE; --accent-ink:#5CCCC4; --accent-soft:#123330;
+    --amber:#D6A24A; --amber-soft:#2A2415; --amber-line:#40361D;
+    --green:#63B382; --green-soft:#16271D; --green-line:#26402F;
+    --rose:#D3796C; --rose-soft:#2A1915; --rose-line:#3E2620;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-sans); font-size:var(--fs-base); line-height:1.62;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+
+  /* top signal / progress bar */
+  .progress{position:fixed; top:0; left:0; height:3px; width:0;
+    background:linear-gradient(90deg,var(--accent),var(--accent-ink)); z-index:50;}
+  .topbar{position:sticky; top:0; z-index:40; backdrop-filter:blur(8px);
+    background:color-mix(in srgb,var(--bg) 82%, transparent);
+    border-bottom:1px solid var(--line);}
+  .topbar .inner{max-width:1180px; margin:0 auto; padding:.6rem clamp(1rem,4vw,2rem);
+    display:flex; align-items:baseline; gap:.6rem; font-family:var(--font-mono); font-size:var(--fs-xs);
+    letter-spacing:.08em; text-transform:uppercase; color:var(--muted);}
+  .topbar b{color:var(--ink); font-weight:600;}
+  .topbar .dot{width:7px; height:7px; border-radius:50%; background:var(--accent); align-self:center;}
+
+  .shell{max-width:1180px; margin:0 auto; padding:0 clamp(1rem,4vw,2rem);
+    display:grid; grid-template-columns:1fr; gap:2.4rem;}
+  @media (min-width:1040px){
+    .shell{grid-template-columns:236px minmax(0,1fr); gap:3rem; align-items:start;}
+    .toc{position:sticky; top:70px;}
+  }
+
+  /* Table of contents */
+  .toc{padding:1.4rem 0;}
+  .toc .kick{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 .8rem;}
+  .toc ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.15rem;}
+  .toc a{display:flex; gap:.6rem; align-items:baseline; text-decoration:none; color:var(--ink-soft);
+    font-size:var(--fs-sm); padding:.34rem .55rem; border-left:2px solid transparent; border-radius:0 6px 6px 0;
+    transition:background .15s,color .15s,border-color .15s;}
+  .toc a .n{font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--muted);}
+  .toc a:hover{background:var(--surface-2); color:var(--ink);}
+  .toc a.active{color:var(--accent-ink); border-left-color:var(--accent); background:var(--accent-soft);}
+  .toc a.active .n{color:var(--accent-ink);}
+  @media (max-width:1039px){
+    .toc{border:1px solid var(--line); border-radius:var(--radius); padding:1.1rem 1.2rem; background:var(--surface);}
+  }
+
+  main{min-width:0; padding-bottom:5rem;}
+  section{padding-top:1.4rem; scroll-margin-top:80px;}
+  p,li{max-width:var(--measure);}
+  p{margin:0 0 var(--sp);}
+  a{color:var(--accent-ink);}
+
+  /* Hero */
+  .hero{padding:2.6rem 0 1.4rem; border-bottom:1px solid var(--line); margin-bottom:.6rem;}
+  .eyebrow{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.2em;
+    text-transform:uppercase; color:var(--accent-ink); margin:0 0 1rem;
+    display:inline-flex; align-items:center; gap:.6rem;}
+  .eyebrow::before{content:""; width:26px; height:2px; background:var(--accent); display:inline-block;}
+  h1{font-size:var(--fs-3xl); line-height:1.05; letter-spacing:-.02em; font-weight:800;
+    margin:0 0 .8rem; text-wrap:balance; max-width:20ch;}
+  .lede{font-size:var(--fs-lg); color:var(--ink-soft); max-width:60ch; margin:0 0 1.4rem; line-height:1.5;}
+  .meta{display:flex; flex-wrap:wrap; gap:.5rem 1.2rem; font-family:var(--font-mono);
+    font-size:var(--fs-xs); letter-spacing:.05em; text-transform:uppercase; color:var(--muted);}
+
+  /* Formula banner */
+  .formula{margin:1.8rem 0; padding:1.5rem 1.6rem; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:.8rem;}
+  .formula .expr{font-family:var(--font-mono); font-size:clamp(1.1rem,3.4vw,1.5rem); letter-spacing:-.01em;
+    color:var(--ink); display:flex; flex-wrap:wrap; align-items:center; gap:.55rem;}
+  .formula .term{color:var(--accent-ink); background:var(--accent-soft); padding:.08em .5em; border-radius:7px; font-weight:600;}
+  .formula .op{color:var(--muted);}
+  .formula small{color:var(--muted); font-size:var(--fs-sm); max-width:64ch;}
+
+  /* Section headers */
+  .part-kick{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--accent-ink); margin:0 0 .5rem;}
+  h2{font-size:var(--fs-2xl); line-height:1.12; letter-spacing:-.015em; font-weight:800;
+    margin:.2rem 0 .9rem; text-wrap:balance; max-width:24ch;}
+  h3{font-size:var(--fs-xl); line-height:1.2; letter-spacing:-.01em; font-weight:700; margin:2rem 0 .7rem; max-width:30ch;}
+  h4{font-size:var(--fs-lg); font-weight:700; margin:1.5rem 0 .5rem; letter-spacing:-.005em;}
+  .rule{height:1px; background:linear-gradient(90deg,var(--accent) 0 40px,var(--line) 40px);
+    border:0; margin:2.6rem 0 0;}
+
+  strong{font-weight:700; color:var(--ink);}
+  code{font-family:var(--font-mono); font-size:.86em; background:var(--surface-2);
+    padding:.1em .38em; border-radius:5px; color:var(--ink); border:1px solid var(--line);}
+  pre.code{font-family:var(--font-mono); font-size:var(--fs-sm); line-height:1.6;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+    padding:1rem 1.15rem; overflow-x:auto; margin:1.2rem 0; color:var(--ink); max-width:none;
+    tab-size:2; white-space:pre;}
+  pre.code b{color:var(--accent-ink); font-weight:600;}
+  pre.code .c{color:var(--muted); font-style:italic;}
+  .subhead{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.1em;
+    text-transform:uppercase; color:var(--accent-ink); margin:1.8rem 0 -.2rem;}
+
+  ul.tick{list-style:none; padding:0; margin:0 0 var(--sp); display:flex; flex-direction:column; gap:.5rem;}
+  ul.tick li{position:relative; padding-left:1.5rem;}
+  ul.tick li::before{content:""; position:absolute; left:0; top:.62em; width:8px; height:8px;
+    border-radius:2px; background:var(--accent);}
+
+  /* Callouts */
+  .call{border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:0 var(--radius) var(--radius) 0;
+    background:var(--surface); padding:1rem 1.2rem; margin:1.4rem 0; box-shadow:var(--shadow); max-width:none;}
+  .call .lab{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.12em; text-transform:uppercase;
+    display:flex; align-items:center; gap:.5rem; margin:0 0 .4rem; color:var(--accent-ink); font-weight:600;}
+  .call p{margin:0; max-width:64ch;}
+  .call p+p{margin-top:.6rem;}
+  .call.trap{border-left-color:var(--amber); background:var(--amber-soft);}
+  .call.trap .lab{color:var(--amber);}
+  .call.insight{border-left-color:var(--accent); background:var(--accent-soft);}
+
+  /* Tables */
+  .tw{overflow-x:auto; margin:1.4rem 0; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); box-shadow:var(--shadow);}
+  table{border-collapse:collapse; width:100%; font-size:var(--fs-sm); min-width:520px;}
+  caption{caption-side:top; text-align:left; font-family:var(--font-mono); font-size:var(--fs-xs);
+    letter-spacing:.1em; text-transform:uppercase; color:var(--muted); padding:.9rem 1rem .2rem;}
+  th,td{text-align:left; padding:.72rem .95rem; vertical-align:top; border-bottom:1px solid var(--line); max-width:44ch;}
+  thead th{font-size:var(--fs-xs); letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+    background:var(--surface-2); position:sticky; top:0;}
+  tbody tr:last-child td{border-bottom:0;}
+  td.num{font-variant-numeric:tabular-nums; font-family:var(--font-mono);}
+
+  .pill{display:inline-block; font-family:var(--font-mono); font-size:var(--fs-xs); font-weight:600;
+    letter-spacing:.04em; padding:.16em .55em; border-radius:999px; white-space:nowrap;}
+  .pill.keep{color:var(--green); background:var(--green-soft); border:1px solid var(--green-line);}
+  .pill.trim{color:var(--rose); background:var(--rose-soft); border:1px solid var(--rose-line);}
+  .pill.watch{color:var(--amber); background:var(--amber-soft); border:1px solid var(--amber-line);}
+
+  /* two-column compare */
+  .cmp{display:grid; grid-template-columns:1fr; gap:1rem; margin:1.4rem 0;}
+  @media (min-width:640px){.cmp{grid-template-columns:1fr 1fr;}}
+  .cmp .col{border:1px solid var(--line); border-radius:var(--radius); padding:1.1rem 1.2rem; background:var(--surface);}
+  .cmp .col.good{border-top:3px solid var(--green);}
+  .cmp .col.bad{border-top:3px solid var(--rose);}
+  .cmp h4{margin:0 0 .5rem; font-size:1rem;}
+  .cmp ul{margin:0; padding-left:1.1rem;}
+  .cmp li{margin:.3rem 0;}
+
+  /* Agent loop diagram */
+  .loop{margin:1.6rem 0; padding:1.4rem; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--surface); box-shadow:var(--shadow);}
+  .loop .flow{display:flex; flex-wrap:wrap; align-items:stretch; gap:.5rem;}
+  .loop .stage{flex:1 1 120px; min-width:120px; border:1px solid var(--line); border-radius:9px;
+    background:var(--surface-2); padding:.7rem .8rem;}
+  .loop .stage .st-n{font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--accent-ink);}
+  .loop .stage .st-t{font-weight:700; font-size:.95rem; margin-top:.15rem;}
+  .loop .stage .st-d{font-size:var(--fs-xs); color:var(--muted); margin-top:.2rem; line-height:1.4;}
+  .loop .arrow{align-self:center; color:var(--accent); font-family:var(--font-mono); font-weight:700;}
+  .loop .ret{margin-top:.7rem; padding:.5rem .8rem; border:1px dashed var(--accent);
+    border-radius:8px; color:var(--accent-ink); font-family:var(--font-mono); font-size:var(--fs-sm);
+    display:flex; align-items:center; gap:.5rem;}
+
+  /* phase cards */
+  .phase{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface);
+    box-shadow:var(--shadow); padding:1.2rem 1.35rem; margin:1rem 0; display:grid; gap:.5rem; max-width:none;}
+  .phase .ph-head{display:flex; align-items:baseline; gap:.7rem; flex-wrap:wrap;}
+  .phase .ph-n{font-family:var(--font-mono); font-weight:700; color:var(--accent-ink); font-size:1rem;}
+  .phase .ph-t{font-weight:700; font-size:1.05rem;}
+  .phase .ph-tag{margin-left:auto; font-family:var(--font-mono); font-size:var(--fs-xs); color:var(--muted);
+    letter-spacing:.05em; text-transform:uppercase;}
+  .phase dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:.25rem .9rem; font-size:var(--fs-sm);}
+  .phase dt{font-family:var(--font-mono); font-size:var(--fs-xs); letter-spacing:.05em; text-transform:uppercase;
+    color:var(--muted); padding-top:.15rem;}
+  .phase dd{margin:0; max-width:none;}
+  .phase dd.metric{color:var(--accent-ink);}
+
+  /* hardware spec strip */
+  .specs{display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:.7rem; margin:1.5rem 0; max-width:none;}
+  .spec{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface);
+    padding:.85rem 1rem; box-shadow:var(--shadow);}
+  .spec .v{font-family:var(--font-mono); font-size:1.22rem; font-weight:700; color:var(--accent-ink); letter-spacing:-.02em;}
+  .spec .k{font-size:var(--fs-xs); font-family:var(--font-mono); letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin-top:.1rem;}
+  .spec .d{font-size:var(--fs-sm); color:var(--ink-soft); margin-top:.4rem; line-height:1.42; max-width:none;}
+
+  /* layered stack diagram */
+  .stack{margin:1.6rem 0; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--surface); box-shadow:var(--shadow); overflow:hidden; max-width:none;}
+  .stack .lyr{padding:.68rem 1.1rem; border-bottom:1px solid var(--line);
+    display:flex; gap:.6rem .9rem; align-items:baseline; flex-wrap:wrap;}
+  .stack .lyr:last-child{border-bottom:0;}
+  .stack .lyr .nm{font-weight:700; min-width:10ch;}
+  .stack .lyr .ds{font-size:var(--fs-sm); color:var(--muted); flex:1 1 16ch;}
+  .stack .lyr .tag{margin-left:auto; font-family:var(--font-mono); font-size:var(--fs-xs);
+    text-transform:uppercase; letter-spacing:.06em; color:var(--muted); white-space:nowrap;}
+  .stack .seam{background:var(--accent-soft); border-top:2px solid var(--accent); border-bottom:2px solid var(--accent);}
+  .stack .seam .nm,.stack .seam .tag,.stack .seam .ds{color:var(--accent-ink);}
+
+  .foot{margin-top:3rem; padding-top:1.6rem; border-top:1px solid var(--line); color:var(--muted); font-size:var(--fs-sm);}
+  .foot p{max-width:70ch;}
+
+  a:focus-visible,.toc a:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;}
+
+  .reveal{opacity:0; transform:translateY(12px); transition:opacity .5s ease, transform .5s ease;}
+  .reveal.in{opacity:1; transform:none;}
+  @media (prefers-reduced-motion:reduce){.reveal{opacity:1; transform:none; transition:none;}}
+</style>
+
+<div class="progress" id="progress"></div>
+<div class="topbar"><div class="inner"><span class="dot"></span><b>Local AI Coding Agent</b><span>Evaluation &amp; Build Guide</span></div></div>
+
+<div class="shell">
+  <nav class="toc" aria-label="Contents">
+    <p class="kick">On this page</p>
+    <ol>
+      <li><a href="#read"><span class="n">00</span><span>How to read this</span></a></li>
+      <li><a href="#ccg"><span class="n">01</span><span>Evaluating CCG</span></a></li>
+      <li><a href="#drift"><span class="n">02</span><span>Drift &amp; the TeamCity loop</span></a></li>
+      <li><a href="#iron"><span class="n">03</span><span>The machines you have</span></a></li>
+      <li><a href="#local"><span class="n">04</span><span>Recalibrating the case</span></a></li>
+      <li><a href="#cost"><span class="n">05</span><span>Local vs API economics</span></a></li>
+      <li><a href="#install"><span class="n">06</span><span>Installing the local LLM</span></a></li>
+      <li><a href="#arch"><span class="n">07</span><span>Harness architecture</span></a></li>
+      <li><a href="#csharp"><span class="n">08</span><span>Building it in C#</span></a></li>
+      <li><a href="#compile"><span class="n">09</span><span>Compile feedback</span></a></li>
+      <li><a href="#measure"><span class="n">10</span><span>The measurement lab</span></a></li>
+      <li><a href="#build"><span class="n">11</span><span>Build roadmap</span></a></li>
+      <li><a href="#creed"><span class="n">12</span><span>Principles &amp; pitfalls</span></a></li>
+      <li><a href="#kit"><span class="n">13</span><span>Starter kit</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <p class="eyebrow">Field guide</p>
+      <h1>Building a Local AI Coding Agent</h1>
+      <p class="lede">An evaluation of ClaudeContextGenerator, the case for pairing it with a local LLM, and a development roadmap for a learning environment that teaches you how an application like Claude actually works — by measuring it.</p>
+      <div class="meta">
+        <span>Rev. 2026-07-22</span><span>Hardware: DGX Spark · 8 × RTX PRO 6000 · DGX Station (option)</span><span>Stack: C# / .NET</span><span>Goal: understand, then build</span>
+      </div>
+
+      <div class="formula">
+        <div class="expr">
+          <span>capability</span><span class="op">≈</span>
+          <span class="term">model</span><span class="op">×</span>
+          <span class="term">harness</span><span class="op">×</span>
+          <span class="term">context</span>
+        </div>
+        <small>The throughline of this whole document. The first revision assumed a local build would be badly weaker on <em>model</em> — <a href="#iron">Part 03</a> retires that assumption: 768 GB of VRAM runs frontier-class open weights. What stays scarce is interconnect, wall-clock, and long-horizon reliability, so the interesting engineering is still <em>harness</em> and <em>context</em>. It's a product, not a sum: a zero on any term zeroes the result.</small>
+      </div>
+    </header>
+
+    <section id="read" class="reveal">
+      <p class="part-kick">Part 00</p>
+      <h2>How to read this</h2>
+      <p>This is two documents fused into one. Parts 01–04 are an <strong>evaluation</strong> — of ClaudeContextGenerator (CCG) on its own terms, of the pipeline that keeps its output fresh, of the hardware you're building on, and of what that hardware does to the original “weak local model” thesis. Parts 05–11 are a <strong>build guide</strong> — installing the model server, a reference architecture, the C# stack, a measurement lab, a phased roadmap, and a startable kit. Read it top to bottom the first time; return to Parts 05–08 as working references.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ What changed in this revision</p>
+        <p>Several inputs reshaped the document. <strong>The hardware is now known</strong> — and it's far stronger than “a local box,” which retires most of the weak-model pessimism (<a href="#iron">Part 03</a>, <a href="#local">Part 04</a>). <strong>Drift is already automated</strong> via TeamCity, which closes the largest open risk in Part 01 and moves the highest-ROI investment elsewhere (<a href="#drift">Part 02</a>). <strong>The stack is C#</strong>, which turns out to cost you almost nothing (<a href="#csharp">Part 08</a>). And there are now concrete chapters on <strong>the economics</strong> against the Claude API (<a href="#cost">Part 05</a>), <strong>installing the model server</strong> (<a href="#install">Part 06</a>), and <strong>compile feedback</strong> — the fastest oracle in the loop, and the one most likely to be built badly (<a href="#compile">Part 09</a>).</p>
+      </div>
+
+      <h4>One correction to the mental model first</h4>
+      <p>The instinct to picture Claude as “an LLM plus a large collection of agents” slightly overweights the swarm. Claude Code is mostly <strong>one strong model in a tight agentic loop</strong> with a good tool set and disciplined context management. Sub-agents and parallel fan-out are a <em>layer you add</em>, not the core. So if the aim is to understand how it works, the foundational thing to build and instrument is the single-agent loop — get that deeply observable before you orchestrate many of them.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight</p>
+        <p>Capability is a <strong>product of three factors</strong>. A brilliant model with no tools can't edit a file; a great harness driving a model that can't emit a valid tool call stalls on the first step; perfect context handed to a model that can't reason is wasted. Your local experiments are really about measuring the shape of that product surface.</p>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="ccg" class="reveal">
+      <p class="part-kick">Part 01</p>
+      <h2>Evaluating ClaudeContextGenerator</h2>
+      <p>Judge each artifact CCG produces by one question: does it tell the agent something it <strong>couldn't cheaply get on its own</strong>, reliably, and fresh? Modern coding agents can <code>Read</code>, <code>Grep</code>, and <code>Glob</code> the source themselves, so the value of any generated file is roughly:</p>
+      <div class="formula">
+        <div class="expr" style="font-size:clamp(.95rem,2.8vw,1.15rem)">
+          <span class="term">value</span><span class="op">≈</span>
+          <span>(what it adds beyond trivial discovery)</span><span class="op">×</span>
+          <span>reliability of consumption</span><span class="op">×</span>
+          <span>freshness</span>
+        </div>
+        <small>Minus the cost to build, maintain, and the risk of going stale. Almost every verdict below falls out of this.</small>
+      </div>
+
+      <h3>Really added value</h3>
+      <div class="tw">
+        <table>
+          <caption>High-leverage for preparing a repo to be executed well</caption>
+          <thead><tr><th>Artifact</th><th>Why it lifts execution</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Root <code>CLAUDE.md</code></strong> (esp. example-aware / P4)</td><td>Auto-read on session start. Front-loads structure, build facts, conventions, doc map, path rules — exactly what's expensive to rediscover each time. Reading real example projects captures conventions a template can't.</td><td><span class="pill keep">Double down</span></td></tr>
+            <tr><td><strong><code>WORKPLAN.md</code></strong> with checkbox progress</td><td>Turns a vague goal into an ordered, resumable plan the agent reads and ticks off across sessions. The most direct embodiment of “execute better.”</td><td><span class="pill keep">Keep</span></td></tr>
+            <tr><td><strong>History-file convention</strong> (dated session logs)</td><td>Cheap, compounding cross-session memory — decisions made, what's open, next steps. The difference between re-learning the repo and resuming.</td><td><span class="pill keep">Keep</span></td></tr>
+            <tr><td><strong>Intent enrichment</strong> (Path 2)</td><td>The one docs feature that adds what the agent can't cheaply get: cross-file intent, gotchas, side-effects, test-mined examples. Worth caching — <em>on the files that carry intent.</em></td><td><span class="pill keep">Keep, targeted</span></td></tr>
+            <tr><td><strong>PathGuard</strong> immutability</td><td>Not a feature, an enabler. A tool that writes into many repos is unusable without a hard guarantee it never mutates source.</td><td><span class="pill keep">Foundational</span></td></tr>
+            <tr><td><strong>Context Test</strong></td><td>Feeds the agent a task using only the generated docs and checks the result — a rare, direct feedback loop on whether the prepared context actually works.</td><td><span class="pill keep">Underrated</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Less relevant / over-invested for this aim</h3>
+      <div class="tw">
+        <table>
+          <caption>Effort exceeds payoff when the goal is “prepare the repo for an agent”</caption>
+          <thead><tr><th>Feature</th><th>Why it's lower-relevance</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Signature-level <code>docs/llms</code></strong></td><td>A parallel tree of signatures + doc-comments largely re-solves what the agent already does by reading source, and adds an indirection hop. Low marginal value unless intent-enriched.</td><td><span class="pill trim">Trim</span></td></tr>
+            <tr><td><strong>Multi-model reviewer scoring</strong> (Module C)</td><td>Heavy machinery — six-criterion composite scores, o3-pro polling, parse-error banners — to polish a document authored once and human-edited. The tell: the score threshold is explicitly advisory and never blocks Accept.</td><td><span class="pill trim">Simplify</span></td></tr>
+            <tr><td><strong>Multiple reviewer providers</strong> (OpenAI + Grok tiers)</td><td>Breadth that doesn't advance the goal. A second-opinion critique needs one reliable path, not tiered subscription handling.</td><td><span class="pill trim">Trim</span></td></tr>
+            <tr><td><strong>Tutorial Generator</strong></td><td>Aimed at human onboarding, not the agent's execution context. Tangential.</td><td><span class="pill trim">Out of scope</span></td></tr>
+            <tr><td><strong>Whole-repo Path 2 coverage</strong></td><td>Intent value is concentrated in ~10–20% of files; running whole-file re-documentation everywhere spends the most tokens on the files that need it least and maximizes stale surface.</td><td><span class="pill watch">Target it</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — staleness (now largely closed)</p>
+        <p>The biggest structural risk in CCG isn't a missing feature — it's <strong>drift</strong>. Generated context that no longer matches the source doesn't just lose value; it <em>actively misleads</em> the agent, which is worse than no context. The content-hash cache controls regeneration cost, not drift.</p>
+        <p>This revision downgrades the risk: <strong>TeamCity already triggers CCG on source change</strong>, so mechanical freshness is handled. That's a significant win — but it relocates the problem rather than eliminating it. <a href="#drift">Part 02</a> covers what the pipeline solves, what it doesn't, and the three failure modes automation introduces.</p>
+      </div>
+
+      <p><strong>Net for CCG:</strong> compressed to what genuinely makes a project execute better, it's a sharp example-aware <code>CLAUDE.md</code> + a checkbox workplan + the history convention + <em>selective</em> intent enrichment, all regenerated by the pipeline. With freshness automated, the highest-ROI remaining investment is no longer a freshness mechanism — it's <strong>making the Context Test a build gate</strong>, so the pipeline proves the context still works instead of only proving it's current.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="drift" class="reveal">
+      <p class="part-kick">Part 02</p>
+      <h2>Drift, solved by pipeline — and what that changes</h2>
+      <p>With TeamCity watching VCS changes and invoking CCG automatically, generated context stops being <em>a document somebody has to remember to refresh</em> and becomes something much better defined:</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — context is a build artifact</p>
+        <p>Once regeneration is triggered by the same event that triggers a compile, <code>CLAUDE.md</code> and <code>docs/llms/**</code> are <strong>derived outputs</strong>, not documents. Every consequence follows from that reframe: they're reproducible from <em>source + pinned generator version</em>, merge conflicts in them are resolved by regenerating rather than by hand, they don't belong in code review as prose, and their correctness is established by <em>testing</em>, not by reading. It also means a broken context build is a broken build — treat it with the same urgency.</p>
+      </div>
+
+      <h3>What automation buys, and what it quietly introduces</h3>
+      <p>Continuous regeneration solves the hard part. It also creates four failure modes that don't exist when a human presses the button — each cheap to prevent up front and annoying to discover later.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Design the build configuration around these</caption>
+          <thead><tr><th>Concern</th><th>Why it bites</th><th>What the build config should do</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Trigger loop</strong></td><td>CCG's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros.</td><td>Add a trigger rule excluding the generated paths and the bot identity — e.g. <code>-:user=ccg-bot:**</code> plus <code>-:**/CLAUDE.md</code>, <code>-:docs/llms/**</code>. Verify by watching the build queue after a bot commit, not by reasoning about it.</td></tr>
+            <tr><td><strong>Cost per commit</strong></td><td>Whole-repo Path 2 intent enrichment on every push spends the most tokens on the files that change least. This is Part 01's “target it” verdict, now with a meter running.</td><td>Let the content-hash cache do its job: enrich only files whose hash changed <em>and</em> that are on the intent-carrying list. Log tokens per build so the cost is visible.</td></tr>
+            <tr><td><strong>Diff churn</strong></td><td>LLM-generated prose differs run to run even when the source didn't change, producing noisy diffs that train everyone to ignore the file.</td><td>Pin the generator model and use temperature 0 for enrichment; never rewrite a file whose source hash is unchanged. Deterministic-in, deterministic-out.</td></tr>
+            <tr><td><strong>Silent pipeline failure</strong></td><td>If the context build goes red and nobody notices, the repo looks fresh and is quietly frozen — the exact failure the automation was meant to prevent, now invisible.</td><td>Alert on failure, and stamp provenance <em>into</em> the generated file (source SHA + UTC timestamp + generator version) so staleness is legible from the artifact itself.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — fresh is not the same as correct</p>
+        <p>The pipeline guarantees the context was <em>regenerated from current source</em>. It guarantees nothing about whether the result actually helps an agent execute. A confidently wrong intent summary regenerated on every commit is <strong>perfectly fresh and still harmful</strong> — and a weaker local model is precisely the one least likely to notice the contradiction.</p>
+        <p>This is why the <strong>Context Test belongs in the pipeline</strong>. It was flagged as “underrated” in Part 01 for a reason: it's the only artifact CCG produces that closes the loop empirically. As a build step it becomes a regression gate — run a fixed task suite against the regenerated context and fail (or warn) when pass rate drops. That converts your context from <em>maintained</em> to <em>verified</em>, and it's the single highest-value thing left to add.</p>
+      </div>
+
+      <h3>The integration surface</h3>
+      <p>One practical note, since CCG is a WPF application: a build agent can't drive a desktop UI. The pipeline needs a <strong>non-interactive entry point</strong> — a console host that runs the same services, takes a config path and a repo root, writes nothing outside the managed output allow-list, and returns a meaningful exit code.</p>
+      <p>The architecture already supports this cleanly: <code>ClaudeContextGenerator3.Core</code> is specified as a class library with <em>zero UI dependency</em>, so a console host is a thin shell over the services that already exist rather than a parallel implementation. The same discipline that made Core testable makes it automatable — which is the usual reward for keeping a UI-free core.</p>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Build config</span><span class="ph-t">Shape of the TeamCity job</span><span class="ph-tag">Reference</span></div>
+        <dl>
+          <dt>Trigger</dt><dd>VCS change on the default branch, with exclusion rules for generated paths and the bot author.</dd>
+          <dt>Steps</dt><dd><code>ccg.exe generate --repo . --config ccg.ccgproj</code> → <code>ccg.exe context-test --suite tests/context/</code> → commit + push if the working tree changed.</dd>
+          <dt>Artifacts</dt><dd>Token spend, files regenerated, Context Test pass rate — published per build so the trend is visible.</dd>
+          <dt class="metric">Gate</dt><dd class="metric">Context Test pass rate must not regress. Warn first, enforce once the suite is stable.</dd>
+        </dl>
+      </div>
+
+      <p><strong>Net:</strong> automating regeneration is the right call and closes the risk Part 01 named. It moves CCG's remaining weak point from <em>currency</em> to <em>usefulness</em> — and usefulness is measurable, which is convenient, because measuring things is what the rest of this document is about.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="iron" class="reveal">
+      <p class="part-kick">Part 03</p>
+      <h2>The machines you have — and what each retires</h2>
+      <p>The first revision of this guide hedged on hardware and reasoned about a single “weaker local model.” This revision has to hold <strong>three machines</strong> in view: the <strong>DGX Spark</strong> already on your desk, the <strong>8 × RTX PRO 6000 build</strong> this guide is specified against, and a possible <strong>DGX Station GB300</strong>. They are not three sizes of the same thing — each maximizes a different term of the capability formula, and each retires a different assumption. The comparison at the end of this part is the honest answer to “which machine for which job.”</p>
+
+      <h3>The anchor: the eight-GPU build</h3>
+      <p>Everything downstream — the economics in <a href="#cost">Part 05</a>, the topology advice in <a href="#install">Part 06</a>, the ablation grid in <a href="#measure">Part 10</a> — is calibrated against this box, so it stays the anchor. And the headline stands: <strong>this is not a weak-model machine.</strong> 768 GB of GPU memory puts frontier-class open weights fully resident in VRAM — the same tier of model that scores near the top of public agentic-coding leaderboards.</p>
+
+      <div class="specs">
+        <div class="spec"><div class="v">768 GB</div><div class="k">GPU memory</div><div class="d">8 × RTX PRO 6000 Blackwell, 96 GB GDDR7 ECC each, ~1.79 TB/s per card.</div></div>
+        <div class="spec"><div class="v">1.5 TB</div><div class="k">Host RAM</div><div class="d">DDR5 ECC — expert offload, page-cached weights, many containers.</div></div>
+        <div class="spec"><div class="v">256</div><div class="k">CPU threads</div><div class="d">2 × EPYC 9535. Your verification engine, not a bottleneck.</div></div>
+        <div class="spec"><div class="v">15.36 TB</div><div class="k">Data NVMe</div><div class="d">Gen5. Roughly 15–20 frontier checkpoints resident at once.</div></div>
+      </div>
+
+      <h3>What actually fits</h3>
+      <p>Rule of thumb for weights: <strong>bytes ≈ params × bytes-per-param</strong> (FP8 ≈ 1, FP4/NVFP4 and INT4 ≈ 0.5–0.6), then add 15–30% for KV cache, activations and CUDA graphs. Figures below are planning-grade — the open-weights field churns monthly, so re-check before committing to a family.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Open-weight coding models against 768 GB — as of July 2026</caption>
+          <thead><tr><th>Model</th><th>Params</th><th>≈ FP8 weights</th><th>GPUs needed</th><th>Role on this box</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Qwen3-Coder-Next</strong> 80B-A3B</td><td class="num">80B / 3B active</td><td class="num">~80 GB</td><td class="num">1 (4-bit) – 2</td><td>The workhorse. Fast enough to run many replicas — sub-agents, greps, summarizers.</td></tr>
+            <tr><td><strong>DeepSeek V4 Flash</strong></td><td class="num">284B / 13B active</td><td class="num">~284 GB</td><td class="num">3–4</td><td>Strong mid-tier with a 1M context window.</td></tr>
+            <tr><td><strong>GLM-4.6</strong></td><td class="num">357B</td><td class="num">~357 GB</td><td class="num">4–5 (2–3 at 4-bit)</td><td>MIT-licensed, widely reported at Claude-Sonnet-class coding.</td></tr>
+            <tr><td><strong>Qwen3-Coder-480B</strong> A35B</td><td class="num">480B / 35B active</td><td class="num">~480 GB</td><td class="num">6 (3 at 4-bit)</td><td>Apache-2.0, ~69.6% SWE-bench Verified. The primary drafter candidate.</td></tr>
+            <tr><td><strong>Kimi K2</strong> 1T-A32B</td><td class="num">1T / 32B active</td><td class="num">~1 TB — won't fit</td><td class="num">6–7 at 4-bit</td><td>Agentic-coding specialist; 4-bit only, and it eats the box.</td></tr>
+            <tr><td><strong>DeepSeek V4 Pro</strong></td><td class="num">1.6T / 49B active</td><td class="num">~800 GB at FP4</td><td class="num">All 8, tight</td><td>Ceiling experiment. Little room left for KV cache.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Read that table twice, because it inverts the premise of the original document. Your <em>model</em> term is not the weak link — you can host something in the same conversation as a frontier API model. The constraint moved somewhere less obvious.</p>
+
+      <h3>The real constraint: interconnect</h3>
+      <p>The RTX PRO 6000 Blackwell has <strong>no NVLink</strong>. Cards talk over PCIe Gen5 ×16 — roughly 128 GB/s bidirectional, against ~900 GB/s for NVLink on an H100 SXM node. For anything that shards a single model's tensors across all eight GPUs, that gap is the whole story: published benchmarks put 8-way tensor parallel on these cards at around <strong>a third</strong> of an 8×H100 SXM node's throughput on models that require TP8.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — prefer replicas over tensor parallelism</p>
+        <p>The instinctive move is one giant model sharded across all eight cards. On a PCIe box that's the <em>worst</em> use of the hardware: it maximizes the traffic crossing your slowest link. The better topology is <strong>several independent replicas, each sharded across as few GPUs as it fits on</strong> — four copies of a 2-GPU model rather than one 8-GPU instance. Communication stays inside small groups, and aggregate throughput climbs.</p>
+        <p>For an agent lab this isn't a compromise, it's the goal. Parallel sub-agents, concurrent ablation arms, a drafter and a critic and a judge panel all resident simultaneously — the topology that suits the hardware is exactly the topology the experiments want.</p>
+      </div>
+
+      <p>Which reverses a staging decision from the first revision. Multi-agent work was deferred to “a bigger machine later.” You have the bigger machine. Orchestration is still the <em>last</em> thing you build — because a loop you can't yet measure isn't worth multiplying — but it's no longer gated on hardware, and the full ablation grid in <a href="#measure">Part 10</a> can run its arms concurrently instead of in sequence.</p>
+
+      <h3>Budgeting the memory you can't see</h3>
+      <p>Weights are the easy half. The half that surprises people is the KV cache, which scales with <em>context length × concurrent streams</em> — and agent loops are unusually bad on both axes, since every step appends to a conversation that never resets.</p>
+
+      <pre class="code"><span class="c"># KV cache is the hidden budget line. Per stream:</span>
+KV bytes/token ≈ 2 × layers × kv_heads × head_dim × bytes_per_elem
+
+<span class="c"># A 64-layer GQA model, 8 KV heads, head_dim 128, FP8 KV cache:</span>
+  2 × 64 × 8 × 128 × 1  =  131 KB / token
+  131 KB × 100,000 tok  ≈   13 GB  <b>per agent</b>
+
+<span class="c"># 16 concurrent agents at 100k context ≈ 210 GB — two whole GPUs,</span>
+<span class="c"># before a single byte of model weights.</span></pre>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — the VRAM you can fill is not the VRAM you should fill</p>
+        <p>Loading a model that consumes 90% of your GPUs leaves nothing for the caches that determine how many agents you can actually run. Keep <strong>20–30% headroom</strong>, set <code>--max-model-len</code> to the context you genuinely use rather than the model's maximum (allocation scales with it), and turn on FP8 KV cache — it halves this line item for a quality cost that is nearly always invisible on coding tasks.</p>
+      </div>
+
+      <h4>Two smaller notes worth acting on early</h4>
+      <ul class="tick">
+        <li><strong>Don't let the model cache land on the boot drive.</strong> Hugging Face defaults to <code>~/.cache</code>. Two frontier checkpoints will fill a 512 GB boot NVMe and take the OS down with them. Set <code>HF_HOME</code> to the data array on day one, before the first download.</li>
+        <li><strong>The 1.5 TB of host RAM is a real tool, used sparingly.</strong> CPU-offloading MoE experts lets an oversized model run at all — but host memory bandwidth is an order of magnitude below GDDR7, so offload converts a memory error into a latency cliff. Treat it as a way to <em>try</em> a model that doesn't fit, not a way to serve one.</li>
+      </ul>
+
+      <h3>The other two machines: Spark in hand, Station on the table</h3>
+      <p>The <strong>DGX Spark</strong> is the smallest Grace Blackwell: a GB10 superchip — one Blackwell GPU fused to a 20-core Arm CPU — with <strong>128 GB of unified LPDDR5X</strong> shared between them at roughly 273 GB/s. It runs DGX OS on aarch64, which matters below the seam (inference-server containers must be arm64 builds — NVIDIA ships them) and not at all above it: your harness talks to the same OpenAI-compatible endpoint either way. It draws about as much power as a gaming laptop, sits silently on the desk, and is already paid for.</p>
+      <p>The <strong>DGX Station</strong> is the same idea scaled to its ceiling: a GB300 Grace Blackwell Ultra superchip pairing one Blackwell Ultra GPU — <strong>288 GB of HBM3e at ~8 TB/s</strong> — with a 72-core Grace CPU carrying another 496 GB of LPDDR5X, all one coherent 784 GB address space across a 900 GB/s NVLink-C2C link. One GPU, so nothing ever shards: the interconnect problem that defines the eight-GPU box simply does not exist here. It's a kilowatt-class desk-side tower; OEM pricing was still unannounced at this revision — plan for the same class of capital decision as the build itself.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Three machines side by side — vendor headline figures, planning-grade</caption>
+          <thead><tr><th></th><th>DGX Spark <em>(in hand)</em></th><th>8 × RTX PRO 6000 <em>(the build)</em></th><th>DGX Station GB300 <em>(the option)</em></th></tr></thead>
+          <tbody>
+            <tr><td><strong>Silicon</strong></td><td>GB10 — 1 Blackwell GPU + 20-core Grace, one superchip</td><td>8 discrete Blackwell cards + 2 × EPYC 9535</td><td>GB300 — 1 Blackwell Ultra GPU + 72-core Grace</td></tr>
+            <tr><td><strong>GPU memory</strong></td><td class="num">128 GB LPDDR5X, unified with CPU</td><td class="num">768 GB GDDR7 (8 × 96 GB)</td><td class="num">288 GB HBM3e + 496 GB LPDDR5X, coherent</td></tr>
+            <tr><td><strong>Bandwidth</strong></td><td class="num">~273 GB/s</td><td class="num">~1.79 TB/s per card</td><td class="num">~8 TB/s (HBM3e)</td></tr>
+            <tr><td><strong>Interconnect</strong></td><td>One chip — none needed; two Sparks pair over 200 GbE</td><td>PCIe Gen5 ×16, ~128 GB/s — <em>the</em> constraint above</td><td>One GPU — none needed; 900 GB/s C2C to host memory</td></tr>
+            <tr><td><strong>FP4 compute</strong></td><td class="num">~1 PFLOP</td><td class="num">~4 PFLOPS/card, ~30 aggregate</td><td class="num">~20 PFLOPS</td></tr>
+            <tr><td><strong>Power / placement</strong></td><td>~170 W, silent, on the desk</td><td>4–6 kW, machine room</td><td>Kilowatt-class, desk-side tower</td></tr>
+            <tr><td><strong>Price class</strong></td><td class="num">~$4k, paid</td><td class="num">~$150–200k (Part 05)</td><td class="num">Unannounced — budget six figures</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>What each machine can actually achieve</h3>
+      <p>Same models, same KV arithmetic as above. Read this as “which term of <em>model × harness × context</em> each box maximizes” — and notice that no machine dominates another across all six rows.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Capability comparison — models from the fit table, KV math from this part</caption>
+          <thead><tr><th>Capability</th><th>DGX Spark</th><th>8 × RTX PRO 6000</th><th>DGX Station GB300</th></tr></thead>
+          <tbody>
+            <tr><td><strong>The workhorse</strong><br>Qwen3-Coder-Next 80B-A3B</td><td>Runs at 4-bit (~44 GB) at ~30–50 tok/s — one solid interactive agent</td><td>4–6 independent replicas running concurrently — the fleet</td><td>Very fast, in a corner of HBM — but it time-shares the one GPU</td></tr>
+            <tr><td><strong>The primary drafter</strong><br>Qwen3-Coder-480B</td><td>No — even two paired Sparks (256 GB pooled) fall short at FP4; the pairing tops out around 405B-class</td><td>6 GPUs at FP8, 3 at 4-bit — works, taxed by PCIe tensor parallel</td><td>The headline: ~260 GB at FP4 fits <em>in HBM on one GPU</em> — fastest single-stream of the three by a wide margin</td></tr>
+            <tr><td><strong>The ceiling</strong><br>Kimi K2 · DeepSeek V4 Pro</td><td>Out of reach</td><td>4-bit, all eight cards, tight</td><td>Weights spill to LPDDR5X over C2C — runs as an experiment; the latency cliff applies</td></tr>
+            <tr><td><strong>Concurrent 100k-context agents</strong><br>(~13 GB KV each)</td><td>1–2 — memory allows more, but all of them share 273 GB/s</td><td>16+ (210 GB ≈ two cards' worth of KV)</td><td>~6 in HBM beside a mid-size model; beside the 480B, KV lives in LPDDR</td></tr>
+            <tr><td><strong>The ablation grid</strong><br>(<a href="#measure">Part 10</a>)</td><td>One arm at a time — a bench, not a lab</td><td>Five arms as five concurrent 1–2-GPU jobs — the lab</td><td>Batches one model superbly; arms needing <em>different</em> models queue for the single GPU</td></tr>
+            <tr><td><strong>Role</strong></td><td><span class="pill keep">harness bench</span> — build and debug the loop, today</td><td><span class="pill keep">fleet &amp; lab</span> — replicas, critics, grids</td><td><span class="pill watch">the drafter</span> — biggest model, highest single-stream speed</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — three machines, three different labs</p>
+        <p>Notice what the comparison does to this part's central constraint. The PCIe bottleneck that dominates the eight-GPU box <em>does not exist</em> on the other two — the Spark is one chip, and the Station is one GPU with 288 GB attached at 8 TB/s. The Station is what the “one giant model” instinct actually wants: it retires the interconnect problem by never sharding at all.</p>
+        <p>But the reverse also holds. Eight discrete cards are eight isolation domains, and the replica topology the PCIe box <em>forces</em> is exactly the topology an agent lab <em>wants</em>. So the three machines maximize three different things: the Spark maximizes learning per euro already spent, the build maximizes the <strong>harness</strong> term, and the Station maximizes the <strong>model</strong> term. None is a superset of another.</p>
+      </div>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — capacity statements are not speed statements</p>
+        <p>The Spark's “runs 200B-parameter models” is a statement about <em>fitting</em>, not about <em>serving</em>: at 273 GB/s, a dense 70B at 4-bit decodes at single-digit tokens per second. The machine only feels interactive on MoE models with a small active set — the 80B-A3B workhorse reads ~1.7 GB per token and is fine; anything dense feels like dial-up. Choose its models by <em>active</em> parameters, not total.</p>
+        <p>The Station carries the symmetric fine print: one very fast GPU <strong>multiplexes, it doesn't multiply</strong>. MIG slices and co-hosted servers all share the same 8 TB/s and the same HBM — it will batch one model brilliantly, but it cannot be five independent two-GPU replicas the way the eight-card box can.</p>
+      </div>
+
+      <p><strong>The sequencing writes itself.</strong> Build the harness against the Spark now — Parts 06–09 run against it essentially unchanged (same CUDA stack, same HTTP seam; only the model tier drops to “workstation” in <a href="#local">Part 04</a>'s table), and every line of controller, tool, and verifier code ports to the big box the day it arrives. The eight-GPU build then opens the fleet and the measurement lab. The Station is the one purchase not to make on instinct: it improves exactly one number — single-stream speed on the largest open models — and the grid in <a href="#measure">Part 10</a> already measures what that number is worth on your repo, via the local-80B vs local-480B vs API arms, before you commit six figures. If the 480B arm wins decisively <em>and</em> wall-clock per step is what hurts, the Station is the targeted fix. If the 80B fleet plus verification closes the gap — Part 04 argues it often will — it isn't.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="local" class="reveal">
+      <p class="part-kick">Part 04</p>
+      <h2>Recalibrating: what context can and can't buy back</h2>
+      <p>The original thesis — <em>better context offsets a weaker model and fewer agents</em> — was written for a weak-model machine. Part 03 removed that constraint, so the analysis needs adjusting rather than discarding. The underlying asymmetry is still real, and it still governs the small models you'll deliberately run; what changes is <em>which regime you're optimizing in</em>.</p>
+
+      <p>The compensation was never symmetric. Context repays two of a weak model's deficits and not the other two:</p>
+
+      <div class="cmp">
+        <div class="col good">
+          <h4>Context <em>does</em> buy back</h4>
+          <ul>
+            <li><strong>Knowledge / navigation.</strong> Where things are, how it builds, conventions — a weak model burns scarce reasoning rediscovering these, so removing that is real leverage.</li>
+            <li><strong>Convention matching.</strong> Output that fits the codebase's patterns instead of generic boilerplate.</li>
+          </ul>
+        </div>
+        <div class="col bad">
+          <h4>Context does <em>not</em> buy back</h4>
+          <ul>
+            <li><strong>Reasoning &amp; long-horizon planning.</strong> A weaker model still makes worse decisions and loses the thread over many steps.</li>
+            <li><strong>Tool-use reliability.</strong> The killer locally: a model that emits malformed tool calls can't be fixed by any <code>CLAUDE.md</code>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>Which regime are you in?</h3>
+      <p>Your box can run three quite different classes of model, and the advice above applies with different force to each. You will end up running all three simultaneously — so it's worth being explicit about which deficit you're compensating for at any moment.</p>
+
+      <div class="tw">
+        <table>
+          <caption>The same harness, three regimes — pick per role, not per project</caption>
+          <thead><tr><th>Regime</th><th>Example</th><th>Where the deficit is</th><th>What buys it back</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Frontier-adjacent</strong></td><td>Qwen3-Coder-480B or Kimi K2 at 4-bit, most of the box</td><td>Small raw-capability gap. Real gaps: long-horizon agentic reliability, and wall-clock per step.</td><td>Verification loop, lean context, prefix caching. Context helps least here — the model can navigate on its own.</td></tr>
+            <tr><td><strong>Workstation tier</strong></td><td>80B-A3B on 1–2 GPUs, 4–6 replicas</td><td>Moderate reasoning gap; occasional lost threads.</td><td>More attempts (they're fast), more harness, good context. The sweet spot for most of the lab.</td></tr>
+            <tr><td><strong>Deliberately small</strong></td><td>7–14B on one GPU</td><td>Large gap — and tool-call fidelity starts failing.</td><td>Constrained decoding first, then tight tools and heavy verification. Run these to <em>see</em> the failure modes, not to ship.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>You still need <em>more</em> harness, not fewer agents</h3>
+      <p>“Weaker model <strong>and</strong> fewer agents” is the one combination that compounds against you. The main thing a multi-agent harness buys is <strong>error correction through redundancy and adversarial checking</strong> — run the tests, critique the diff, have a second pass try to refute the first. A stronger model needs less of this; a weaker model needs <em>more</em>. The right economy is <strong>lean context + a heavier verification loop</strong>, even if “the agents” are just the same model invoked in different roles.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — locally, verification is nearly free</p>
+        <p>This is the economics change nobody mentions, and it's the strongest argument for the whole local build. Against a metered API, every extra verification pass, every best-of-N sample, every reviewer in a judge panel is a line on an invoice — so you ration them. On hardware you already own, the marginal cost of a second opinion is <strong>idle GPU time</strong>, and you have eight cards' worth.</p>
+        <p>That inverts the usual design pressure. Techniques dismissed as too expensive in production — three independent critics voting, generating five candidate diffs and keeping the one that passes, re-running the whole task under a different model family to see if it agrees — become the <em>default</em>. Redundancy is exactly what closes the gap between an open-weight model and a frontier one, and it is precisely the thing your hardware makes cheap. Spend it.</p>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — the make-or-break</p>
+        <p>For an agentic loop, <strong>tool-use format fidelity matters more than raw code quality.</strong> Select your local model on function-calling reliability and instruction-following first, benchmark codegen scores second. And you can <em>guarantee</em> valid tool calls from a weak model with <strong>grammar-constrained / structured decoding</strong> (e.g. outlines, llguidance, xgrammar) — a concrete technique that directly converts a fragile model into a usable agent. Building this yourself is one of the most instructive things in the whole project.</p>
+      </div>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — don't dump context (softened, not repealed)</p>
+        <p>The models you can now run advertise 256K–1M context windows, which makes “just send everything” tempting. Don't. <em>Effective</em> context still lags the advertised maximum — “lost in the middle” degradation is a property of attention, not of VRAM — so an exhaustive doc tree still dilutes attention on the tokens that mattered.</p>
+        <p>What <em>has</em> changed is the currency. On a metered API, over-stuffing costs money; here it costs <strong>wall-clock</strong>, and in an agentic loop that penalty compounds — every one of dozens of sequential steps re-prefills a bloated prompt. The winning pattern is unchanged: a <strong>lean, always-loaded root <code>CLAUDE.md</code> + retrieval on demand</strong>, with intent enrichment reserved for the files that carry intent. Prefix caching (<a href="#install">Part 06</a>) softens the repeat cost, but nothing softens the attention dilution.</p>
+      </div>
+
+      <p><strong>So CCG's role locally:</strong> a solid <em>context-provider module</em> — roughly one of six subsystems — best used lean, on-demand, and (thanks to the pipeline in Part 02) automatically fresh. Keep the A/B against no-context anyway: with a strong model, context earns less than intuition suggests, and the only way to know how much less on <em>your</em> repo is to measure it.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="cost" class="reveal">
+      <p class="part-kick">Part 05</p>
+      <h2>What it actually costs — local vs the Claude API</h2>
+      <p>These are not two prices; they are two <strong>cost structures</strong>. The API is a variable cost that scales with every token you spend. The box is a fixed cost that scales with nothing — it costs the same whether it runs flat out or sits dark. So the useful question is never “which is cheaper per token,” it's <strong>at what utilization does fixed beat variable</strong>. That has a computable answer, and it's more favorable than most people guess.</p>
+
+      <h3>5.1 · What an agent task costs on the API</h3>
+      <p>Published pricing per million tokens (as of this revision — re-check before budgeting):</p>
+      <div class="tw">
+        <table>
+          <caption>Claude API list pricing, per MTok</caption>
+          <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Claude Opus 4.8</strong></td><td class="num">$5.00</td><td class="num">$25.00</td><td>1M context</td></tr>
+            <tr><td><strong>Claude Sonnet 5</strong></td><td class="num">$3.00</td><td class="num">$15.00</td><td>Introductory $2 / $10 through 2026-08-31</td></tr>
+            <tr><td><strong>Claude Haiku 4.5</strong></td><td class="num">$1.00</td><td class="num">$5.00</td><td>200K context</td></tr>
+            <tr><td colspan="4"><strong>Two multipliers that dominate agent economics:</strong> cache <em>reads</em> cost ~<strong>0.1×</strong> the base input price (writes cost 1.25× at the 5-minute TTL, 2× at 1 hour), and the <strong>Batch API is 50% off</strong> for anything that doesn't need to be interactive.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — most local-vs-API comparisons overstate the API by ~4×</p>
+        <p>An agent loop re-sends a growing but mostly identical prefix on every step. That is precisely the workload prompt caching exists for — and cache reads bill at a tenth of normal input. Naive math that multiplies total input tokens by the list input price is therefore wrong by roughly the ratio you'd expect: it prices as full-rate the ~95% of tokens that are cache hits.</p>
+        <p>Note the exact symmetry with <a href="#install">Part 06</a>: <code>--enable-prefix-caching</code> on vLLM and <code>cache_control</code> on the API are the same optimization applied to the same repetition. Whichever side you run on, the agent loop's dominant cost is a re-read of something the server already has.</p>
+      </div>
+
+      <pre class="code"><span class="c"># One agentic coding task, modelled: 30 steps, context growing 20k → 80k tokens,</span>
+<span class="c"># ~1k output tokens per step. On Claude Opus 4.8.</span>
+
+<b>Without</b> prompt caching
+  input   30 steps × ~50k avg  = 1.5M tok × $5/M       = $7.50
+  output  30 × 1k              =  30k tok × $25/M      = $0.75
+                                                  total ≈ <b>$8.25</b>
+
+<b>With</b> prompt caching
+  cache writes  ~80k tok × $5/M × 1.25                 = $0.50
+  cache reads  ~1.4M tok × $5/M × 0.10                 = $0.70
+  output        30k tok × $25/M                        = $0.75
+                                                  total ≈ <b>$1.95</b>
+
+<span class="c"># Same task on Sonnet 5 with caching ≈ $1.20. On the Batch API, halve it again.</span></pre>
+
+      <p>So the number to hold onto: <strong>roughly $1–2 per solved agentic coding task</strong>, cached, on a frontier hosted model. Not $8, and not the $0.05 that per-token intuition suggests either.</p>
+
+      <h3>5.2 · What the box costs</h3>
+      <p>Planning-grade — you know your actual acquisition cost, and GPU pricing has moved sharply (the RTX PRO 6000 launched around $8,565 and listed near $13,250 by mid-2026, a ~55% rise). The structure matters more than the digits.</p>
+      <div class="specs">
+        <div class="spec"><div class="v">~$150–200k</div><div class="k">Capital</div><div class="d">8 GPUs dominate; plus dual EPYC, 1.5 TB DDR5, 15 TB Gen5 NVMe, chassis and power.</div></div>
+        <div class="spec"><div class="v">~$60k/yr</div><div class="k">Amortized</div><div class="d">Straight-line over 3 years. The single largest line by far.</div></div>
+        <div class="spec"><div class="v">~4–6 kW</div><div class="k">Under load</div><div class="d">8 × 600 W peak GPU, plus CPUs and RAM. Inference sits below TDP — decode is bandwidth-bound, not compute-bound.</div></div>
+        <div class="spec"><div class="v">~$6–10k/yr</div><div class="k">Power + cooling</div><div class="d">At €0.15–0.30/kWh with a 1.3–1.5 PUE, mixed load and idle.</div></div>
+      </div>
+      <p>Call it <strong>~$66k/year all-in</strong> before anyone's time. A useful sanity anchor from the other direction: cloud marketplaces rent this card around $1.35/GPU-hour, so eight of them represent roughly <strong>$11/hour — about $95k/year — of rentable capacity</strong>. That is also, precisely, what the box costs you every hour it sits idle.</p>
+
+      <h3>5.3 · The crossover</h3>
+      <p>Divide the fixed cost by the work actually done. If the box is available 8,760 hours a year and busy for a fraction <em>u</em> of them, each busy hour carries <code>$66,000 / (8,760 × u)</code>. Assume an agent task takes ~5 minutes on a 2-GPU slice, and the box runs four such slices concurrently — so a task consumes about 0.021 box-hours.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Cost per solved task, local vs API — utilization is the whole variable</caption>
+          <thead><tr><th>Sustained utilization</th><th>Busy hours/yr</th><th>Cost per box-hour</th><th>Cost per task</th><th>vs API (~$2 cached)</th></tr></thead>
+          <tbody>
+            <tr><td>5%</td><td class="num">438</td><td class="num">$151</td><td class="num">$3.14</td><td><span class="pill trim">API wins</span></td></tr>
+            <tr><td><strong>8%</strong></td><td class="num">700</td><td class="num">$94</td><td class="num">$1.96</td><td><span class="pill watch">Break-even</span></td></tr>
+            <tr><td>25%</td><td class="num">2,190</td><td class="num">$30</td><td class="num">$0.63</td><td><span class="pill keep">Local 3× cheaper</span></td></tr>
+            <tr><td>50%</td><td class="num">4,380</td><td class="num">$15</td><td class="num">$0.31</td><td><span class="pill keep">Local 6× cheaper</span></td></tr>
+            <tr><td>90%</td><td class="num">7,884</td><td class="num">$8.40</td><td class="num">$0.18</td><td><span class="pill keep">Local 11× cheaper</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>Read across the same line two ways and it holds: break-even is about <strong>8% sustained utilization — roughly 90 agent-task-equivalents per day, every day</strong>. For one developer running interactive sessions, that is out of reach and the API is simply cheaper. For a team whose CI pipeline (<a href="#drift">Part 02</a>) fires agents on every commit, plus overnight ablation grids and batch jobs, it is very reachable — and past it the curve moves hard in your favour.</p>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — the line item nobody budgets</p>
+        <p>Neither column above includes <strong>your time</strong>. Driver updates, CUDA/framework version churn, a model release worth re-benchmarking, a wedged NCCL job at 2am, capacity planning, monitoring. Budget one engineer-day a month as a floor; at a loaded rate that is on the order of <strong>€10k/year</strong> — larger than the electricity bill, and entirely absent from the API side, where the equivalent work is someone else's problem.</p>
+        <p>Fold it in honestly and break-even moves from ~8% to ~10%. That doesn't change the conclusion, but a business case that omits it isn't a business case.</p>
+      </div>
+
+      <h3>5.4 · What the spreadsheet can't price</h3>
+      <p>Cost is rarely the deciding factor either way, and pretending otherwise produces bad decisions. The genuinely load-bearing considerations:</p>
+      <div class="cmp">
+        <div class="col good">
+          <h4>Favours local</h4>
+          <ul>
+            <li><strong>Source code never leaves the building.</strong> For proprietary repos this is often not a cost question at all — it's the whole decision, and it ends the discussion before the first spreadsheet cell.</li>
+            <li><strong>Unmetered experimentation.</strong> The ablation grid in <a href="#measure">Part 10</a> is thousands of runs. Metered, you'd run it once and stop measuring; local, it's an overnight electricity bill.</li>
+            <li><strong>Free verification.</strong> Per <a href="#local">Part 04</a> — three critics and best-of-N cost idle GPU time, not invoice lines.</li>
+            <li><strong>No rate limits, no per-seat, no queue.</strong> Deterministic capacity you control.</li>
+            <li><strong>The learning.</strong> Which is the actual point of the project.</li>
+          </ul>
+        </div>
+        <div class="col bad">
+          <h4>Favours the API</h4>
+          <ul>
+            <li><strong>Zero fixed cost.</strong> Low volume costs nearly nothing; you never pay for idle.</li>
+            <li><strong>The model improves under you.</strong> Frontier hosted models step forward every few months. Your local weights are frozen the day you download them — and re-qualifying a new checkpoint is a project.</li>
+            <li><strong>No ops.</strong> No drivers, no NCCL, no capacity planning.</li>
+            <li><strong>Still the ceiling on the hardest tasks.</strong> Part 03 narrowed that gap; it did not close it.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Recommendation — route, don't choose</p>
+        <p>This is a false binary, and the C# design in <a href="#csharp">Part 08</a> already dissolves it: local vLLM and the Claude API are both <code>IChatClient</code>, so which one serves a request is a <em>configuration</em> decision rather than an architectural one. Route on the properties that actually differ — send high-volume, private, and experimental work local, and escalate the hardest or highest-stakes tasks to the API.</p>
+        <p>That also gives you the measurement the whole document is building toward: with both behind one interface, “how much worse is local, on our code?” stops being a matter of opinion and becomes a column in the ablation grid.</p>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="install" class="reveal">
+      <p class="part-kick">Part 06</p>
+      <h2>Installing the local LLM</h2>
+      <p>Everything in this part happens <em>below</em> your application. It's infrastructure you install and configure once, not code you write — and understanding where that boundary sits is the single most useful thing in the chapter, because it's also the answer to “can I build this in C#?”</p>
+
+      <h3>The stack, bottom to top</h3>
+      <div class="stack" role="img" aria-label="Layer stack from hardware up through driver, CUDA, container runtime, inference server, an OpenAI-compatible HTTP endpoint seam, and your C# harness on top.">
+        <div class="lyr"><span class="nm">Hardware</span><span class="ds">8 × RTX PRO 6000 Blackwell, PCIe Gen5 — the DGX Spark runs this same stack on arm64</span><span class="tag">given</span></div>
+        <div class="lyr"><span class="nm">Driver</span><span class="ds">NVIDIA open kernel modules, recent branch</span><span class="tag">apt</span></div>
+        <div class="lyr"><span class="nm">CUDA</span><span class="ds">12.8 or newer — required for Blackwell sm_120</span><span class="tag">apt</span></div>
+        <div class="lyr"><span class="nm">Containers</span><span class="ds">Docker + nvidia-container-toolkit</span><span class="tag">apt</span></div>
+        <div class="lyr"><span class="nm">Inference server</span><span class="ds">vLLM · SGLang · llama.cpp — Python/C++, you run it, you don't write it</span><span class="tag">docker</span></div>
+        <div class="lyr seam"><span class="nm">HTTP /v1</span><span class="ds">OpenAI-compatible endpoint — the seam your language choice stops mattering at</span><span class="tag">the boundary</span></div>
+        <div class="lyr"><span class="nm">Your harness</span><span class="ds">Controller loop, tools, context, verification, measurement</span><span class="tag">C#</span></div>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — the endpoint is the seam</p>
+        <p>Every serious local runtime speaks the same OpenAI-compatible HTTP dialect: <code>POST /v1/chat/completions</code>, with <code>tools</code>, streaming, and structured-output parameters. Below that line the ecosystem is Python and CUDA. Above it, it's ordinary HTTP and JSON. You install the bottom half; you write the top half in whatever you like. That's why <a href="#csharp">Part 08</a> can answer “yes” without qualification.</p>
+      </div>
+
+      <h3>5.1 · Base install</h3>
+      <p>Version numbers below are planning-grade — check current ones — but the <em>constraints</em> are firm: Blackwell RTX PRO 6000 is compute capability <code>sm_120</code>, which needs CUDA 12.8+ and a matching PyTorch build. Anything older simply won't start.</p>
+      <pre class="code"><span class="c"># Ubuntu 24.04. 1 — driver (open kernel modules) and toolkit</span>
+sudo apt install -y nvidia-driver-580-open nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker &amp;&amp; sudo systemctl restart docker
+nvidia-smi          <span class="c"># expect 8 × RTX PRO 6000, ~97 GB each</span>
+
+<span class="c"># 2 — model cache on the DATA array, NEVER the 512 GB boot NVMe</span>
+sudo mkdir -p /data/hf &amp;&amp; sudo chown $USER /data/hf
+echo 'export HF_HOME=/data/hf' &gt;&gt; ~/.bashrc &amp;&amp; source ~/.bashrc
+
+<span class="c"># 3 — five-minute sanity check before any real serving work</span>
+curl -fsSL https://ollama.com/install.sh | sh
+ollama run qwen3-coder:latest "write a python function that clamps x to [lo,hi]"</pre>
+      <p>That last step exists to give you a working endpoint in minutes so you can validate your C# client against <em>something</em> while the real serving stack is still being tuned. Ollama will not use eight GPUs well — it's a smoke test and a fallback, not the lab.</p>
+
+      <h3>5.2 · Choose topology before framework</h3>
+      <p>Per Part 03, the PCIe interconnect makes this decision matter more than the vLLM-versus-SGLang question. Decide how you're carving up eight cards first.</p>
+      <div class="tw">
+        <table>
+          <caption>Four layouts for the same eight GPUs</caption>
+          <thead><tr><th>Goal</th><th>Topology</th><th>Sketch</th></tr></thead>
+          <tbody>
+            <tr><td>Max single-agent quality</td><td>One large model, TP 8 — accepts the PCIe tax</td><td><code>--tensor-parallel-size 8</code></td></tr>
+            <tr><td><strong>Max agent concurrency</strong> <em>(recommended default)</em></td><td>4 replicas × TP 2, each on its own port</td><td>4 × <code>--tensor-parallel-size 2</code>, <code>CUDA_VISIBLE_DEVICES=0,1</code> …</td></tr>
+            <tr><td>Mixed lab — the interesting one</td><td>1 drafter (TP 4) + 2 fast workers (TP 1) + 1 critic (TP 1), all resident</td><td>Pin each with <code>CUDA_VISIBLE_DEVICES</code>; one config file per role</td></tr>
+            <tr><td>Very large MoE</td><td>Pipeline / expert parallel instead of tensor parallel — far less cross-GPU chatter</td><td><code>--pipeline-parallel-size</code>, <code>--enable-expert-parallel</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>5.3 · Serving for agents specifically</h3>
+      <pre class="code"><span class="c"># One replica of the workhorse model, pinned to two GPUs.</span>
+docker run --gpus '"device=0,1"' --ipc=host -p 8001:8000 \
+  -v /data/hf:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  --model Qwen/Qwen3-Coder-Next-80B-A3B-Instruct \
+  --served-model-name worker \
+  --tensor-parallel-size 2 \
+  --max-model-len 131072 \
+  <b>--enable-prefix-caching</b> \
+  <b>--kv-cache-dtype fp8</b> \
+  <b>--enable-auto-tool-choice --tool-call-parser hermes</b></pre>
+
+      <p>The bolded flags are the ones that separate a chat server from an agent server:</p>
+      <div class="tw">
+        <table>
+          <caption>Why each flag earns its place in an agentic loop</caption>
+          <thead><tr><th>Flag</th><th>What it does for an agent</th></tr></thead>
+          <tbody>
+            <tr><td><code>--enable-prefix-caching</code></td><td><strong>The biggest single throughput win here.</strong> An agent loop re-sends the same system prompt and context on every step, growing by one turn each time. Prefix caching turns each step's prefill into a cache hit on everything but the new tokens. This is precisely the workload the feature was designed for.</td></tr>
+            <tr><td><code>--enable-auto-tool-choice</code><br><code>--tool-call-parser</code></td><td>Makes the server parse tool calls out of the model's output into a structured <code>tool_calls</code> field. Without them the model still tries to call tools — you just receive JSON embedded in prose and have to parse it yourself, badly.</td></tr>
+            <tr><td><code>--kv-cache-dtype fp8</code></td><td>Halves the per-stream KV budget from Part 03, roughly doubling concurrent agents. Quality cost on coding tasks is generally not measurable.</td></tr>
+            <tr><td><code>--max-model-len</code></td><td>Set it to the context you actually use. KV allocation scales with this number, so an aspirational value silently costs you concurrency.</td></tr>
+            <tr><td><code>--served-model-name</code></td><td>A stable alias (<code>worker</code>, <code>drafter</code>, <code>critic</code>) so your harness config never hardcodes a checkpoint path. Swap models by restarting a container, not by editing C#.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>The smoke test that matters</h4>
+      <p>Before writing a line of harness code, confirm the server returns <em>structured</em> tool calls:</p>
+      <pre class="code">curl -s localhost:8001/v1/chat/completions -H 'content-type: application/json' -d '{
+  "model": "worker",
+  "messages": [{"role":"user","content":"What files are in the src folder?"}],
+  "tools": [{"type":"function","function":{
+      "name":"glob",
+      "parameters":{"type":"object","properties":{"pattern":{"type":"string"}},
+                    "required":["pattern"]}}}],
+  "tool_choice": "auto"
+}' | jq '.choices[0].message.tool_calls'</pre>
+      <p>If that prints a populated array, the whole stack is sound. If it prints <code>null</code> while <code>.content</code> contains JSON-as-prose, your <code>--tool-call-parser</code> doesn't match the model's chat template — <strong>fix that before anything else</strong>. Nearly every “the local model can't do agents” report traces back to this one mismatch, and no amount of prompt engineering compensates for it.</p>
+
+      <h4>Constrained decoding is a request field</h4>
+      <p>The reliability technique praised in <a href="#local">Part 04</a> lives on the server, reachable from any HTTP client: pass a JSON schema and the server constrains generation to match it. In vLLM that's guided decoding (xgrammar by default) applied automatically to tool parameters, or explicitly via <code>response_format</code> / <code>guided_json</code>. Nothing to port, nothing to install — which is the second reason your language choice is unconstrained.</p>
+
+      <h3>5.4 · Traps specific to this hardware</h3>
+      <div class="tw">
+        <table>
+          <caption>Each of these has cost somebody a weekend</caption>
+          <thead><tr><th>Trap</th><th>Symptom</th><th>Response</th></tr></thead>
+          <tbody>
+            <tr><td><strong><code>sm_120</code> ≠ <code>sm_100</code></strong></td><td>Kernel launch failures on a model that “works on Blackwell.” Datacenter Blackwell (B200) is <code>sm_100</code>; your cards are <code>sm_120</code> and are <em>not</em> binary-compatible. This has broken DeepSeek support in vLLM.</td><td>Check the framework's issue tracker for your model family <em>and</em> <code>sm_120</code> before committing to it. Prefer families with confirmed reports on RTX PRO 6000.</td></tr>
+            <tr><td><strong>NCCL over PCIe</strong></td><td>Multi-GPU startup hangs with no error — the classic silent stall.</td><td>Almost always NCCL, not the server. Use a recent NCCL (2.27.3+), pass <code>--ipc=host</code>, and set <code>NCCL_P2P_LEVEL</code> explicitly rather than trusting autodetection.</td></tr>
+            <tr><td><strong>Borrowed benchmarks</strong></td><td>Throughput lands far below a published figure.</td><td>Most public numbers come from NVLink nodes. On TP8 workloads expect roughly a third of an 8×H100 SXM node — then avoid TP8 (§5.2) and win the throughput back a different way.</td></tr>
+            <tr><td><strong>Quant availability</strong></td><td>The checkpoint you want has no kernel-supported quantization on your arch.</td><td>FP8 is native on Blackwell and the safe default; NVFP4 is newer and faster where supported. Verify the <em>specific checkpoint × framework × arch</em> combination, not just “supports FP8.”</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>One framework note to close: <strong>vLLM</strong> is the sane default — broadest model coverage, best documentation, mature tool-call parsers. <strong>SGLang</strong> is worth benchmarking once you're serious, since it tends to lead on MoE throughput and on multi-turn workloads with shared prefixes, which describes your agent loop exactly. Both take similar flags; running the pair against your own task suite costs an afternoon and settles the question with data rather than blog posts.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="arch" class="reveal">
+      <p class="part-kick">Part 07</p>
+      <h2>Harness architecture</h2>
+      <p>Everything Claude-like reduces to a small controller running a loop over a model and a set of tools, wrapped in memory, verification, and guardrails. Build it in exactly that shape so each subsystem is legible.</p>
+
+      <h3>The single-agent loop</h3>
+      <div class="loop" role="img" aria-label="Agent loop: observe, think, act via tool call, get result, then repeat until the goal is met or verification passes.">
+        <div class="flow">
+          <div class="stage"><div class="st-n">01</div><div class="st-t">Observe</div><div class="st-d">System prompt + lean context + latest tool result.</div></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="stage"><div class="st-n">02</div><div class="st-t">Think</div><div class="st-d">Model reasons about the next step.</div></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="stage"><div class="st-n">03</div><div class="st-t">Act</div><div class="st-d">Emit one structured tool call (read / edit / run).</div></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="stage"><div class="st-n">04</div><div class="st-t">Result</div><div class="st-d">Controller executes the tool, feeds output back.</div></div>
+        </div>
+        <div class="ret"><span aria-hidden="true">↻</span> Repeat until the goal is met <em>and</em> verification passes — or a step / token / budget limit trips.</div>
+      </div>
+      <p>That loop is the whole engine. Everything else makes it more capable or more reliable.</p>
+
+      <h3>The six subsystems</h3>
+      <div class="tw">
+        <table>
+          <caption>Build them in this order of dependency</caption>
+          <thead><tr><th>Subsystem</th><th>Role</th><th>What building it teaches you about Claude</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Tools</strong></td><td>A typed registry: <code>read</code>, <code>grep</code>, <code>glob</code>, <code>edit</code>, <code>run_tests</code>, <code>bash</code>. Each has a schema and a real executor.</td><td>Capability is granted by tools, not prompts. Watch the model's reach expand as you add each one.</td></tr>
+            <tr><td><strong>Loop / controller</strong></td><td>Parses the tool call, runs it, appends the observation, re-invokes the model; enforces step/token/time limits.</td><td>The “agency” is here, not in the model. This code <em>is</em> the agent.</td></tr>
+            <tr><td><strong>Context &amp; memory</strong></td><td>Assembles the window: system prompt + lean <code>CLAUDE.md</code> + retrieved-on-demand docs; compacts/summarizes when it fills.</td><td>Context engineering is a first-class discipline. This is where CCG plugs in — lean.</td></tr>
+            <tr><td><strong>Planning / decomposition</strong></td><td>A todo list the agent maintains; optional sub-agents for isolated sub-tasks.</td><td>Long tasks need externalized state. Watch coherence improve when the plan lives outside the model's head.</td></tr>
+            <tr><td><strong>Verification</strong></td><td>Run the tests; self-critique the diff; optional second-pass reviewer that tries to refute.</td><td>Reliability comes from checking, not from a bigger model. The single biggest lever locally.</td></tr>
+            <tr><td><strong>Guardrails</strong></td><td>Permission prompts, a path allow-list, a sandbox for <code>bash</code>. (CCG's PathGuard is a reusable pattern.)</td><td>Safety is structural. An agent you don't trust to run unattended isn't finished.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Allocating the box to the harness</h3>
+      <p>With 768 GB you don't choose <em>a</em> model — you assign models to roles and run them concurrently. A workable steady-state layout, with every role addressable as a separate endpoint from the same C# harness:</p>
+      <div class="tw">
+        <table>
+          <caption>A standing model zoo — start narrower, grow into it</caption>
+          <thead><tr><th>Role</th><th>Model tier</th><th>GPUs</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Primary drafter</strong></td><td>Qwen3-Coder-480B or GLM-4.6, FP8</td><td class="num">4</td><td>Best single-agent quality you can host. Handles planning and the hard edits.</td></tr>
+            <tr><td><strong>Fast workers</strong></td><td>80B-A3B, 2 replicas</td><td class="num">2</td><td>Sub-agents, searches, summarization, retrieval. High tokens/sec matters more than peak reasoning.</td></tr>
+            <tr><td><strong>Critic / verifier</strong></td><td>A <em>different family</em> from the drafter</td><td class="num">1</td><td>Diversity beats size for refutation — same-family models share blind spots and cheerfully agree with their own mistakes.</td></tr>
+            <tr><td><strong>Headroom</strong></td><td>—</td><td class="num">1</td><td>KV spikes, a small model for ablations, the experiment you haven't thought of yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>That last row is not padding. The most common local-serving mistake is allocating to 100% and then having no room to run the comparison that would tell you whether the allocation was right.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — latency is a design input</p>
+        <p>An agentic loop is <em>many sequential</em> model calls. A smaller, faster model that iterates more — plus verification — can beat a slower, “smarter” one that gets fewer attempts. Measure <code>steps-to-solve × latency-per-step</code>, not just single-shot accuracy. On this hardware that trade is live in both directions: the drafter is genuinely stronger, and the 80B-A3B worker is genuinely several times faster per step.</p>
+      </div>
+
+      <h4>Model shortlist (pick for tool-use, not just benchmarks)</h4>
+      <ul class="tick">
+        <li><strong>Qwen3-Coder-480B-A35B</strong> — Apache-2.0, ~69.6% SWE-bench Verified, 256K context. The default primary drafter.</li>
+        <li><strong>GLM-4.6</strong> (357B, MIT) — widely reported at Claude-Sonnet-class coding; a strong <em>second family</em> for the critic role.</li>
+        <li><strong>Qwen3-Coder-Next 80B-A3B</strong> — 3B active parameters means workstation-tier speed at far better quality than the size suggests. Your workhorse.</li>
+        <li><strong>Kimi K2</strong> (1T-A32B) — tuned specifically for agentic coding; the interesting ceiling experiment if 4-bit quality holds up on your tasks.</li>
+        <li><strong>A deliberately small model</strong> (7–14B) — not to ship, but to <em>see</em> where the loop breaks and where constrained decoding + verification rescue it. Keep one in the zoo permanently; it's the best teacher in the rack.</li>
+      </ul>
+      <p>Select on <strong>tool-call fidelity first</strong>, benchmark scores second — a model that emits malformed calls is worth nothing in a loop regardless of its leaderboard position. Your task suite (<a href="#kit">Part 13</a>) settles this in an afternoon.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="csharp" class="reveal">
+      <p class="part-kick">Part 08</p>
+      <h2>Building it in C# — yes, and it's a better fit than it looks</h2>
+      <p>The short answer: <strong>build it in C#.</strong> The instinct that serious AI work must be Python is right about <em>training</em> and wrong about <em>agents</em>, and the distinction is worth being precise about, because it determines your whole project layout.</p>
+
+      <p>Look at what a harness actually is: an HTTP client, a JSON serializer, a process runner, a file-system sandbox, a concurrency scheduler, and a state machine. There is no tensor math anywhere in that list. The numerical work happens inside the inference server — which you install as a container (<a href="#install">Part 06</a>) and address over HTTP. <strong>The Python in your stack lives below the endpoint, and you don't write it.</strong> Above the endpoint, the work is exactly the kind of long-lived, strongly-typed, concurrent systems programming .NET is unusually good at.</p>
+
+      <h3>The .NET stack, piece by piece</h3>
+      <div class="tw">
+        <table>
+          <caption>Every subsystem from Part 07 has a first-class .NET answer</caption>
+          <thead><tr><th>Need</th><th>.NET option</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>Model client</td><td><code>Microsoft.Extensions.AI</code> (<code>IChatClient</code>) + <code>Microsoft.Extensions.AI.OpenAI</code></td><td>Points at any OpenAI-compatible endpoint, so your local vLLM server and the Claude API are the same interface. Swapping the two is a one-line change — which is exactly what an ablation needs.</td></tr>
+            <tr><td>Tool schemas</td><td><code>AIFunctionFactory.Create(method)</code>; <code>JsonSchemaExporter</code> (.NET 9)</td><td>Schema generated <em>from the C# signature</em>. Hand-written JSON schemas drift from their implementations; generated ones can't.</td></tr>
+            <tr><td>Constrained decoding</td><td>Request parameters — <code>strict</code>, <code>response_format</code>, <code>guided_json</code></td><td>Server-side (§5.3). Python libraries like Outlines and xgrammar run <em>inside vLLM</em>; you reach them through a JSON field. No capability lost.</td></tr>
+            <tr><td>Streaming</td><td><code>IAsyncEnumerable</code> + <code>await foreach</code></td><td>Native, cancellable, and already the pattern CCG uses for Claude streaming.</td></tr>
+            <tr><td>Concurrency / fan-out</td><td><code>Channels</code>, <code>Parallel.ForEachAsync</code>, TPL</td><td><strong>Where C# is outright better.</strong> Real threads and no GIL, on 256 of them — for running parallel agents alongside parallel test suites, this is a genuine advantage over the Python default.</td></tr>
+            <tr><td>Tool execution</td><td><code>Process</code> via CCG's existing <code>IProcessRunner</code> seam</td><td>Already built, already testable, already faked in unit tests.</td></tr>
+            <tr><td>Sandboxing</td><td><code>Docker.DotNet</code>, containers, job objects</td><td>Give <code>bash</code> and <code>run_tests</code> a container each — you have the cores for it.</td></tr>
+            <tr><td>Tool interop</td><td>Official <code>ModelContextProtocol</code> C# SDK (v1.0, Microsoft-maintained)</td><td>Expose your tools over MCP and Claude Code itself can use them. Your lab's tools become portable rather than captive.</td></tr>
+            <tr><td>Context provider</td><td><strong>CCG Core, referenced directly</strong></td><td>The decisive argument. It's already .NET 8 with zero UI dependency — an in-process project reference, not a subprocess with a text protocol between you and your own code.</td></tr>
+            <tr><td>Observability</td><td><code>.UseOpenTelemetry()</code>, Serilog</td><td>The measurement lab (<a href="#measure">Part 10</a>) is mostly structured logging, and .NET's story here is excellent.</td></tr>
+            <tr><td>Compiler feedback</td><td><code>Microsoft.CodeAnalysis</code> (Roslyn) in-process</td><td>Typed <code>Diagnostic</code> objects instead of parsed compiler text — see <a href="#compile">Part 09</a>. Only available because harness and target share a language.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — CCG is already the context subsystem</p>
+        <p>This is the part that tips the decision. In a Python harness, CCG is an external tool you shell out to and whose output you parse. In a C# harness it's <code>services.AddSingleton&lt;DocGenService&gt;()</code> — one of the six subsystems from Part 07, in-process, sharing types, debuggable in one step-through. <code>PathGuard</code> becomes the guardrail layer for your agent's file writes, verbatim; <code>SafeFileWriter</code> becomes the <code>edit_file</code> tool's write path. You aren't porting a context provider. You already wrote one, and it was built with exactly the immutability discipline an autonomous agent needs.</p>
+      </div>
+
+      <h3>What C# genuinely costs you</h3>
+      <p>An honest ledger, because the answer isn't “no downside” — it's “the downsides don't apply to this project”:</p>
+      <ul class="tick">
+        <li><strong>Fine-tuning and LoRA are Python.</strong> PEFT, TRL, Unsloth — no realistic .NET equivalent. If you later want to train, that's a Python project. Inference-only, which is this project, is unaffected.</li>
+        <li><strong>Modifying decoding internals is Python.</strong> Consuming constrained decoding is a request field; <em>changing how it works</em> means patching a Python library. Only relevant if you want to do decoding research rather than use it.</li>
+        <li><strong>Analysis of the ablation grid.</strong> pandas plus matplotlib is still the nicer way to slice results. Mitigation is trivial and standard: emit JSONL from C#, analyze in a notebook. The harness stays typed; the exploration stays fluid.</li>
+        <li><strong>New model features land in Python SDKs first.</strong> Occasionally you'll set a raw JSON property instead of a typed one for a few weeks. <code>AdditionalProperties</code> exists precisely for this and it's a small tax.</li>
+      </ul>
+
+      <h3>Sketch of the solution</h3>
+      <pre class="code"><span class="c">// A tool is just a method. The JSON schema is generated from the signature,</span>
+<span class="c">// so the contract the model sees can never drift from the code that runs.</span>
+[<b>Description</b>("Replace an exact, unique string in a file. Errors if absent or ambiguous.")]
+<b>static</b> string EditFile(
+    [<b>Description</b>("Repo-relative path")] string path,
+    string oldString,
+    string newString)
+{
+    PathGuard.AssertWritable(path);          <span class="c">// CCG's guardrail, reused verbatim</span>
+    <b>var</b> text = File.ReadAllText(path);
+    <b>if</b> (Occurrences(text, oldString) != 1)
+        <b>return</b> "ERROR: old_string must match exactly once.";   <span class="c">// errors are observations</span>
+    SafeFileWriter.WriteAllText(path, text.Replace(oldString, newString));
+    <b>return</b> "OK";
+}
+
+<span class="c">// One client shape for the local server AND the Claude API — swap the endpoint.</span>
+IChatClient model = <b>new</b> OpenAIClient(
+        <b>new</b> ApiKeyCredential("not-needed"),
+        <b>new</b> OpenAIClientOptions { Endpoint = <b>new</b> Uri("http://localhost:8001/v1") })
+    .GetChatClient("worker")
+    .AsIChatClient()
+    .AsBuilder()
+        .UseOpenTelemetry()      <span class="c">// every call traced → the measurement lab, free</span>
+    .Build();
+
+<b>var</b> options = <b>new</b> ChatOptions
+{
+    Tools    = [AIFunctionFactory.Create(EditFile), AIFunctionFactory.Create(RunTests)],
+    ToolMode = ChatToolMode.Auto,
+    <span class="c">// server-side constrained decoding — the Part 06 reliability win, from C#</span>
+    AdditionalProperties = <b>new</b>() { ["guided_decoding_backend"] = "xgrammar" }
+};</pre>
+      <p class="foot" style="margin:0;padding:0;border:0">API surfaces move between releases — treat the above as shape, not copy-paste.</p>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — don't let the framework write your loop for you</p>
+        <p><code>Microsoft.Extensions.AI</code> offers <code>.UseFunctionInvocation()</code>, which runs the tool-call loop automatically. For shipping an app, use it. For <em>this</em> project, think twice: the loop is the thing you're trying to understand, and a loop you didn't write is a loop you can't instrument, interrupt, budget, or compact. Use the built-in invoker for a day to confirm the endpoint works — then write the twenty lines yourself (<a href="#kit">Part 13</a>) and keep them. The whole premise of the guide is that <em>the controller is the agent</em>; delegating it to a library hands away the lesson.</p>
+      </div>
+
+      <h4>Suggested layout</h4>
+      <pre class="code">LocalAgent.sln
+├── Agent.Core        <span class="c">// controller loop, context assembly, verification, budgets</span>
+├── Agent.Tools       <span class="c">// read/grep/glob/edit/build/run_tests + PathGuard sandbox</span>
+├── Agent.Models      <span class="c">// IChatClient factories, one per served role (drafter/worker/critic)</span>
+├── Agent.Lab         <span class="c">// ablation runner → JSONL; the measurement harness (Part 10)</span>
+├── Agent.Host        <span class="c">// console entry point — also what TeamCity calls (Part 02)</span>
+└── ClaudeContextGenerator3.Core   <span class="c">// referenced, not reimplemented</span>
+
+<span class="c">// The only Python you run:</span>
+docker run ... vllm/vllm-openai:latest ...</pre>
+      <p><strong>Net:</strong> C# above the HTTP line, containers below it, a notebook for the plots. You lose access to training you weren't going to do, and you gain in-process reuse of a context generator you already built, genuine parallelism on a 256-thread machine, and static types across a system whose whole purpose is to be measured precisely.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="compile" class="reveal">
+      <p class="part-kick">Part 09</p>
+      <h2>Compiling — how the agent learns it was wrong</h2>
+      <p>Everything so far gives the agent a way to <em>act</em>. This part is about the fastest way to tell it that the action was wrong. For compiled languages — which is what your target repos are — the compiler is the single highest-value signal in the whole loop, and the easiest one to get badly wrong.</p>
+
+      <h3>Why compile feedback outranks tests</h3>
+      <p>Tests are the oracle for <em>correctness</em>. The compiler is the oracle for <em>coherence</em>, and it is better than tests on every axis that matters to a loop: faster, fully deterministic, and far more precise about the failure. A failing test says “something is wrong somewhere.” A compile error says <code>Foo.cs(42,17): error CS1061: 'Widget' does not contain a definition for 'Recalculate'</code> — file, line, column, code, and cause.</p>
+      <p>That precision maps exactly onto the most common failure mode of any code-generating model, local or hosted: <strong>a plausible method that doesn't exist</strong>. Hallucinated APIs, wrong overloads, a parameter that moved. No amount of context prevents these entirely; the compiler catches all of them, instantly, for free.</p>
+
+      <div class="tw">
+        <table>
+          <caption>The verification ladder — run each rung only if the one below passed</caption>
+          <thead><tr><th>Rung</th><th>Typical latency</th><th>Catches</th><th>Run it</th></tr></thead>
+          <tbody>
+            <tr><td><strong>1 · Syntax check</strong> (single file)</td><td class="num">&lt; 1 s</td><td>Malformed edits, unbalanced braces, broken strings</td><td>After every <code>edit_file</code></td></tr>
+            <tr><td><strong>2 · Compile</strong> (affected project)</td><td class="num">1–30 s</td><td>Hallucinated APIs, type errors, wrong signatures, missing usings</td><td>Before ever running tests</td></tr>
+            <tr><td><strong>3 · Analyzers / lint</strong></td><td class="num">seconds</td><td>Convention drift, nullability, obvious smells</td><td>Warn, don't gate</td></tr>
+            <tr><td><strong>4 · Unit tests</strong></td><td class="num">seconds–minutes</td><td>Wrong behaviour</td><td>Once it compiles</td></tr>
+            <tr><td><strong>5 · Full suite / integration</strong></td><td class="num">minutes</td><td>Regressions elsewhere</td><td>Before accepting</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — cheapest oracle first</p>
+        <p>A loop that runs the full test suite after every edit spends most of its wall-clock discovering typos. Order the ladder by cost and <strong>fail fast</strong>: a syntax error should cost the agent one second and one observation, not a three-minute build-and-test cycle. On a weaker model — which makes more of these mistakes — the ordering matters more, not less.</p>
+        <p>This is also where CCG earns a specific keep: the “build and platform facts” section of a generated root <code>CLAUDE.md</code> is what tells the agent <em>how</em> to build this repo. It's a small artifact that unlocks the most valuable tool in the set.</p>
+      </div>
+
+      <h3>9.1 · The trap that eats your context window</h3>
+      <p>One bad edit to a widely-included header produces four hundred errors. Feed that to the model raw and you have burned the entire context window on a single mistake, most of it duplicate cascade noise pointing at files the agent never touched. This is the most common way compiled-language agent loops fall over, and it is entirely preventable.</p>
+
+      <pre class="code"><span class="c">// ✗ What the compiler gives you</span>
+423 errors, 1,180 lines of output, 38k tokens.
+The first error is the cause; the other 422 are consequences.
+
+<span class="c">// ✓ What the agent should receive</span>
+{
+  "ok": false,
+  "errors": 423, "warnings": 12,
+  "summary": "1 root cause, 422 cascading",
+  "diagnostics": [
+    { "file": "src/geo/Point.h", "line": 42, "code": "C2065",
+      "message": "'Vector3': undeclared identifier" },
+    { "file": "src/geo/Mesh.cpp", "line": 17, "code": "C2065",
+      "message": "'Vector3': undeclared identifier", "andMore": 421 }
+  ]
+}</pre>
+
+      <p>The summarizer earns its keep with four rules: <strong>report the first error per file</strong>, <strong>cap the list</strong> (ten is plenty), <strong>deduplicate by error code</strong>, and <strong>always report the true total</strong> so the agent knows the scale of what it broke. Sort by file position — the earliest error is usually the cause and the rest evaporate when it's fixed.</p>
+
+      <h3>9.2 · Two paths in C#</h3>
+      <p>Because the harness and the target share a language, you get an option most agent harnesses don't have.</p>
+
+      <div class="tw">
+        <table>
+          <caption>Shelling out vs compiling in-process</caption>
+          <thead><tr><th></th><th><code>dotnet build</code> + parse</th><th>Roslyn in-process</th></tr></thead>
+          <tbody>
+            <tr><td>How</td><td>Run the SDK, parse the canonical MSBuild line format</td><td><code>MSBuildWorkspace</code> → <code>GetCompilationAsync()</code> → <code>GetDiagnostics()</code></td></tr>
+            <tr><td>You get</td><td>Text to regex — <code>path(line,col): error CS####: msg</code></td><td>Typed <code>Diagnostic</code> objects: <code>Id</code>, <code>Severity</code>, <code>Location</code>, <code>GetMessage()</code></td></tr>
+            <tr><td>Latency</td><td>Seconds (incremental), tens on a cold build</td><td><strong>Milliseconds</strong> for a single changed document</td></tr>
+            <tr><td>Fidelity</td><td>Exactly what CI sees — source generators, targets, custom steps, everything</td><td>Compiler + analyzer diagnostics; some MSBuild-level behaviour won't reproduce</td></tr>
+            <tr><td>Use it for</td><td>The authoritative gate before accepting a change</td><td>The sub-second pre-flight after every edit</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — reject the bad edit before it enters the loop</p>
+        <p>Roslyn can re-analyze a single edited document in milliseconds. That turns compilation from something the agent <em>does</em> into something the <code>edit_file</code> tool <em>enforces</em>: apply the edit to an in-memory <code>Document</code>, pull the diagnostics, and if the edit introduced a new error, return it as the tool result and never write to disk.</p>
+        <p>The agent now cannot leave the tree broken — the same structural-safety idea as <code>PathGuard</code>, applied to correctness instead of paths. And because there's no subprocess and no text parsing, there is no format to drift: the contract between compiler and harness is a typed object.</p>
+      </div>
+
+      <pre class="code"><span class="c">// The build tool. Shape, not copy-paste — verify the API surface as you go.</span>
+[<b>Description</b>("Compile the affected project. Returns errors with file, line, and code.")]
+<b>async</b> Task&lt;BuildResult&gt; Build(string projectPath, CancellationToken ct)
+{
+    <b>var</b> compilation = <b>await</b> _workspace.CurrentSolution
+        .GetProject(projectPath)!.GetCompilationAsync(ct);
+
+    <b>var</b> errors = compilation!.GetDiagnostics(ct)
+        .Where(d =&gt; d.Severity == DiagnosticSeverity.Error)
+        .OrderBy(d =&gt; d.Location.SourceTree?.FilePath)
+        .ThenBy(d =&gt; d.Location.GetLineSpan().StartLinePosition.Line)
+        .ToList();
+
+    <b>return</b> <b>new</b> BuildResult
+    {
+        Ok       = errors.Count == 0,
+        Total    = errors.Count,                     <span class="c">// always report the real number</span>
+        <span class="c">// one per file, then cap — the cascade is noise, not signal</span>
+        Reported = errors.GroupBy(d =&gt; d.Location.SourceTree?.FilePath)
+                         .Select(g =&gt; g.First())
+                         .Take(10)
+                         .Select(Format)
+                         .ToList(),
+    };
+}</pre>
+
+      <h3>9.3 · The C++ side, where builds are slow</h3>
+      <p>A C++ repo won't give you millisecond feedback, and a full rebuild is far too slow to sit inside an agent loop. Use the two-tier trick instead: <strong>syntax-check the changed file first</strong>, and only run the real build once that passes.</p>
+      <pre class="code"><span class="c">:: MSVC — parse and semantic-analyse only, no output files, sub-second</span>
+cl /Zs /nologo src\geo\Point.cpp
+
+<span class="c"># Clang / clangd equivalent</span>
+clang++ -fsyntax-only src/geo/Point.cpp
+
+<span class="c"># Per-file flags come from the compilation database, so the check</span>
+<span class="c"># uses the same includes and defines as the real build:</span>
+cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B build   <span class="c"># → compile_commands.json</span></pre>
+      <p>This catches essentially every hallucinated-API and type error in under a second, which is the overwhelming majority of what the agent gets wrong. The full build then becomes a gate you run once per accepted change rather than once per edit — and with 128 cores, that full build is one of the few things on this machine that is genuinely fast.</p>
+
+      <div class="call trap">
+        <p class="lab">▲ Trap — a build is arbitrary code execution</p>
+        <p>MSBuild targets, source generators, pre-build events, CMake scripts and <code>configure</code> steps all run code that came from the repository. If the agent can edit the repo, it can edit the build — so “run the build” is exactly as privileged as “run bash,” and deserves the same sandbox. Put builds in a container, mount the repo, and drop the network unless the restore step genuinely needs it. You have 256 threads; running several isolated builds concurrently costs you nothing.</p>
+      </div>
+
+      <h4>Metrics this unlocks</h4>
+      <ul class="tick">
+        <li><strong>Compile-error rate per edit</strong> — the fraction of edits that break the build. A direct, sensitive measure of model quality that needs no test suite, and the fastest way to rank two models on <em>your</em> code.</li>
+        <li><strong>Edits-to-green</strong> — how many attempts to get back to compiling after a break. This is recovery rate with a much tighter feedback signal than pass@1.</li>
+        <li><strong>Cascade ratio</strong> — errors reported vs root causes. Watch it to confirm the summarizer is doing its job rather than quietly flooding the context.</li>
+      </ul>
+      <p>Add all three to the ablation grid. A model that compiles clean on the first try 80% of the time is worth more in a loop than one that scores higher on a benchmark and breaks the build every third edit — and until you measure this, you have no way of telling those two apart.</p>
+    </section>
+
+    <hr class="rule">
+
+    <section id="measure" class="reveal">
+      <p class="part-kick">Part 10</p>
+      <h2>The measurement lab — the actual teacher</h2>
+      <p>For a learning environment, the most valuable thing you build is not the agent — it's the <strong>ablation harness</strong> that turns your beliefs into measurements. It converts “I think context helps” into a curve you can point at.</p>
+
+      <ul class="tick">
+        <li><strong>A task suite with tests.</strong> A dozen small coding tasks, each with a passing test as ground truth. Tests are the oracle — no human grading.</li>
+        <li><strong>Total instrumentation.</strong> Log every prompt, every tool call (and whether it parsed), token counts, wall-clock, and outcome. The transcript is the lesson.</li>
+        <li><strong>One variable at a time.</strong> Change model, or context, or tools, or verification — never two at once — and watch the metric move.</li>
+        <li><strong>Run the arms in parallel.</strong> Distinct endpoints on distinct GPUs (Part 07) means a five-level sweep runs as five concurrent jobs, not five sequential ones. A grid that would take a week becomes an overnight run — which is the difference between measuring occasionally and measuring by default.</li>
+      </ul>
+
+      <div class="tw">
+        <table>
+          <caption>The ablation grid — each axis isolates one factor</caption>
+          <thead><tr><th>Variable</th><th>Levels to sweep</th><th>What it isolates</th></tr></thead>
+          <tbody>
+            <tr><td>Model</td><td>7B · 80B-A3B · 480B · a second family</td><td>The raw <em>model</em> term — the ceiling everything else works within. Cross-family matters as much as size.</td></tr>
+            <tr><td>Context</td><td>none · lean CCG · full CCG</td><td>The asymmetric-compensation curve — and the point where dumping <em>hurts</em>.</td></tr>
+            <tr><td>Tools</td><td>read-only · +edit · +run-tests</td><td>How much capability is granted by tools vs the model.</td></tr>
+            <tr><td>Verification</td><td>off · compile · +tests · +critique · 3-critic vote</td><td>How much reliability the harness claws back from checking. Note the compile-only rung — it's cheap and may capture most of the gain (Part 04, Part 09).</td></tr>
+            <tr><td>Serving side</td><td>local 80B · local 480B · Claude API</td><td>The measured local-vs-hosted gap on <em>your</em> repo — the number Part 05's economics turn on.</td></tr>
+            <tr><td>Agents</td><td>solo · +reviewer · +parallel fan-out</td><td>Specialization payoff vs coordination cost.</td></tr>
+            <tr><td><strong>Serving topology</strong></td><td>TP8 · 4×TP2 · 8×TP1</td><td>Hardware-specific, and unique to a PCIe box: aggregate throughput vs single-agent quality. Nobody publishes this curve for your machine.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Metrics worth tracking</h4>
+      <ul class="tick">
+        <li><strong>pass@1</strong> — did the tests go green on the first completed run?</li>
+        <li><strong>Tool-call validity rate</strong> — fraction of tool calls that parsed and executed. Your single best early diagnostic for a weak model.</li>
+        <li><strong>Steps- and tokens-to-solve</strong> — efficiency, and the input to the latency trade-off.</li>
+        <li><strong>Recovery rate</strong> — after a failing test or bad edit, did the agent get back on track? This is what verification and good context most improve.</li>
+        <li><strong>Wall-clock per solved task</strong> — locally this <em>is</em> your cost function. Tokens are free; your afternoon isn't. Track it alongside pass@1 or you'll optimize quality into unusability.</li>
+        <li><strong>Compile-error rate per edit</strong> — the sharpest cheap signal you have (<a href="#compile">Part 09</a>), and the fastest way to rank two models on your own code without waiting for a test suite.</li>
+        <li><strong>Cost per solved task</strong> — box-hours consumed for local arms, cached token spend for API arms. The only way to make <a href="#cost">Part 05</a>'s break-even concrete instead of hypothetical.</li>
+      </ul>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight</p>
+        <p>Run the grid and you will have <em>measured</em> your original question: context lifts a weak model a lot on navigation-heavy tasks and barely on reasoning-heavy ones; a verification loop lifts it more than extra context does; and there's a floor below which the model simply can't hold the loop together no matter what you feed it. That surface is the understanding you're after.</p>
+        <p>With a frontier-adjacent model in the top row you get a second, sharper reading: <strong>how much of the remaining gap to Claude is model and how much is harness.</strong> That number is not on any leaderboard, it's specific to your repo and your tasks, and it's the one that tells you where to spend the next month.</p>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="build" class="reveal">
+      <p class="part-kick">Part 11</p>
+      <h2>Build roadmap — one variable at a time</h2>
+      <p>Each phase adds one subsystem, states the lesson, and names the metric to watch. Don't advance until the current phase is instrumented and green on a couple of tasks. Tags show how much of the box each phase needs — most of it needs very little, which is the point.</p>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 0</span><span class="ph-t">Instrument a bare loop</span><span class="ph-tag">1 GPU · C#</span></div>
+        <dl>
+          <dt>Build</dt><dd>One 80B-A3B worker on one GPU + <code>read</code>/<code>grep</code>/<code>glob</code> + the controller loop + full logging. No editing yet. Resist the urge to start with the 480B — a fast model shortens the feedback loop while the harness is what's broken.</dd>
+          <dt>Learn</dt><dd>See the loop breathe: prompts grow, tokens accrue, tool calls sometimes malformed. This is the agent's skeleton.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">Tool-call validity rate. If it's low, check <code>--tool-call-parser</code> first (§5.3), then add constrained decoding.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 1</span><span class="ph-t">Close the loop</span><span class="ph-tag">1 GPU</span></div>
+        <dl>
+          <dt>Build</dt><dd>Add <code>edit</code>, <code>build</code>, and <code>run_tests</code> — in that order, and with the diagnostic summarizer from <a href="#compile">Part 09</a> from the very first version. The agent can now change code and observe consequences.</dd>
+          <dt>Learn</dt><dd>Acting + observing is the leap from chatbot to agent. Watch it read a compile error, fix the signature, then read a failing test and try again.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">Compile-error rate per edit and edits-to-green first; then pass@1 and steps-to-solve.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 2</span><span class="ph-t">Add verification</span><span class="ph-tag">2 GPUs</span></div>
+        <dl>
+          <dt>Build</dt><dd>Re-run tests as a gate; add a critique pass that tries to refute the diff before accepting. Put the critic on a <em>second model family</em> on its own GPU — you have the room, and cross-family disagreement is worth far more than self-critique.</dd>
+          <dt>Learn</dt><dd>Reliability from redundancy — the concrete lesson of “more harness beats a bigger model.”</dd>
+          <dt class="metric">Watch</dt><dd class="metric">Recovery rate; pass@1 delta vs Phase 1; how often the critic disagrees usefully vs pedantically.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 3</span><span class="ph-t">Plug in CCG — lean</span><span class="ph-tag">2 GPUs · in-process</span></div>
+        <dl>
+          <dt>Build</dt><dd>Reference <code>ClaudeContextGenerator3.Core</code> directly (Part 08). Feed a lean root <code>CLAUDE.md</code> + retrieval-on-demand; reserve intent enrichment for intent-heavy files. A/B against no-context.</dd>
+          <dt>Learn</dt><dd>The asymmetric-compensation curve, first-hand — including the task where full-dump context makes things <em>worse</em>, and the uncomfortable possibility that a strong model barely needs it.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">pass@1 and tokens-to-solve, context-on vs context-off, per task type.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 4</span><span class="ph-t">Scale the model, not the code</span><span class="ph-tag">6 GPUs</span></div>
+        <dl>
+          <dt>Build</dt><dd>Stand up the 480B drafter alongside the workers and point the same harness at it — one config change, no code change, if Part 08's layout held. Add the Claude API as a fourth arm while you're here — same interface, and it turns <a href="#cost">Part 05</a>'s economics into measured numbers.</dd>
+          <dt>Learn</dt><dd>How much of your agent's competence was model and how much was harness. Everything built so far now runs unchanged on a far stronger brain; the delta is the answer.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">pass@1 and wall-clock per task, 80B vs 480B. Watch the trade: fewer steps, slower steps.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 5</span><span class="ph-t">Orchestrate</span><span class="ph-tag">8 GPUs</span></div>
+        <dl>
+          <dt>Build</dt><dd>Sub-agents for isolated sub-tasks; parallel fan-out for independent work; a three-critic panel that votes. C# <code>Channels</code> and <code>Parallel.ForEachAsync</code> do the coordinating.</dd>
+          <dt>Learn</dt><dd>Where specialization pays and where coordination cost eats the gain. Last on purpose — not because the hardware forced it, but because multiplying a loop you can't measure just multiplies the confusion.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">Quality delta vs solo; wall-clock with parallelism; GPU utilization across all eight cards.</dd>
+        </dl>
+      </div>
+
+      <div class="phase">
+        <div class="ph-head"><span class="ph-n">Phase 6</span><span class="ph-t">Close the freshness loop</span><span class="ph-tag">Pipeline</span></div>
+        <dl>
+          <dt>Build</dt><dd>The console host TeamCity calls (Part 02); the Context Test as a build gate; provenance headers; trigger-loop exclusions. Harden the path allow-list and the <code>bash</code> sandbox while you're there.</dd>
+          <dt>Learn</dt><dd>Stale context is worse than none — and now, that regenerating it automatically proves currency but not usefulness. The gate is what closes that gap.</dd>
+          <dt class="metric">Watch</dt><dd class="metric">pass@1 on a repo you deliberately let drift, fresh vs stale — then the Context Test trend across real commits.</dd>
+        </dl>
+      </div>
+    </section>
+
+    <hr class="rule">
+
+    <section id="creed" class="reveal">
+      <p class="part-kick">Part 12</p>
+      <h2>Principles &amp; pitfalls</h2>
+      <ul class="tick">
+        <li><strong>The agent is the controller code, not the model.</strong> Understand the loop and you understand the product. Don't let a framework write it for you.</li>
+        <li><strong>Grant capability with tools; grant reliability with verification;</strong> grant knowledge with lean context. Keep those three levers separate so you can measure each.</li>
+        <li><strong>Pick the model for tool-use fidelity.</strong> Rescue a weak one with constrained decoding, not a longer prompt — and check the server's tool-call parser before blaming the model.</li>
+        <li><strong>Lean, on-demand context.</strong> More is not better on any effective window, and locally the overage is paid in wall-clock on every step of the loop.</li>
+        <li><strong>Treat generated context as a build artifact.</strong> Regenerated from source, verified by test, never hand-maintained.</li>
+        <li><strong>Spend the redundancy you own.</strong> Verification is the cheapest quality on a machine you've already bought — three critics cost idle GPU time, not money.</li>
+        <li><strong>Replicas over tensor parallelism</strong> on a PCIe box. The obvious topology is the slow one.</li>
+        <li><strong>Cheapest oracle first.</strong> Syntax, then compile, then tests. And never hand the model raw compiler output — summarize the cascade or it eats the context window.</li>
+        <li><strong>Fixed cost only beats variable at utilization.</strong> Know your break-even (~8–10%), and treat idle hardware as the ongoing expense it is.</li>
+        <li><strong>Measure before you believe.</strong> The ablation grid is the curriculum; the transcripts are the lessons.</li>
+        <li><strong>Add multi-agent last.</strong> It's a layer over a working loop, not a substitute for one — even when the hardware would let you start there.</li>
+      </ul>
+
+      <div class="call insight">
+        <p class="lab">◆ What success looks like</p>
+        <p>You'll be able to <strong>plot the capability surface</strong> — model × context × verification × agents against pass@1 and wall-clock — for your own hardware, your own models, and your own repositories. At that point you won't just have a local coding agent; you'll understand, with numbers, exactly which parts of “how Claude works” are the model, which are the harness, and which are the context. CCG earns its place as the lean, automatically-fresh context term in that product — no more, and no less.</p>
+        <p>And with 768 GB and a frontier-class open-weight model in the top row of the grid, one of those numbers is genuinely worth having: <strong>the real, measured distance between a local agent and a hosted one</strong> — on your code, not on a benchmark someone else designed.</p>
+      </div>
+
+    </section>
+
+    <hr class="rule">
+
+    <section id="kit" class="reveal">
+      <p class="part-kick">Part 13</p>
+      <h2>Starter kit — enough to begin building</h2>
+      <p>Concrete artifacts to start from: a controller skeleton, the tool-call contract, a task suite the measurement lab can run immediately, and the constrained-decoding options that make a weak model usable. Written in C# to match your stack — the shape ports to any language, because all of it sits above the HTTP seam from Part 06.</p>
+
+      <p class="subhead">13.1 · The controller loop</p>
+      <h4>The agent, in about forty lines</h4>
+      <pre class="code"><span class="c">// The controller IS the agent. Instrument every line of it.</span>
+<b>async</b> Task&lt;string&gt; RunAsync(AgentTask task, ToolRegistry tools,
+                             IChatClient model, ContextBuilder ctx,
+                             CancellationToken ct)
+{
+    <b>var</b> messages = <b>new</b> List&lt;ChatMessage&gt; { SystemPrompt, ctx.Lean(task), task.AsUser() };
+
+    <b>for</b> (<b>var</b> step = 0; step &lt; MaxSteps; step++)
+    {
+        <b>var</b> reply = <b>await</b> model.GetResponseAsync(messages, <b>new</b> ChatOptions
+        {
+            Tools    = tools.Schemas,          <span class="c">// constrained → always a valid call</span>
+            ToolMode = ChatToolMode.Auto
+        }, ct);
+
+        <b>var</b> calls = reply.ToolCalls().ToList();
+
+        <b>if</b> (calls.Count == 0)                  <span class="c">// the model thinks it's done</span>
+        {
+            <b>if</b> (<b>await</b> VerifyAsync(task, ct))    <span class="c">// compile → tests → critique (Part 09)</span>
+                <b>return</b> reply.Text;
+            messages.Add(ReviewerNote(task));  <span class="c">// nudge back on track, keep going</span>
+            <b>continue</b>;
+        }
+
+        <b>foreach</b> (<b>var</b> call <b>in</b> calls)             <span class="c">// { Name, Arguments }</span>
+        {
+            <b>var</b> result = <b>await</b> tools.RunAsync(call, ct);   <span class="c">// writes are PathGuard-checked</span>
+            Log(step, call, result, CountTokens(messages)); <span class="c">// the transcript is the lesson</span>
+            messages.Add(<b>new</b>(ChatRole.Assistant, [call]));
+            messages.Add(<b>new</b>(ChatRole.Tool,      [result]));
+        }
+
+        <b>if</b> (CountTokens(messages) &gt; Budget)
+            messages = Compact(messages);      <span class="c">// summarize older turns</span>
+    }
+    <b>return</b> GiveUp(task);
+}</pre>
+      <p>Every subsystem from Part 07 hangs off one line here: <code>tools</code>, the <code>GetResponseAsync</code> call, <code>ctx.Lean</code>, <code>VerifyAsync</code>, <code>Compact</code>, and the <code>Log</code>. Keep the loop this small; put the intelligence in the tools and the verifier. Note what it does <em>not</em> do — no retry cleverness, no hidden state, no framework magic. That legibility is the entire point.</p>
+
+      <p class="subhead">13.2 · The tool contract</p>
+      <h4>One schema per tool — the exact shape local runtimes accept</h4>
+      <p>This is the JSON your server sees. In C# you don't write it by hand — <code>AIFunctionFactory.Create</code> generates it from the method signature (Part 08) — but you should be able to read it, because when tool calls misbehave this is where you look.</p>
+      <pre class="code"><span class="c">// A tool = a JSON schema the model is constrained to + a real executor.</span>
+{
+  "name": "edit_file",
+  "description": "Replace an exact, unique string in a file. Errors if absent or ambiguous.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path":       { "type": "string", "description": "Repo-relative path" },
+      "old_string": { "type": "string" },
+      "new_string": { "type": "string" }
+    },
+    "required": ["path", "old_string", "new_string"]
+  }
+}</pre>
+      <p>Start with six: <code>read_file</code>, <code>grep</code>, <code>glob</code>, <code>edit_file</code>, <code>build</code>, <code>run_tests</code> (add <code>bash</code> behind a sandbox later). Note that <code>build</code> comes before <code>run_tests</code> in every sense — in the list, in the loop, and in how much it earns (<a href="#compile">Part 09</a>). The round trip the model sees:</p>
+      <pre class="code"><span class="c">// model emits (constrained to a tool schema):</span>
+{ "tool": "run_tests", "arguments": { "path": "tests/test_calc.py" } }
+
+<span class="c">// controller executes and feeds back ONE observation:</span>
+{ "tool": "run_tests", "ok": false,
+  "observation": "1 failed, 3 passed — test_neg: expected 0, got -2" }</pre>
+
+      <p class="subhead">13.3 · A task suite you can run today</p>
+      <h4>Tests are the oracle — no human grading</h4>
+      <div class="tw">
+        <table>
+          <caption>Order by what they stress, so ablations separate skills</caption>
+          <thead><tr><th>#</th><th>Task</th><th>Stresses</th><th>Oracle</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>Make one failing unit test pass</td><td>Navigation + local reasoning</td><td>The test goes green</td></tr>
+            <tr><td class="num">2</td><td>Implement a documented-but-empty function</td><td>Reasoning from a spec</td><td>Provided test</td></tr>
+            <tr><td class="num">3</td><td>Find and fix an off-by-one bug</td><td>Debugging</td><td>Regression test</td></tr>
+            <tr><td class="num">4</td><td>Thread a new parameter through a call-chain</td><td>Multi-file edit</td><td>Existing suite + new test</td></tr>
+            <tr><td class="num">5</td><td>Refactor a function, behavior unchanged</td><td>Discipline / restraint</td><td>Full suite stays green</td></tr>
+            <tr><td class="num">6</td><td>Wire a new module into the build</td><td>Build/config knowledge</td><td>Build + smoke test</td></tr>
+            <tr><td class="num">7</td><td>Add a feature spanning three files</td><td>Long-horizon planning</td><td>Acceptance test</td></tr>
+            <tr><td class="num">8</td><td>Reproduce a bug from a description, then fix it</td><td>Comprehension + repro</td><td>New failing → passing test</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h4>Worked example — task&nbsp;1, end to end</h4>
+      <pre class="code"><span class="c"># calc.py — the agent must make the test pass.</span>
+<b>def</b> clamp(x, lo, hi):
+    <b>return</b> x            <span class="c"># BUG: ignores lo / hi</span>
+
+<span class="c"># tests/test_calc.py — the oracle.</span>
+<b>def</b> test_clamp():
+    <b>assert</b> clamp(5,  0, 10) == 5
+    <b>assert</b> clamp(-2, 0, 10) == 0
+    <b>assert</b> clamp(99, 0, 10) == 10</pre>
+      <p>The agent's ideal trace: <code>grep clamp</code> → <code>read_file calc.py</code> → <code>read_file test_calc.py</code> → <code>edit_file</code> → <code>run_tests</code> → green. Every arrow is a logged, measurable step.</p>
+
+      <p class="subhead">13.4 · Making tool calls impossible to malform</p>
+      <h4>Constrained decoding — the highest-ROI reliability fix</h4>
+      <div class="tw">
+        <table>
+          <caption>Guarantee valid output instead of hoping for it</caption>
+          <thead><tr><th>Approach</th><th>Where it lives</th><th>Guarantees</th><th>Best for</th></tr></thead>
+          <tbody>
+            <tr><td>JSON-schema guided (Outlines)</td><td>Library over HF / vLLM</td><td>Output matches a JSON schema</td><td>The easiest path to valid tool calls</td></tr>
+            <tr><td>Grammar-constrained (xgrammar / llguidance)</td><td>Integrated in vLLM</td><td>Output matches an arbitrary grammar</td><td>Fast, low-overhead tool-call grammars</td></tr>
+            <tr><td>GBNF grammar</td><td>llama.cpp / Ollama</td><td>Matches a hand-written grammar</td><td>Local GGUF models</td></tr>
+            <tr><td>Native structured output (<code>guided_json</code> / <code>response_format</code>)</td><td>Server flag or request field</td><td>Schema-valid JSON</td><td><strong>Your default</strong> — least code, and reachable from C#</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>All four run <em>inside the inference server</em>. From C# you reach them through the request — a <code>strict</code> tool definition, a <code>response_format</code>, or an <code>AdditionalProperties</code> entry. The Python-only appearance of this list is an artifact of where the libraries are written, not of where they can be used.</p>
+
+      <div class="call insight">
+        <p class="lab">◆ Insight — start here in Phase 0</p>
+        <p>The fastest reliability win on a weak model isn't a better prompt — it's making a malformed tool call <em>impossible</em>. Add constrained decoding first, and the rest of the harness has solid ground to stand on. You'll watch the tool-call validity rate jump to ~100% and the loop stop stalling on parse errors — a vivid, measurable lesson in why the harness, not the model, holds the agent together.</p>
+      </div>
+
+      <div class="foot">
+        <p><strong>Structure:</strong> Parts 01–05 are the evaluation — CCG on its own terms, the pipeline that keeps it fresh, the hardware, what that hardware does to the weak-model thesis, and what the whole thing costs against the Claude API. Parts 06–09 are the platform — installing the model server, the harness architecture, the C# stack, and compile feedback. Parts 10–13 are the practice — measurement, roadmap, principles, and a startable kit.</p>
+        <p><strong>Caveats.</strong> Hardware, pricing, and model figures are planning-grade: GPU specs and street prices, quantization sizes, API rates, and the open-weights shortlist all move quickly, and they reflect July 2026. The cost model in Part 05 is a structure to re-run with your own numbers, not a quote — the break-even is sensitive to acquisition cost, electricity rate, and how long a task actually takes on your repo. Framework flags and SDK surfaces drift between releases — treat code as shape, not copy-paste. Two claims are worth verifying before you architect around them: the PCIe-versus-NVLink throughput penalty on 8-way tensor parallel, and <code>sm_120</code> kernel support for whichever model family you pick.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  (function(){
+    var prog=document.getElementById('progress');
+    var ticking=false;
+    function onScroll(){
+      if(ticking) return; ticking=true;
+      requestAnimationFrame(function(){
+        var h=document.documentElement;
+        var max=h.scrollHeight-h.clientHeight;
+        prog.style.width=(max>0?(h.scrollTop/max*100):0)+'%';
+        ticking=false;
+      });
+    }
+    window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+
+    var links=Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+    var map={};
+    links.forEach(function(a){ map[a.getAttribute('href').slice(1)]=a; });
+    var spy=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if(e.isIntersecting){
+          links.forEach(function(l){l.classList.remove('active');});
+          var a=map[e.target.id]; if(a) a.classList.add('active');
+        }
+      });
+    },{rootMargin:'-45% 0px -50% 0px',threshold:0});
+    document.querySelectorAll('main section[id]').forEach(function(s){spy.observe(s);});
+
+    var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!reduce){
+      var rev=new IntersectionObserver(function(entries){
+        entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); rev.unobserve(e.target); } });
+      },{rootMargin:'0px 0px -8% 0px',threshold:.08});
+      document.querySelectorAll('.reveal').forEach(function(el){rev.observe(el);});
+    } else {
+      document.querySelectorAll('.reveal').forEach(function(el){el.classList.add('in');});
+    }
+  })();
+</script>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ablation runner and metrics harness (JSONL out). Filled in from task 20 onward. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>GlassCoder.Lab</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlassCoder.Core\GlassCoder.Core.csproj" />
+  </ItemGroup>
+
+</Project>

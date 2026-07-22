@@ -1,0 +1,35 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider / VS / VS Code
+.vs/
+.idea/
+.vscode/
+
+## Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coverlet.json
+coverage*.json
+coverage*.xml
+
+## GlassCoder run artifacts - transcripts, metrics and logs are generated data
+logs/
+runs/
+metrics/
+*.jsonl.tmp
+
+## Local secrets / machine-specific overrides
+appsettings.Development.json
+appsettings.Local.json
+*.env
+secrets.json
