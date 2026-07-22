@@ -61,11 +61,29 @@ public sealed class SandboxOptions
     /// </summary>
     public bool AllowUnsandboxedExecution { get; set; }
 
+    /// <summary>
+    /// Whether the container is hardened: read-only root filesystem, all Linux capabilities
+    /// dropped, no privilege escalation, and a bounded process count (workplan task 35).
+    /// <para>
+    /// The mounted workspace stays writable - the agent has to be able to edit and build - so
+    /// hardening constrains what a build can do to the <em>container</em>, not to the repository
+    /// it was given. Writable scratch space is provided as tmpfs rather than by unlocking the
+    /// root filesystem.
+    /// </para>
+    /// </summary>
+    public bool HardenContainer { get; set; } = true;
+
+    /// <summary>Maximum processes inside the container. Zero leaves it unlimited.</summary>
+    public long ProcessLimit { get; set; } = 512;
+
     /// <summary>Environment variables passed into the container as <c>NAME=value</c>.</summary>
     public IList<string> Environment { get; } =
     [
         "DOTNET_CLI_TELEMETRY_OPTOUT=1",
         "DOTNET_NOLOGO=1",
         "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
+        // A read-only root filesystem has nowhere to put the default package cache.
+        "NUGET_PACKAGES=/workspace/.glasscoder/nuget",
+        "HOME=/tmp",
     ];
 }

@@ -126,90 +126,90 @@ Implement recording of all Section 11 metrics per task and per run: pass@1, tool
 
 ## 21. Implement the task suite as the acceptance/ablation oracle
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Build the eight tasks from Section 16, each with a passing test as ground truth, ordered by the skill stressed. The suite doubles as the acceptance/ablation harness — its tests are the oracle with no human grading. Acceptance: each task can be run headlessly and its oracle test determines pass/fail. Depends on task 19.
 
 ## 22. Build the ablation runner in GlassCoder.Lab
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement the ablation runner in `GlassCoder.Lab` that executes arms (model/context/verification configuration variants) across the task suite, writing results and metrics to JSONL. Each arm is a config-only variation of the same harness. Acceptance: running two arms produces comparable JSONL metrics per arm. Depends on tasks 20, 21.
 
 ## 23. Implement verification critique pass (Phase 2)
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Add the self-critique / multi-critic refutation rung to verification, ideally driven by a different model family via the `critic` role. Integrate it as an optional pass gated by config. Track recovery rate as the watched metric. Acceptance: critique pass can be enabled and its effect on recovery rate is measurable. Depends on tasks 18, 22.
 
 ## 24. Implement planning/decomposition todo list
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Implement the agent-maintained todo list (subsystem 4) for task decomposition, exposed to the loop. Keep sub-agents out for now (added last per roadmap). Acceptance: the agent can create, update, and complete todo items visible in logs/transcript. Depends on task 19.
 
 ## 25. Set up WPF MVVM shell and DI integration
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Create the `GlassCoder.Wpf` MVVM shell wiring the shared DI/config bootstrap from task 3 into the WPF app. No business logic in code-behind. Establish view/viewmodel base infrastructure and navigation for the transcript, change-view, and metrics dashboard surfaces. Acceptance: app launches and resolves core services via DI. Depends on tasks 3, 19.
 
 ## 26. Build the live transcript view
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement the live, scrolling, filterable transcript view (Section 9) that renders per-step records (prompts, responses, tool calls, results, token counts, latency, outcome) with filtering by step, tool, and severity. Bind to the loop's log stream. Acceptance: a running agent's steps appear live and filters work. Depends on tasks 11, 25.
 
 ## 27. Build the code-change diff and status view
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement the change-visibility UI (Section 10): present each proposed change as a before/after diff with affected file and line ranges before applying; show status (proposed/applied/rejected/reverted); maintain a per-task change log navigable to file/location; tie compile/test results to the change that produced them. Acceptance: proposed edits render as diffs with correct status transitions. Depends on tasks 16, 25.
 
 ## 28. Implement human review/approval gating guardrail
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Implement the permission-prompt guardrail that gates writes on human review/approval where configured, surfaced through the change view (task 27). This is a guardrail before write. Acceptance: with gating enabled, edits require approval before persisting; with it disabled, edits apply automatically. Depends on task 27.
 
 ## 29. Build the metrics dashboard and ablation comparison view
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement UI charts/tables comparing runs (the ablation view) driven by the metrics JSONL from tasks 20 and 22. Support cross-run comparison of pass@1, tool-call validity, tokens-to-solve, wall-clock, and the other Section 11 indicators. Acceptance: two runs can be loaded and visually compared. Depends on tasks 22, 25.
 
 ## 30. Build the headless console host
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Implement `GlassCoder.Host` to run the same services non-interactively for CI: take a config path and repo root, respect the output allow-list, and return meaningful exit codes. Acceptance: a task can be run end-to-end from the console with correct exit codes. Depends on task 19.
 
 ## 31. Unit test coverage for Core, Tools, and Models
 
-- [ ] **Estimated time:** 2d
+- [x] **Estimated time:** 2d
 
 Build out the unit test suite under `tests/` mirroring the source layout. Fake the `IChatClient` and process runner — no live server dependency in unit tests. Cover the controller loop limits, each tool's success/error observations, the guardrail, the diagnostic summarizer, context compaction, and metrics recording. Acceptance: meaningful coverage of Core/Tools/Models with all tests green. Depends on tasks 10, 15, 16, 20.
 
 ## 32. Integration tests against a smoke-test endpoint
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Provide integration tests that exercise the full loop against a smoke-test endpoint, validating constrained decoding, tool execution, verification ladder, and transcript reconstruction end-to-end. Acceptance: full-loop integration tests pass against the smoke endpoint. Depends on tasks 19, 31.
 
 ## 33. Implement Phase 5 orchestration: sub-agents and parallel fan-out
 
-- [ ] **Estimated time:** 2d
+- [x] **Estimated time:** 2d
 
 Add sub-agents, parallel tool/agent fan-out using `Channels`/`Parallel.ForEachAsync`/TPL, and multi-critic voting — built last as a layer over the working loop. Track quality delta vs solo and GPU utilization. Acceptance: parallel orchestration runs and its metrics are comparable against the solo baseline. Depends on tasks 23, 24, 32.
 
 ## 34. Implement bash tool behind hardened sandbox
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Add the `bash` tool behind the sandboxed container established in task 17, treating it as exactly as privileged as running a build. Enforce the path allow-list and network-dropped defaults. Acceptance: bash executes only inside the sandbox and cannot mutate files outside the writable set. Depends on task 17.
 
 ## 35. Phase 6 freshness loop and provenance hardening
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 Implement the freshness-loop items (if applicable): headless CI operation via the console host, provenance stamping, trigger-loop exclusions, and a hardened sandbox. Track pass@1 fresh vs stale context. Acceptance: fresh vs stale runs are measurable and the sandbox passes hardening checks. Depends on tasks 30, 34.

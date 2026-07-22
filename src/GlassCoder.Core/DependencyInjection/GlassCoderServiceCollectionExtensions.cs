@@ -2,6 +2,8 @@ using GlassCoder.Core.Agent;
 using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Metrics;
+using GlassCoder.Core.Orchestration;
+using GlassCoder.Core.Provenance;
 using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Models.DependencyInjection;
@@ -52,13 +54,31 @@ public static class GlassCoderServiceCollectionExtensions
         services.AddOptions<VerificationLadderOptions>()
             .Bind(configuration.GetSection(VerificationLadderOptions.SectionName));
 
+        services.AddOptions<CritiqueOptions>()
+            .Bind(configuration.GetSection(CritiqueOptions.SectionName));
+
+        services.AddOptions<OrchestrationOptions>()
+            .Bind(configuration.GetSection(OrchestrationOptions.SectionName));
+
+        services.AddOptions<ProvenanceOptions>()
+            .Bind(configuration.GetSection(ProvenanceOptions.SectionName));
+
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<IStepLogger, StepLogger>();
+        // The bus wraps the durable logger so the UI can watch a run live without re-parsing
+        // what was just written (workplan task 26).
+        services.TryAddSingleton<StepLogger>();
+        services.TryAddSingleton<TranscriptBus>(provider => new TranscriptBus(provider.GetRequiredService<StepLogger>()));
+        services.TryAddSingleton<IStepLogger>(provider => provider.GetRequiredService<TranscriptBus>());
+        services.TryAddSingleton<ITranscriptBus>(provider => provider.GetRequiredService<TranscriptBus>());
         services.TryAddSingleton<ITokenEstimator, HeuristicTokenEstimator>();
         services.TryAddSingleton<IConversationCompactor, DigestCompactor>();
         services.TryAddSingleton<IContextAssembler, ContextAssembler>();
         services.TryAddSingleton<IMetricsRecorder, JsonlMetricsRecorder>();
         services.TryAddSingleton<IVerificationLadder, VerificationLadder>();
+        services.TryAddSingleton<ICriticPanel, CriticPanel>();
+        services.TryAddSingleton<IProvenanceStamper, ProvenanceStamper>();
+        services.TryAddSingleton<Func<IAgentLoop>>(provider => provider.GetRequiredService<IAgentLoop>);
+        services.TryAddSingleton<IOrchestrator, Orchestrator>();
         services.TryAddTransient<IAgentLoop, AgentLoop>();
 
         services.AddGlassCoderTelemetry(configuration);

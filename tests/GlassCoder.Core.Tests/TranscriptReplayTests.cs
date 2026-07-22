@@ -73,7 +73,7 @@ public sealed class TranscriptReplayTests : IDisposable
         call.Status.ShouldBe(nameof(ToolCallStatus.Succeeded));
         call.Parsed.ShouldBeTrue();
         call.Result.ShouldContain("hello");
-        call.Arguments!["text"].ToString().ShouldBe("hello");
+        call.Arguments!["text"]!.ToString().ShouldBe("hello");
     }
 
     [Fact]

@@ -1,3 +1,5 @@
+using GlassCoder.Tools.Planning;
+
 namespace GlassCoder.Core.Diagnostics;
 
 /// <summary>
@@ -96,4 +98,10 @@ public sealed record StepRecord
 
     /// <summary>Error detail when the step failed.</summary>
     public string? Error { get; init; }
+
+    /// <summary>
+    /// The agent's plan as it stood at this step. Recording it per step is what makes an
+    /// abandoned plan visible afterwards (workplan task 24).
+    /// </summary>
+    public IReadOnlyList<TodoItem>? Todos { get; init; }
 }

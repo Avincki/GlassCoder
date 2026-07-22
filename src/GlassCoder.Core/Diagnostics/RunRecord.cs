@@ -1,3 +1,6 @@
+using GlassCoder.Core.Provenance;
+using GlassCoder.Tools.Planning;
+
 namespace GlassCoder.Core.Diagnostics;
 
 /// <summary>
@@ -63,4 +66,10 @@ public sealed record RunRecord
 
     /// <summary>Failure detail when the run ended in an error.</summary>
     public string? Error { get; init; }
+
+    /// <summary>What produced this run, and whether its context was fresh (workplan task 35).</summary>
+    public ProvenanceStamp? Provenance { get; init; }
+
+    /// <summary>The plan as it stood when the run ended (workplan task 24).</summary>
+    public IReadOnlyList<TodoItem>? Todos { get; init; }
 }

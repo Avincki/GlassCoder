@@ -1,4 +1,6 @@
 using GlassCoder.Tools.Build;
+using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Planning;
 using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
@@ -41,8 +43,17 @@ public static class ToolsServiceCollectionExtensions
             .Bind(configuration.GetSection(SandboxOptions.SectionName))
             .ValidateOnStart();
 
+        services.AddOptions<ApprovalOptions>()
+            .Bind(configuration.GetSection(ApprovalOptions.SectionName));
+
         services.TryAddSingleton<IPathGuard, PathGuard>();
         services.TryAddSingleton<IProcessRunner, ProcessRunner>();
+        services.TryAddSingleton<ITodoList, TodoList>();
+        services.TryAddSingleton<IChangeLog, ChangeLog>();
+
+        // Fails closed: when approval is required and no interactive gate is registered, writes
+        // are refused rather than silently allowed (workplan task 28).
+        services.TryAddSingleton<IApprovalGate, AutoApprovalGate>();
 
         // Compiler feedback: rungs 1-2 in process, and the summariser that stands between any
         // diagnostic and the model (CLAUDE.md §8.2).
@@ -56,6 +67,12 @@ public static class ToolsServiceCollectionExtensions
 
         AddPhase0Tools(services);
         AddPhase1Tools(services);
+
+        // bash arrives last and only behind the sandbox (CLAUDE.md §7, workplan task 34).
+        if (configuration.GetValue(SandboxOptions.SectionName + ":EnableBashTool", false))
+        {
+            AddBashTool(services);
+        }
 
         services.TryAddSingleton<IToolRegistry>(provider => new ToolRegistry(
             provider.GetRequiredService<IEnumerable<IToolSet>>(),
@@ -77,7 +94,9 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<ReadFileTool>();
         services.TryAddSingleton<GrepTool>();
         services.TryAddSingleton<GlobTool>();
+        services.TryAddSingleton<TodoTool>();
 
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<TodoTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ReadFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GrepTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GlobTool>());
@@ -99,6 +118,19 @@ public static class ToolsServiceCollectionExtensions
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());
+        return services;
+    }
+
+    /// <summary>
+    /// The <c>bash</c> tool. Opt-in, and only meaningful with a working sandbox: it is exactly
+    /// as privileged as running a build (CLAUDE.md §8.4).
+    /// </summary>
+    public static IServiceCollection AddBashTool(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<BashTool>();
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BashTool>());
         return services;
     }
 }

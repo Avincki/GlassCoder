@@ -27,6 +27,12 @@ public enum VerificationRung
 
     /// <summary>Rung 5: the full suite, before a change is accepted.</summary>
     FullSuite = 5,
+
+    /// <summary>
+    /// Rung 6: multi-critic refutation (Phase 2). Runs last because it is the only rung whose
+    /// oracle is another model rather than a compiler or a test.
+    /// </summary>
+    Critique = 6,
 }
 
 /// <summary>What one rung did.</summary>
@@ -68,12 +74,16 @@ public sealed record VerificationReport(
 /// <param name="ProjectPath">Project or directory to compile and test.</param>
 /// <param name="TestFilter">Filter for the unit-test rung, so it stays cheaper than the full suite.</param>
 /// <param name="RunFullSuite">Whether to finish with the whole suite.</param>
+/// <param name="Goal">What the change was meant to achieve, for the critique rung.</param>
+/// <param name="ChangeDescription">The change itself, for the critique rung.</param>
 public sealed record VerificationRequest(
     string? FilePath = null,
     string? FileText = null,
     string ProjectPath = ".",
     string? TestFilter = null,
-    bool RunFullSuite = false);
+    bool RunFullSuite = false,
+    string? Goal = null,
+    string? ChangeDescription = null);
 
 /// <summary>
 /// Climbs the verification ladder, cheapest oracle first, and stops at the first failure
@@ -104,6 +114,7 @@ public sealed class VerificationLadder : IVerificationLadder
     private readonly DiagnosticSummarizer _summarizer;
     private readonly BuildTool _build;
     private readonly RunTestsTool _tests;
+    private readonly ICriticPanel _critics;
     private readonly VerificationLadderOptions _options;
     private readonly ILogger<VerificationLadder> _logger;
 
@@ -113,6 +124,7 @@ public sealed class VerificationLadder : IVerificationLadder
         DiagnosticSummarizer summarizer,
         BuildTool build,
         RunTestsTool tests,
+        ICriticPanel critics,
         IOptions<VerificationLadderOptions> options,
         ILogger<VerificationLadder>? logger = null)
     {
@@ -122,6 +134,7 @@ public sealed class VerificationLadder : IVerificationLadder
         _summarizer = summarizer;
         _build = build;
         _tests = tests;
+        _critics = critics;
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<VerificationLadder>.Instance;
     }
@@ -138,7 +151,7 @@ public sealed class VerificationLadder : IVerificationLadder
 
         foreach (VerificationRung rung in Rungs(request))
         {
-            RungResult result = await RunAsync(rung, request, cancellationToken).ConfigureAwait(false);
+            RungResult result = await RunAsync(rung, request, results, cancellationToken).ConfigureAwait(false);
             results.Add(result);
 
             if (result.Skipped)
@@ -181,11 +194,14 @@ public sealed class VerificationLadder : IVerificationLadder
         {
             yield return VerificationRung.FullSuite;
         }
+
+        yield return VerificationRung.Critique;
     }
 
     private async Task<RungResult> RunAsync(
         VerificationRung rung,
         VerificationRequest request,
+        IReadOnlyList<RungResult> results,
         CancellationToken cancellationToken)
     {
         long start = Stopwatch.GetTimestamp();
@@ -262,6 +278,25 @@ public sealed class VerificationLadder : IVerificationLadder
                 return new RungResult(rung, tests.Ok, summary, Elapsed(start));
             }
 
+            case VerificationRung.Critique:
+            {
+                if (!_critics.Enabled || request.ChangeDescription is null)
+                {
+                    return Skip(rung, "Critique is not enabled for this run.", start);
+                }
+
+                CritiqueResult critique = await _critics.CritiqueAsync(
+                    request.Goal ?? "(no goal recorded)",
+                    request.ChangeDescription,
+                    string.Join(Environment.NewLine, results.Where(r => !r.Skipped).Select(r => r.Summary)),
+                    cancellationToken).ConfigureAwait(false);
+
+                // Whether a refutation blocks or merely warns is configuration: a critic is a
+                // model, and a model gating a compiler-verified change is a strong claim.
+                bool passed = !critique.Refuted || !_options.CritiqueGates;
+                return new RungResult(rung, passed, critique.Summary, Elapsed(start));
+            }
+
             default:
                 return Skip(rung, "Unknown rung.", start);
         }
@@ -281,4 +316,11 @@ public sealed class VerificationLadderOptions
 
     /// <summary>Whether rung 3 runs at all. It never gates either way.</summary>
     public bool RunAnalyzers { get; set; } = true;
+
+    /// <summary>
+    /// Whether a refuted critique blocks the change. Off by default: the critique rung's value
+    /// is the recovery rate it drives, and a model refuting a compiler-verified change is a
+    /// claim worth reading rather than obeying (CLAUDE.md §8).
+    /// </summary>
+    public bool CritiqueGates { get; set; }
 }

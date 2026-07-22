@@ -1,0 +1,87 @@
+<UserControl x:Class="GlassCoder.Wpf.Views.ChangesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters">
+  <UserControl.Resources>
+    <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <conv:DiffKindToBrushConverter x:Key="DiffBrush" />
+    <conv:DiffKindToBackgroundConverter x:Key="DiffBackground" />
+
+    <!-- One diff line: sign, old/new line numbers, text. -->
+    <DataTemplate x:Key="DiffLineTemplate">
+      <Grid Background="{Binding Kind, Converter={StaticResource DiffBackground}}">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="44" />
+          <ColumnDefinition Width="44" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="{Binding OldLine}" Foreground="Gray"
+                   FontFamily="Cascadia Mono, Consolas" FontSize="12" TextAlignment="Right" Margin="0,0,6,0" />
+        <TextBlock Grid.Column="1" Text="{Binding NewLine}" Foreground="Gray"
+                   FontFamily="Cascadia Mono, Consolas" FontSize="12" TextAlignment="Right" Margin="0,0,10,0" />
+        <TextBlock Grid.Column="2" Text="{Binding}" Foreground="{Binding Kind, Converter={StaticResource DiffBrush}}"
+                   FontFamily="Cascadia Mono, Consolas" FontSize="12" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <Grid Margin="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="200" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- The permission prompt: a guardrail before write, shown next to the diff it is about. -->
+    <Border Grid.Row="0" Padding="10" Margin="0,0,0,8" CornerRadius="4"
+            Background="#FFF8E1" BorderBrush="#E0B200" BorderThickness="1"
+            Visibility="{Binding HasPending, Converter={StaticResource BoolToVisibility}}">
+      <StackPanel>
+        <TextBlock FontWeight="Bold" Text="{Binding Pending.Path, StringFormat='Approval needed: {0}'}" />
+        <TextBlock Margin="0,2,0,8" Foreground="#5D4C00"
+                   Text="This change has passed verification and is waiting to be written." />
+        <ItemsControl ItemsSource="{Binding Pending.Diff}" ItemTemplate="{StaticResource DiffLineTemplate}"
+                      MaxHeight="160" />
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+          <Button Content="Approve" Padding="16,4" Margin="0,0,8,0" Command="{Binding ApproveCommand}" />
+          <Button Content="Reject" Padding="16,4" Command="{Binding RejectCommand}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <DataGrid Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+              ItemsSource="{Binding Changes}" SelectedItem="{Binding Selected}"
+              GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Time" Binding="{Binding When}" Width="70" />
+        <DataGridTextColumn Header="Task" Binding="{Binding TaskId}" Width="110" />
+        <DataGridTextColumn Header="File" Binding="{Binding Path}" Width="*" />
+        <DataGridTextColumn Header="Lines" Binding="{Binding Range}" Width="80" />
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90" />
+        <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="200" />
+      </DataGrid.Columns>
+      <DataGrid.RowStyle>
+        <Style TargetType="DataGridRow">
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding Status}" Value="Rejected">
+              <Setter Property="Foreground" Value="#B00020" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Status}" Value="Applied">
+              <Setter Property="Foreground" Value="#1B5E20" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </DataGrid.RowStyle>
+    </DataGrid>
+
+    <StackPanel Grid.Row="2" Margin="0,8,0,4">
+      <TextBlock FontWeight="Bold" Text="{Binding Selected.Path, StringFormat='Diff — {0}'}" />
+      <TextBlock Foreground="#444" Text="{Binding Selected.Verification}" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+      <ItemsControl ItemsSource="{Binding Selected.Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
+    </ScrollViewer>
+  </Grid>
+</UserControl>

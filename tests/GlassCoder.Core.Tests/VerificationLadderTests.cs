@@ -128,7 +128,17 @@ public sealed class VerificationLadderTests : IDisposable
             summarizer,
             new BuildTool(_executor, guard, summarizer, sandbox),
             new RunTestsTool(_executor, guard, sandbox),
+            new DisabledCriticPanel(),
             Options.Create(new VerificationLadderOptions()));
+    }
+
+    /// <summary>Critique is a Phase 2 capability; the ladder tests are about the compiler rungs.</summary>
+    private sealed class DisabledCriticPanel : ICriticPanel
+    {
+        public bool Enabled => false;
+
+        public Task<CritiqueResult> CritiqueAsync(string goal, string change, string evidence, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new CritiqueResult(false, [], 0, "disabled"));
     }
 
     /// <summary>A command executor that replays scripted results and records what was asked of it.</summary>

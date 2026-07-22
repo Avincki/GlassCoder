@@ -1,8 +1,7 @@
 ﻿<Application x:Class="GlassCoder.Wpf.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:GlassCoder.Wpf"
-             StartupUri="MainWindow.xaml">
+             xmlns:local="clr-namespace:GlassCoder.Wpf">
     <Application.Resources>
          
     </Application.Resources>

@@ -1,0 +1,54 @@
+<UserControl x:Class="GlassCoder.Wpf.Views.MetricsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters">
+  <UserControl.Resources>
+    <conv:FractionToWidthConverter x:Key="FractionToWidth" />
+  </UserControl.Resources>
+
+  <Grid Margin="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+      <TextBlock Text="Group by" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ComboBox Width="110" Margin="0,0,12,0" ItemsSource="{Binding Groupings}" SelectedItem="{Binding GroupBy}" />
+      <Button Content="Reload" Padding="12,2" Command="{Binding ReloadCommand}" />
+    </StackPanel>
+
+    <!-- Cross-run comparison: the ablation view (CLAUDE.md §11). -->
+    <DataGrid Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+              ItemsSource="{Binding Rows}" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Arm / group" Binding="{Binding Group}" Width="180" />
+        <DataGridTextColumn Header="Runs" Binding="{Binding Runs}" Width="55" />
+        <DataGridTextColumn Header="pass@1" Binding="{Binding PassAtOneText}" Width="70" />
+        <DataGridTextColumn Header="Tool validity" Binding="{Binding ToolCallValidity, StringFormat=P0}" Width="90" />
+
+        <DataGridTemplateColumn Header="Tokens to solve" Width="220">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Rectangle Height="12" Fill="#4C6FBF" RadiusX="2" RadiusY="2"
+                           Width="{Binding TokenBar, Converter={StaticResource FractionToWidth}, ConverterParameter=140}" />
+                <TextBlock Margin="6,0,0,0" Text="{Binding TokensToSolve}" />
+              </StackPanel>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+
+        <DataGridTextColumn Header="Wall-clock" Binding="{Binding WallClockSeconds, StringFormat={}{0:F1}s}" Width="80" />
+        <DataGridTextColumn Header="Compile err/edit" Binding="{Binding CompileErrorRate, StringFormat={}{0:F2}}" Width="100" />
+        <DataGridTextColumn Header="Recovery" Binding="{Binding RecoveryRate, StringFormat=P0}" Width="75" />
+        <DataGridTextColumn Header="Cascade" Binding="{Binding CascadeRatio, StringFormat={}{0:F1}}" Width="70" />
+        <DataGridTextColumn Header="Fresh" Binding="{Binding FreshRuns}" Width="55" />
+        <DataGridTextColumn Header="Cost" Binding="{Binding CostUsd, StringFormat={}{0:F3}}" Width="70" />
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <TextBlock Grid.Row="2" Margin="0,8,0,0" Foreground="#555" Text="{Binding Status}" TextWrapping="Wrap" />
+  </Grid>
+</UserControl>

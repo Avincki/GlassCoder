@@ -265,7 +265,7 @@ public sealed class AgentLoopTests
                 TestContextAssembler.Create(),
                 Metrics,
                 Options.Create(_options),
-                TimeProvider);
+                timeProvider: TimeProvider);
 
             return loop.RunAsync(
                 new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing." },

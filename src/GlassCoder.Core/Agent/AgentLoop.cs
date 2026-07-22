@@ -3,8 +3,11 @@ using System.Text.Json;
 using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Metrics;
+using GlassCoder.Core.Provenance;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
+using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Planning;
 using GlassCoder.Tools.Registry;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -29,6 +32,8 @@ public sealed class AgentLoop : IAgentLoop
     private readonly IStepLogger _stepLogger;
     private readonly IContextAssembler _context;
     private readonly IMetricsRecorder _metrics;
+    private readonly ITodoList _todos;
+    private readonly IProvenanceStamper? _provenance;
     private readonly AgentOptions _defaults;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentLoop> _logger;
@@ -41,6 +46,8 @@ public sealed class AgentLoop : IAgentLoop
         IContextAssembler context,
         IMetricsRecorder metrics,
         IOptions<AgentOptions> options,
+        ITodoList? todos = null,
+        IProvenanceStamper? provenance = null,
         TimeProvider? timeProvider = null,
         ILogger<AgentLoop>? logger = null)
     {
@@ -51,6 +58,8 @@ public sealed class AgentLoop : IAgentLoop
         _stepLogger = stepLogger;
         _context = context;
         _metrics = metrics;
+        _todos = todos ?? new TodoList();
+        _provenance = provenance;
         _defaults = options.Value;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
@@ -74,6 +83,12 @@ public sealed class AgentLoop : IAgentLoop
 
         RunBudget budget = new(limits, roleOptions, _time);
         RunMetricsCollector metrics = new();
+
+        // Tools need to know which run they are serving without it being threaded through every
+        // signature, and each run starts from a blank plan.
+        RunContext.Set(new RunContext(request.RunId, request.TaskId));
+        _todos.Clear();
+        ProvenanceStamp? stamp = _provenance?.Stamp();
         IReadOnlyDictionary<string, object?>? requestProperties = DescribeRequestProperties(client, chatOptions);
         DateTimeOffset startedAt = _time.GetUtcNow();
 
@@ -200,11 +215,19 @@ public sealed class AgentLoop : IAgentLoop
             ToolCallsTotal = budget.ToolCallsTotal,
             ToolCallsValid = budget.ToolCallsValid,
             Error = error,
+            Provenance = stamp,
+            Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
 
         // Performance indicators, per run, in a shape that is comparable across runs and
         // across ablation arms (CLAUDE.md §11, workplan task 20).
-        RunMetrics runMetrics = metrics.Build(result, source: "loop", oraclePassed: null, recordedAt: _time.GetUtcNow());
+        RunMetrics runMetrics = metrics.Build(result, "loop", oraclePassed: null, recordedAt: _time.GetUtcNow())
+            with
+            {
+                RepoCommit = stamp?.RepoCommit,
+                ConfigHash = stamp?.ConfigHash,
+                ContextFresh = stamp?.ContextFresh,
+            };
         result = result with { Metrics = runMetrics };
         _metrics.Record(runMetrics);
 
@@ -283,6 +306,7 @@ public sealed class AgentLoop : IAgentLoop
             ContextCompacted = step.Context?.Compacted ?? false,
             Outcome = outcome,
             Error = error,
+            Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
 
     private static TranscriptMessage Describe(ChatMessage message)

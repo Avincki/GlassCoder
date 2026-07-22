@@ -1,0 +1,64 @@
+<UserControl x:Class="GlassCoder.Wpf.Views.TranscriptView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid Margin="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="200" />
+    </Grid.RowDefinitions>
+
+    <!-- Filter by step, tool and severity (CLAUDE.md §9). -->
+    <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+      <TextBlock Text="Tool" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ComboBox Width="130" Margin="0,0,12,0"
+                ItemsSource="{Binding ToolFilters}" SelectedItem="{Binding ToolFilter}" />
+
+      <TextBlock Text="Severity" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <ComboBox Width="100" Margin="0,0,12,0"
+                ItemsSource="{Binding SeverityFilters}" SelectedItem="{Binding SeverityFilter}" />
+
+      <TextBlock Text="From step" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <TextBox Width="50" Margin="0,0,12,0" Text="{Binding MinimumStep, UpdateSourceTrigger=PropertyChanged}" />
+
+      <TextBlock Text="Search" VerticalAlignment="Center" Margin="0,0,4,0" />
+      <TextBox Width="220" Margin="0,0,12,0" Text="{Binding Search, UpdateSourceTrigger=PropertyChanged}" />
+
+      <Button Content="Clear" Padding="10,2" Command="{Binding ClearCommand}" />
+    </WrapPanel>
+
+    <DataGrid Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+              ItemsSource="{Binding View}" SelectedItem="{Binding Selected}"
+              GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="40" />
+        <DataGridTextColumn Header="Tools" Binding="{Binding Tools}" Width="160" />
+        <DataGridTextColumn Header="Outcome" Binding="{Binding Outcome}" Width="90" />
+        <DataGridTextColumn Header="Tokens" Binding="{Binding Tokens}" Width="70" />
+        <DataGridTextColumn Header="Latency" Binding="{Binding Latency}" Width="80" />
+        <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*" />
+      </DataGrid.Columns>
+      <DataGrid.RowStyle>
+        <Style TargetType="DataGridRow">
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding Severity}" Value="error">
+              <Setter Property="Foreground" Value="#B00020" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding Severity}" Value="warning">
+              <Setter Property="Foreground" Value="#8A6D00" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </DataGrid.RowStyle>
+    </DataGrid>
+
+    <TextBlock Grid.Row="2" Margin="0,8,0,4" FontWeight="Bold" Text="Step detail" />
+
+    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+      <TextBox Text="{Binding Selected.Detail, Mode=OneWay}" IsReadOnly="True"
+               FontFamily="Cascadia Mono, Consolas" FontSize="12"
+               TextWrapping="Wrap" BorderThickness="0" Background="Transparent" />
+    </ScrollViewer>
+  </Grid>
+</UserControl>

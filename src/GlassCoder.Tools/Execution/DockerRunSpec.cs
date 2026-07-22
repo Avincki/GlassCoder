@@ -40,13 +40,13 @@ public static class DockerRunSpec
             Cmd = [request.FileName, .. request.Arguments],
             WorkingDir = ToContainerPath(request.WorkingDirectory, repoRoot, workspace),
             Env = [.. options.Environment],
-            HostConfig = new HostConfig
+            HostConfig = Harden(new HostConfig
             {
                 Binds = [$"{TrimSeparator(repoRoot)}:{workspace}"],
                 NetworkMode = ResolveNetworkMode(request, options),
                 Memory = options.MemoryBytes,
                 AutoRemove = false,
-            },
+            }, options),
         };
     }
 
@@ -65,6 +65,34 @@ public static class DockerRunSpec
         }
 
         return request.RequiresNetwork && options.AllowNetworkForRestore ? BridgeNetwork : NoNetwork;
+    }
+
+    /// <summary>
+    /// Applies the hardening policy. The workspace bind stays writable; everything else the
+    /// container could reach is locked down (workplan task 35).
+    /// </summary>
+    public static HostConfig Harden(HostConfig hostConfig, SandboxOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(hostConfig);
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (!options.HardenContainer)
+        {
+            return hostConfig;
+        }
+
+        hostConfig.ReadonlyRootfs = true;
+        hostConfig.CapDrop = ["ALL"];
+        hostConfig.SecurityOpt = ["no-new-privileges"];
+        hostConfig.PidsLimit = options.ProcessLimit > 0 ? options.ProcessLimit : null;
+
+        // Builds and test hosts need somewhere to write that is not the repository.
+        hostConfig.Tmpfs = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["/tmp"] = "rw,exec,nosuid,size=1g",
+        };
+
+        return hostConfig;
     }
 
     /// <summary>Maps a host path under the repository root to its path inside the container.</summary>

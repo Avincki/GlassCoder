@@ -72,6 +72,9 @@ public static class ToolErrorCodes
     /// <summary>The sandbox required to run this tool was unavailable.</summary>
     public const string SandboxUnavailable = "sandbox_unavailable";
 
+    /// <summary>A human declined to approve the change.</summary>
+    public const string ApprovalRefused = "approval_refused";
+
     /// <summary>An unexpected failure. The loop turns escaped exceptions into this.</summary>
     public const string Unexpected = "unexpected";
 }

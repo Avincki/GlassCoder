@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Tools.Verification;
@@ -15,6 +16,7 @@ namespace GlassCoder.Tools.FileSystem;
 /// <param name="LinesAfter">Lines in the file after the edit.</param>
 /// <param name="Verified">Whether the edit was compile-checked in memory before being written.</param>
 /// <param name="Diagnostics">Summarised diagnostics from that pre-write check, when it ran.</param>
+/// <param name="ChangeId">Identifier of this change in the change log, for the UI to link to.</param>
 public sealed record EditFileResult(
     [property: Description("Repo-relative path that was edited.")] string Path,
     [property: Description("1-based first line of the replaced region.")] int StartLine,
@@ -22,7 +24,8 @@ public sealed record EditFileResult(
     [property: Description("Number of lines in the file before the edit.")] int LinesBefore,
     [property: Description("Number of lines in the file after the edit.")] int LinesAfter,
     [property: Description("True when the edit was compile-checked in memory before being written.")] bool Verified,
-    [property: Description("Summary of diagnostics from the pre-write check, if it ran.")] string? Diagnostics);
+    [property: Description("Summary of diagnostics from the pre-write check, if it ran.")] string? Diagnostics,
+    [property: Description("Identifier of this change in the change log.")] string? ChangeId = null);
 
 /// <summary>
 /// <c>edit_file</c> - the first tool that changes anything (CLAUDE.md §7, workplan task 16).
@@ -46,6 +49,8 @@ public sealed class EditFileTool : IToolSet
     private readonly IPathGuard _guard;
     private readonly ICodeAnalyzer _analyzer;
     private readonly DiagnosticSummarizer _summarizer;
+    private readonly IChangeLog _changes;
+    private readonly IApprovalGate _approval;
     private readonly VerificationOptions _options;
     private readonly ILogger<EditFileTool> _logger;
 
@@ -55,6 +60,8 @@ public sealed class EditFileTool : IToolSet
         ICodeAnalyzer analyzer,
         DiagnosticSummarizer summarizer,
         IOptions<VerificationOptions> options,
+        IChangeLog? changes = null,
+        IApprovalGate? approval = null,
         ILogger<EditFileTool>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -62,6 +69,8 @@ public sealed class EditFileTool : IToolSet
         _guard = guard;
         _analyzer = analyzer;
         _summarizer = summarizer;
+        _changes = changes ?? new ChangeLog();
+        _approval = approval ?? new AutoApprovalGate(Options.Create(new ApprovalOptions()));
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EditFileTool>.Instance;
     }
@@ -144,17 +153,35 @@ public sealed class EditFileTool : IToolSet
 
         string updated = string.Concat(original.AsSpan(0, first), newText, original.AsSpan(first + oldText.Length));
 
-        // Gate: would this still parse, and would it still compile? Refuse before writing.
+        // Every change is recorded before it is applied, so a change that was refused is as
+        // visible in the UI as one that landed (CLAUDE.md §10).
+        CodeChange change = _changes.Propose(verdict.RelativePath!, ToolName, original, updated);
+
+        // Gate 1: would this still parse, and would it still compile? Refuse before writing.
         (bool rejected, string? diagnostics, bool verified) = await VerifyAsync(
             verdict.FullPath, verdict.RelativePath!, original, updated, cancellationToken).ConfigureAwait(false);
 
         if (rejected)
         {
+            _changes.Update(change.Id, ChangeStatus.Rejected, "Verification refused the edit.", diagnostics);
             return Observation.Fail<EditFileResult>(
                 ToolName,
                 ToolErrorCodes.VerificationFailed,
                 $"The edit was refused: it would break '{verdict.RelativePath}'.\n{diagnostics}",
                 "Fix the problem in your replacement text and try again. Nothing has been written.");
+        }
+
+        // Gate 2: does a human have to say yes? The permission prompt is a guardrail before
+        // write, so it runs after verification and before anything touches the working tree.
+        ApprovalDecision decision = await _approval.RequestAsync(change, cancellationToken).ConfigureAwait(false);
+        if (!decision.Approved)
+        {
+            _changes.Update(change.Id, ChangeStatus.Rejected, decision.Reason ?? "A human rejected the change.");
+            return Observation.Fail<EditFileResult>(
+                ToolName,
+                ToolErrorCodes.ApprovalRefused,
+                decision.Reason ?? $"A human rejected the change to '{verdict.RelativePath}'.",
+                "Nothing has been written. Take the feedback into account before trying again.");
         }
 
         try
@@ -163,9 +190,11 @@ public sealed class EditFileTool : IToolSet
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            _changes.Update(change.Id, ChangeStatus.Rejected, ex.Message);
             return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
         }
 
+        _changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: diagnostics);
         int startLine = CountLines(original.AsSpan(0, first)) + 1;
         int linesBefore = CountLines(original) + 1;
         int linesAfter = CountLines(updated) + 1;
@@ -182,7 +211,8 @@ public sealed class EditFileTool : IToolSet
             linesBefore,
             linesAfter,
             verified,
-            diagnostics);
+            diagnostics,
+            change.Id);
 
         return Observation.Ok(ToolName, result, $"Edited {verdict.RelativePath} at line {startLine}.");
     }
