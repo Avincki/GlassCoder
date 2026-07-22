@@ -1,0 +1,1257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="How to operate GlassCoder: configuration, commands, the verification ladder, what a run records, and how to measure it.">
+<title>GlassCoder — Operator's Guide</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    padding: 2.5rem 0;
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol {
+    list-style: none;
+    margin: 0 0 1.9rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    letter-spacing: 0.08em;
+  }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-size: 1.24rem;
+    font-weight: 600;
+    margin: 2.4rem 0 0.7rem;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- steps (real sequence only) ---------- */
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.08rem; }
+
+  /* ---------- spec rows ---------- */
+
+  .spec {
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.4rem;
+  }
+
+  .spec > div {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- state pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+
+  /* ---------- the ladder ---------- */
+
+  .ladder {
+    max-width: var(--measure);
+    margin: 0 0 1.4rem;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 0;
+    border-left: 2px solid var(--rule-strong);
+    padding-left: 0;
+  }
+
+  .rung {
+    display: grid;
+    grid-template-columns: 2.6rem minmax(0, 1fr) auto;
+    gap: 0 1rem;
+    align-items: baseline;
+    padding: 0.75rem 0 0.75rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+
+  .ladder .rung:first-child { border-bottom: none; }
+
+  .rung::before {
+    content: "";
+    position: absolute;
+    left: -2px;
+    top: 50%;
+    width: 0.7rem;
+    height: 2px;
+    background: var(--rule-strong);
+  }
+
+  .rung .n {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--signal);
+  }
+
+  .rung .what { font-size: 0.95rem; }
+  .rung .what b { font-weight: 600; color: var(--ink); }
+  .rung .what span { color: var(--muted); display: block; font-size: 0.88rem; }
+
+  /* ---------- phases ---------- */
+
+  .phases { display: flex; flex-direction: column; gap: 0; margin: 0 0 1.4rem; }
+
+  .phase {
+    display: grid;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.85rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .phase:first-child { border-top: 1px solid var(--rule); }
+  .phase .p { font-family: var(--mono); font-size: 0.8rem; color: var(--signal); }
+  .phase b { display: block; font-weight: 600; margin-bottom: 0.1rem; }
+  .phase span { color: var(--muted); font-size: 0.92rem; }
+  .phase em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 0.8rem; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Operator's guide</div>
+    <h1>GlassCoder</h1>
+    <p class="standfirst">
+      A local AI coding agent you can see through. It drives a model over your own
+      <code>/v1</code> endpoint through an instrumented loop, and records what happened
+      precisely enough to argue with.
+    </p>
+    <div class="specstrip">
+      <div><b>Stack</b> C# · .NET 10 · WPF</div>
+      <div><b>Seam</b> OpenAI-compatible HTTP</div>
+      <div><b>Surfaces</b> desktop app · console host</div>
+      <div><b>Outputs</b> JSONL transcript · JSONL metrics</div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#model">The mental model</a></li>
+      <li><a href="#start">Getting a first run</a></li>
+      <li><a href="#config">Configuration</a></li>
+      <li><a href="#refuse">Defaults that refuse</a></li>
+      <li><a href="#tools">Tools &amp; the ladder</a></li>
+      <li><a href="#cli">Command reference</a></li>
+      <li><a href="#outputs">What a run leaves behind</a></li>
+      <li><a href="#measure">Measuring: suite &amp; arms</a></li>
+      <li><a href="#app">The desktop app</a></li>
+      <li><a href="#phases">Working through the phases</a></li>
+      <li><a href="#stuck">When something refuses</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="model">
+      <div class="part-head"><span class="num">01</span><h2>The mental model</h2></div>
+
+      <p>
+        GlassCoder is the <b>harness</b>, not the model. All inference happens in an external
+        server you run yourself — vLLM, SGLang, llama.cpp, Ollama, or a hosted API. GlassCoder
+        talks to it over one boundary, the <b>seam</b>: <code>POST /v1/chat/completions</code>.
+        Which server answers is configuration, never architecture.
+      </p>
+
+      <p>Everything above that seam is a small loop you can read:</p>
+
+      <pre><code>Observe  →  Think  →  Act  →  Result
+   ↻ repeat until the goal is met and verification passes,
+     or a step / token / time / cost limit trips</code></pre>
+
+      <p>
+        Three things are treated as first-class, and they are why the application exists at all:
+        every step is <b>logged</b> so a run can be replayed; every change is <b>visible</b> as a
+        diff before it lands; every run is <b>measured</b> so two configurations can be compared.
+      </p>
+
+      <h3>Two ways to drive it</h3>
+
+      <dl class="spec">
+        <div>
+          <dt>glasscoder</dt>
+          <dd>The console host. Non-interactive, meaningful exit codes, meant for CI and for
+              running the task suite.</dd>
+        </div>
+        <div>
+          <dt>GlassCoder.Wpf</dt>
+          <dd>The desktop app. Same services, same configuration — adds a live transcript,
+              diff review with approval, and the metrics dashboard.</dd>
+        </div>
+      </dl>
+
+      <p>
+        They share one bootstrap, so anything you measure in one applies to the other.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="start">
+      <div class="part-head"><span class="num">02</span><h2>Getting a first run</h2></div>
+
+      <h4>You will need</h4>
+      <ul class="prose">
+        <li>The <b>.NET 10 SDK</b>.</li>
+        <li>A <b>model server</b> answering on an OpenAI-compatible <code>/v1</code> endpoint,
+            serving at least one alias.</li>
+        <li><b>Docker</b>, if you want the agent to build or run tests. Without it those two
+            tools refuse rather than running on your machine — see
+            <a href="#refuse">defaults that refuse</a>.</li>
+      </ul>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Build it</h3>
+<pre><code>dotnet build
+dotnet test        <span class="c"># optional: 195 tests, ~25s</span></code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Point it at your server</h3>
+            <p>Open <code>config/appsettings.json</code> and set the worker role's endpoint and
+               alias. The alias is the name your server serves — never a checkpoint path.
+               GlassCoder rejects paths at startup, because a path silently pins an experiment
+               to one machine.</p>
+<pre><code>"worker": {
+  <span class="k">"Endpoint"</span>: "http://localhost:8001/v1",
+  <span class="k">"ModelAlias"</span>: "worker",
+  <span class="k">"Temperature"</span>: 0.2
+}</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Check what the agent can see</h3>
+            <p>This resolves the whole service graph and prints the tools in the order the model
+               is offered them. If configuration is wrong, you find out here rather than
+               mid-run.</p>
+<pre><code>glasscoder tools</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Run a read-only goal</h3>
+            <p>Start where the agent cannot break anything. Nothing is writable until you say so,
+               so this is safe by construction.</p>
+<pre><code>glasscoder run --repo C:\src\your-project \
+  --goal "Find where request retries are implemented and explain the backoff."</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Read what happened</h3>
+            <p>Two files appear under the working directory. The <code>.log</code> is for you;
+               the <code>.jsonl</code> is the full transcript, and it is the one that matters.</p>
+<pre><code>logs/glasscoder-20260722.log      <span class="c"># human</span>
+logs/glasscoder-20260722.jsonl   <span class="c"># every step, replayable</span>
+metrics/metrics.jsonl            <span class="c"># one line per run</span></code></pre>
+          </div>
+        </li>
+      </ol>
+
+      <div class="note">
+        <span class="tag">Watch this first</span>
+        <p>
+          On a new model, the number that tells you whether anything else is worth trying is
+          <b>tool-call validity rate</b>. If the model cannot reliably emit a well-formed tool
+          call, no amount of prompting will fix the runs above it. Constrained decoding is on by
+          default precisely to make that rate high.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="config">
+      <div class="part-head"><span class="num">03</span><h2>Configuration</h2></div>
+
+      <p>
+        Everything lives in <code>config/appsettings.json</code>. No endpoint, alias, budget or
+        limit is hardcoded anywhere. That is what makes an experiment reproducible: an
+        <b>arm</b> is a config file, never a code change.
+      </p>
+
+      <h3>The sections</h3>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Section</th><th>Controls</th><th>Reach for it when</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="m">Models</td>
+              <td>Endpoints, aliases, sampling, cost per million tokens, constrained decoding —
+                  per role (<code>worker</code>, <code>drafter</code>, <code>critic</code>).</td>
+              <td>Swapping models or serving several at once.</td>
+            </tr>
+            <tr>
+              <td class="m">Workspace</td>
+              <td>Repo root, readable paths, <b>writable paths</b>, denied globs, symlink policy.</td>
+              <td>Letting the agent edit anything at all.</td>
+            </tr>
+            <tr>
+              <td class="m">Agent</td>
+              <td>Step, token, wall-clock and cost limits; the system prompt.</td>
+              <td>Runs are too long, too expensive, or give up too early.</td>
+            </tr>
+            <tr>
+              <td class="m">Context</td>
+              <td>Window budget, compaction threshold, the lean always-loaded root files.</td>
+              <td>Long runs; A/B testing whether context earns its tokens.</td>
+            </tr>
+            <tr>
+              <td class="m">Verification</td>
+              <td>Diagnostic cap, pre-write compile check, whether a breaking edit is refused.</td>
+              <td>Edits land broken, or the check costs too much latency.</td>
+            </tr>
+            <tr>
+              <td class="m">Sandbox</td>
+              <td>Docker vs host, image, network policy, hardening, <code>bash</code> opt-in.</td>
+              <td>Build and test tools refuse to run.</td>
+            </tr>
+            <tr>
+              <td class="m">Approval</td>
+              <td>Whether a human must approve each write, and the timeout.</td>
+              <td>You want to review diffs before they land.</td>
+            </tr>
+            <tr>
+              <td class="m">Critique</td>
+              <td>Multi-critic refutation: role, critic count, whether it gates.</td>
+              <td>Phase 2 — watching recovery rate.</td>
+            </tr>
+            <tr>
+              <td class="m">Orchestration</td>
+              <td>Sub-agents and parallel fan-out.</td>
+              <td>Phase 5, and only after the solo loop is good.</td>
+            </tr>
+            <tr>
+              <td class="m">Provenance</td>
+              <td>Commit stamping and context-freshness judgement.</td>
+              <td>Comparing pass@1 on fresh versus stale context.</td>
+            </tr>
+            <tr>
+              <td class="m">Logging<br>Metrics<br>Telemetry</td>
+              <td>Sink locations, the content-redaction switch, OTLP endpoint.</td>
+              <td>Sending traces somewhere, or logging without source content.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Overriding without editing the file</h3>
+
+      <p>Environment variables win over the file, and command-line arguments win over those:</p>
+
+<pre><code><span class="c"># double underscore is the section separator</span>
+set GlassCoder__Agent__MaxSteps=50
+set GlassCoder__Logging__LogSourceContent=false</code></pre>
+
+      <p>
+        For a whole set of overrides, layer a second file instead — this is how arms work, and
+        two are shipped:
+      </p>
+
+<pre><code>glasscoder run --config config/phase0.json --goal "..."
+glasscoder run --config config/phase1.json --goal "..."</code></pre>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="refuse">
+      <div class="part-head"><span class="num">04</span><h2>Defaults that refuse</h2></div>
+
+      <p>
+        Four defaults will stop the agent doing something you might have expected it to do. Each
+        is deliberate, and each fails <em>closed</em> — the safe direction — so you should expect
+        to meet them and turn them off knowingly.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Nothing is writable</span>
+        <p>
+          <code>Workspace:WritablePaths</code> ships <b>empty</b>, and empty means no file may be
+          written at all. A harness that cannot write is harmless; one that writes wherever it
+          likes is not. Opt in explicitly:
+        </p>
+<pre><code>"WritablePaths": [ "src", "tests" ]</code></pre>
+      </div>
+
+      <div class="note refuse">
+        <span class="tag">A build is arbitrary code execution</span>
+        <p>
+          <code>build</code> and <code>run_tests</code> run inside a container with your repo
+          mounted and <b>the network dropped</b>, except for a restore. If Docker is not
+          reachable they return <code>sandbox_unavailable</code> rather than quietly running on
+          your machine. To accept that risk deliberately, set
+          <code>Sandbox:AllowUnsandboxedExecution</code> to <code>true</code>.
+        </p>
+      </div>
+
+      <div class="note refuse">
+        <span class="tag">Approval fails closed</span>
+        <p>
+          If <code>Approval:RequireApprovalForWrites</code> is on and nothing can ask a human —
+          the console host, for instance — writes are <b>refused</b>, not allowed. A timeout
+          counts as a refusal too. Approving by default would turn a safety setting into a no-op
+          exactly when someone believed it was protecting them. Use the desktop app when you want
+          this on.
+        </p>
+      </div>
+
+      <div class="note refuse">
+        <span class="tag">bash is off</span>
+        <p>
+          The <code>bash</code> tool is exactly as privileged as running a build, so it is
+          opt-in via <code>Sandbox:EnableBashTool</code> and only available inside the container.
+          Prefer the dedicated tools: they give the agent better observations and you better logs.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="tools">
+      <div class="part-head"><span class="num">05</span><h2>Tools &amp; the verification ladder</h2></div>
+
+      <p>
+        Seven tools are offered, in this order. Order is part of the contract — the model reaches
+        for what it is shown first, so the cheap, high-value oracles come before the expensive
+        ones.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Tool</th><th>Does</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="m">update_todos</td><td>Records the agent's plan.</td><td>Whole list each time; snapshotted into every step.</td></tr>
+            <tr><td class="m">read_file</td><td>Reads a line range.</td><td>Truncates and says so.</td></tr>
+            <tr><td class="m">grep</td><td>Regex search across the workspace.</td><td>The cheapest way to locate code.</td></tr>
+            <tr><td class="m">glob</td><td>Lists paths matching a pattern.</td><td>Skips <code>.git</code>, <code>bin</code>, <code>obj</code>.</td></tr>
+            <tr><td class="m">edit_file</td><td>Replaces an exact, unique string.</td><td>Errors if the target is missing <em>or</em> ambiguous.</td></tr>
+            <tr><td class="m">build</td><td>Parsed <code>dotnet build</code>.</td><td>The authoritative compile gate.</td></tr>
+            <tr><td class="m">run_tests</td><td>Parsed <code>dotnet test</code>.</td><td>Reports failing test names, not just counts.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Every tool returns a single observation object, and <b>errors are observations, not
+        exceptions</b>. A tool failure is information the agent acts on; it never ends the run.
+      </p>
+
+      <h3>The ladder, cheapest oracle first</h3>
+
+      <p>
+        After an edit, verification climbs from the bottom. Each rung runs only if the one below
+        it passed, so tests never run on code that does not compile.
+      </p>
+
+      <div class="ladder">
+        <div class="rung">
+          <span class="n">06</span>
+          <span class="what"><b>Critique</b><span>Multi-critic refutation. Off by default; reports rather than gates.</span></span>
+          <span class="pill warn">optional</span>
+        </div>
+        <div class="rung">
+          <span class="n">05</span>
+          <span class="what"><b>Full suite</b><span>Before a change is accepted.</span></span>
+          <span class="pill fail">gates</span>
+        </div>
+        <div class="rung">
+          <span class="n">04</span>
+          <span class="what"><b>Unit tests</b><span>Once it compiles. Minutes.</span></span>
+          <span class="pill fail">gates</span>
+        </div>
+        <div class="rung">
+          <span class="n">03</span>
+          <span class="what"><b>Analyzers</b><span>Convention drift and nullability.</span></span>
+          <span class="pill warn">reports only</span>
+        </div>
+        <div class="rung">
+          <span class="n">02</span>
+          <span class="what"><b>Compile</b><span>Hallucinated APIs, wrong signatures. Seconds.</span></span>
+          <span class="pill fail">gates</span>
+        </div>
+        <div class="rung">
+          <span class="n">01</span>
+          <span class="what"><b>Syntax</b><span>After every edit, in process. Milliseconds.</span></span>
+          <span class="pill fail">gates</span>
+        </div>
+      </div>
+
+      <p>
+        Two rungs also run <em>before</em> a write reaches disk: <code>edit_file</code> parses the
+        result and compiles the project in memory, and refuses the edit if it would introduce a
+        new error. Errors that were already there never block an edit — the agent is usually
+        editing precisely because something is broken.
+      </p>
+
+      <div class="note">
+        <span class="tag">Why you never see a wall of errors</span>
+        <p>
+          Diagnostics are summarised before the model ever sees them: first error per file,
+          deduplicated by code, capped at ten, sorted by position, with the true total always
+          reported. One bad edit can produce two hundred errors that are all the same error —
+          handing those over raw would consume the entire context window and bury the cause.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="cli">
+      <div class="part-head"><span class="num">06</span><h2>Command reference</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td class="m">run --goal "…"</td><td>Runs one goal against the repository.</td></tr>
+            <tr><td class="m">suite</td><td>Runs the eight-task acceptance suite and reports pass@1.</td></tr>
+            <tr><td class="m">ablate</td><td>Runs the standard arms across the suite and prints the comparison.</td></tr>
+            <tr><td class="m">fixtures</td><td>Verifies the suite itself — that each fixture starts in the state its task assumes.</td></tr>
+            <tr><td class="m">tools</td><td>Lists the registered tools in advertised order.</td></tr>
+            <tr><td class="m">help</td><td>Usage.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Options</h4>
+
+      <dl class="spec">
+        <div><dt>--config &lt;path&gt;</dt><dd>Layers a file over <code>appsettings.json</code>. This is how you select an arm.</dd></div>
+        <div><dt>--repo &lt;path&gt;</dt><dd>The repository to work on. Defaults to the working directory.</dd></div>
+        <div><dt>--goal "…"</dt><dd>What to do. Required by <code>run</code>.</dd></div>
+        <div><dt>--task &lt;id&gt;</dt><dd>Task identifier recorded in metrics and transcripts.</dd></div>
+        <div><dt>--suite-task &lt;id&gt;</dt><dd>Run one suite task instead of all eight.</dd></div>
+        <div><dt>--work &lt;dir&gt;</dt><dd>Where suite fixtures are materialised.</dd></div>
+      </dl>
+
+      <h3>Exit codes</h3>
+
+      <p>Distinct on purpose: CI has to be able to tell "the agent could not solve it" from
+         "this is misconfigured", because only one of those is worth retrying.</p>
+
+      <dl class="spec">
+        <div><dt>0</dt><dd>Success — the run finished and, where an oracle existed, it passed.</dd></div>
+        <div><dt>1</dt><dd>The task did not pass.</dd></div>
+        <div><dt>2</dt><dd>Bad configuration or command line. Retrying will not help.</dd></div>
+        <div><dt>3</dt><dd>A step, token, time or cost limit stopped the run.</dd></div>
+        <div><dt>4</dt><dd>The model endpoint could not be reached, or failed the call.</dd></div>
+        <div><dt>5</dt><dd>Cancelled.</dd></div>
+        <div><dt>70</dt><dd>Something went wrong inside the harness itself.</dd></div>
+      </dl>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="outputs">
+      <div class="part-head"><span class="num">07</span><h2>What a run leaves behind</h2></div>
+
+      <h3>The transcript</h3>
+
+      <p>
+        <code>logs/glasscoder-DATE.jsonl</code> holds one JSON object per event. For every loop
+        iteration it records the full prompt as sent, the response, each tool call with its
+        arguments, whether the call parsed, the result, token counts, per-call latency, the
+        context size, and the outcome. A closing record holds the goal, the system prompt and how
+        the run ended.
+      </p>
+
+      <p>
+        That is enough to reconstruct the run completely — which is not a claim, it is a test:
+        the harness reads its own log back into a transcript, and a truncated final line (what a
+        crash leaves) costs you that line and nothing else.
+      </p>
+
+      <h4>Redaction</h4>
+      <p>
+        Secrets are never logged: secret-named properties are blanked and secret-shaped values
+        are scrubbed, in both sinks. To drop source content entirely while keeping the step
+        skeleton — indexes, tool names, statuses, tokens, latencies — set
+        <code>Logging:LogSourceContent</code> to <code>false</code>.
+      </p>
+
+      <h3>The metrics</h3>
+
+      <p>
+        <code>metrics/metrics.jsonl</code> holds one object per run, with derived rates included
+        so no reader has to reimplement a definition. Load it into a notebook directly.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Indicator</th><th>Means</th></tr></thead>
+          <tbody>
+            <tr><td class="m">passAtOne</td><td>The oracle went green. <b>Null until something graded the run</b> — the loop cannot know, only a task suite can.</td></tr>
+            <tr><td class="m">toolCallValidityRate</td><td>Fraction of tool calls that parsed and executed. The best early diagnostic for a weak model.</td></tr>
+            <tr><td class="m">steps · totalTokens</td><td>Steps-to-solve and tokens-to-solve.</td></tr>
+            <tr><td class="m">wallClockMs</td><td>The local cost function. Always read next to pass@1.</td></tr>
+            <tr><td class="m">compileErrorRatePerEdit</td><td>Sharpest cheap quality signal.</td></tr>
+            <tr><td class="m">editsToGreen</td><td>Edits taken to restore a compiling state after a break.</td></tr>
+            <tr><td class="m">recoveryRate</td><td>Did the agent get itself back out of a failing state.</td></tr>
+            <tr><td class="m">cascadeRatio</td><td>Errors reported against root causes shown. Validates the summariser.</td></tr>
+            <tr><td class="m">costUsd</td><td>From the per-role token prices you configure.</td></tr>
+            <tr><td class="m">contextFresh</td><td>Whether the always-loaded context was at least as new as the code.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">A deliberate null</span>
+        <p>
+          An ungraded run records <code>passAtOne: null</code>, not <code>false</code>. Recording
+          false would quietly poison every average taken over those rows. If you want real pass@1
+          numbers, run the suite.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="measure">
+      <div class="part-head"><span class="num">08</span><h2>Measuring: the suite and the arms</h2></div>
+
+      <h3>The task suite</h3>
+
+      <p>
+        Eight tasks, ordered by the skill they stress, each with a passing test as ground truth.
+        Every fixture is a self-contained project whose exit code <em>is</em> the verdict — no
+        human grading, no test framework to restore, and it runs identically inside a
+        network-dropped container.
+      </p>
+
+<pre><code>glasscoder suite                              <span class="c"># all eight</span>
+glasscoder suite --suite-task suite-03-off-by-one</code></pre>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th class="m">#</th><th>Task</th><th>Stresses</th></tr></thead>
+          <tbody>
+            <tr><td class="m">1</td><td>Make one failing test pass</td><td>Navigation, local reasoning</td></tr>
+            <tr><td class="m">2</td><td>Implement a documented but empty function</td><td>Reasoning from a spec</td></tr>
+            <tr><td class="m">3</td><td>Find and fix an off-by-one bug</td><td>Debugging</td></tr>
+            <tr><td class="m">4</td><td>Thread a parameter through a call chain</td><td>Multi-file editing</td></tr>
+            <tr><td class="m">5</td><td>Refactor with behaviour unchanged</td><td>Restraint</td></tr>
+            <tr><td class="m">6</td><td>Wire a module into the build</td><td>Build knowledge</td></tr>
+            <tr><td class="m">7</td><td>Add a feature across three files</td><td>Long-horizon planning</td></tr>
+            <tr><td class="m">8</td><td>Reproduce a bug from a report, then fix it</td><td>Comprehension</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Run <code>glasscoder fixtures</code> to check the suite itself. It reports whether each
+        fixture starts in the state its task assumes — seven start
+        <span class="pill fail">red</span> and task 5 starts
+        <span class="pill pass">green</span>, because its oracle is precisely
+        <em>stays</em> green. A fixture in the wrong starting state makes every pass@1 computed
+        from it meaningless.
+      </p>
+
+      <h3>Ablation arms</h3>
+
+      <p>
+        An arm is a set of configuration overrides and nothing else. Each standard arm moves
+        exactly one lever, because an arm that moves two measures neither.
+      </p>
+
+<pre><code>glasscoder ablate --work ./ablation</code></pre>
+
+      <dl class="spec">
+        <div><dt>baseline</dt><dd>Everything on. The number the others are read against.</dd></div>
+        <div><dt>no-constrained-decoding</dt><dd>Does constrained decoding actually buy tool-call validity?</dd></div>
+        <div><dt>no-prewrite-verification</dt><dd>Is the in-memory compile check worth its latency?</dd></div>
+        <div><dt>no-context</dt><dd>Does the always-loaded root earn its tokens?</dd></div>
+        <div><dt>unsummarised-diagnostics</dt><dd>Does the summariser change outcomes, or only comfort?</dd></div>
+      </dl>
+
+      <p>
+        Results land in the same metrics file, tagged with the arm, and the run prints a
+        comparison table. Add your own arms by naming any configuration key.
+      </p>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="app">
+      <div class="part-head"><span class="num">09</span><h2>The desktop app</h2></div>
+
+      <p>
+        Three surfaces, which are the three first-class requirements made visible rather than an
+        arbitrary choice of screens. Type a goal in the bar, press <b>Run</b>, and the transcript
+        fills as the loop turns.
+      </p>
+
+      <h3>Transcript</h3>
+      <p>
+        Every step as it happens, with tools, outcome, tokens and latency. Filter by tool, by
+        severity, from a step number, or search across prompts and results. Selecting a step
+        shows the full prompt, response and tool results underneath.
+      </p>
+
+      <h3>Changes</h3>
+      <p>
+        Every change the agent proposed, as a before/after diff with its file, line range and
+        status — <span class="pill warn">Proposed</span>
+        <span class="pill pass">Applied</span>
+        <span class="pill fail">Rejected</span> — and the compile or test result that change
+        produced, attached to it. Refused changes appear too: a view that only showed successful
+        writes could not tell you what the agent tried to do.
+      </p>
+      <p>
+        Turn on <code>Approval:RequireApprovalForWrites</code> and each write pauses here with
+        <b>Approve</b> and <b>Reject</b> next to the actual diff, so you decide while looking at
+        the change rather than at a filename in a dialog.
+      </p>
+
+      <h3>Metrics</h3>
+      <p>
+        Reads the same JSONL a notebook would, grouped by arm, task or source. This is where two
+        arms get compared: pass@1, tool-call validity, tokens-to-solve, wall-clock, compile-error
+        rate, recovery, cascade ratio and cost, side by side.
+      </p>
+    </section>
+
+    <!-- ============ 10 ============ -->
+    <section class="part" id="phases">
+      <div class="part-head"><span class="num">10</span><h2>Working through the phases</h2></div>
+
+      <p>
+        The intended way to use GlassCoder is one variable at a time. Do not advance until the
+        current phase is instrumented and green on a couple of tasks — otherwise you are changing
+        two things and learning nothing.
+      </p>
+
+      <div class="phases">
+        <div class="phase"><span class="p">0</span><span><b>Bare instrumented loop</b><span>One worker, read/grep/glob, full logging, constrained decoding. No editing.</span><em>watch: tool-call validity</em></span></div>
+        <div class="phase"><span class="p">1</span><span><b>Close the loop</b><span>Add edit, build and run_tests, with the diagnostic summariser from day one.</span><em>watch: compile-error rate per edit, edits-to-green</em></span></div>
+        <div class="phase"><span class="p">2</span><span><b>Verification</b><span>Test gate plus the critique pass, ideally on a different model family.</span><em>watch: recovery rate</em></span></div>
+        <div class="phase"><span class="p">3</span><span><b>Context</b><span>Plug in the lean root context and A/B it against none.</span><em>watch: pass@1, tokens-to-solve</em></span></div>
+        <div class="phase"><span class="p">4</span><span><b>Scale the model</b><span>Point the same harness at a larger drafter, or a hosted arm. Config only.</span><em>watch: pass@1 against wall-clock</em></span></div>
+        <div class="phase"><span class="p">5</span><span><b>Orchestrate</b><span>Sub-agents, parallel fan-out, multi-critic voting. Last on purpose.</span><em>watch: quality delta versus solo</em></span></div>
+        <div class="phase"><span class="p">6</span><span><b>Freshness</b><span>Headless CI, provenance stamping, hardened sandbox.</span><em>watch: pass@1 fresh versus stale context</em></span></div>
+      </div>
+
+      <p>
+        Phases 0 and 1 ship as config files. Start here:
+      </p>
+
+<pre><code>glasscoder suite --config config/phase0.json   <span class="c"># read-only baseline</span>
+glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</span></code></pre>
+    </section>
+
+    <!-- ============ 11 ============ -->
+    <section class="part" id="stuck">
+      <div class="part-head"><span class="num">11</span><h2>When something refuses</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>You see</th><th>What it means, and what to do</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">sandbox_unavailable</td>
+              <td>Docker is not reachable and running repository code on the host is not
+                  permitted. Start Docker, or set
+                  <code>Sandbox:AllowUnsandboxedExecution</code> to <code>true</code> to accept
+                  the risk knowingly.</td>
+            </tr>
+            <tr>
+              <td class="m">path_not_allowed</td>
+              <td>The path is outside the readable or writable set, or excluded by a denied glob.
+                  For writes this usually means <code>WritablePaths</code> is still empty.</td>
+            </tr>
+            <tr>
+              <td class="m">approval_refused</td>
+              <td>A human rejected the change, the approval timed out, or approval was required
+                  with nothing able to ask. Nothing was written.</td>
+            </tr>
+            <tr>
+              <td class="m">verification_failed</td>
+              <td>The edit would have introduced a new compile error, so it was refused before
+                  reaching disk. The summarised diagnostics come back with it.</td>
+            </tr>
+            <tr>
+              <td class="m">ambiguous_target</td>
+              <td><code>edit_file</code> found the target text more than once. This is a
+                  guardrail, not a bug: an edit that could land in two places would land in the
+                  wrong one silently.</td>
+            </tr>
+            <tr>
+              <td class="m">exit 2 at startup</td>
+              <td>Configuration failed validation. The commonest cause is a
+                  <code>ModelAlias</code> that looks like a checkpoint path — use the alias your
+                  server serves.</td>
+            </tr>
+            <tr>
+              <td class="m">exit 3</td>
+              <td>A limit tripped. Raise <code>Agent:MaxSteps</code>,
+                  <code>MaxTotalTokens</code>, <code>MaxWallClockSeconds</code> or
+                  <code>MaxCostUsd</code> — or ask a smaller question.</td>
+            </tr>
+            <tr>
+              <td class="m">exit 4</td>
+              <td>The endpoint failed. Check the server is up, the port matches, and the alias
+                  is one it actually serves.</td>
+            </tr>
+            <tr>
+              <td class="m">contextFresh: false</td>
+              <td>A source file is newer than your always-loaded context. The stale reason names
+                  the file. The harness's own output — logs, metrics — is excluded, so a run
+                  cannot invalidate the next one.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Two things are unproven</span>
+        <p>
+          The Docker executor's request construction is tested but its container lifecycle has
+          never met a real daemon — the first Phase 1 run is where that gets exercised. And no
+          run has yet touched a real model: everything is verified against fakes and a
+          socket-level stub, so the machinery is right but the first honest pass@1 comes from
+          your own server.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder · capability ≈ model × harness × context · the harness and measurement half
+</footer>
+</body>
+</html>
