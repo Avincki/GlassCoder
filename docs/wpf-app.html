@@ -650,7 +650,7 @@
           <span class="mark" style="left:56%;   top:76%;">6</span>
           <span class="mark" style="left:60%;   top:97.5%;">7</span>
         </div>
-        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet.</figcaption>
+        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet. The screenshot predates <code>create_file</code>, so its status bar still counts seven tools.</figcaption>
       </figure>
 
       <dl class="legend">
@@ -701,7 +701,7 @@
       <div class="note">
         <span class="tag">Read the status bar first</span>
         <p>
-          <code>Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</code>
+          <code>Ready. 8 tools: update_todos, read_file, grep, glob, create_file, edit_file, build, run_tests</code>
           is the honest inventory of what the model can actually call this session. Note what is
           <em>absent</em>: <code>bash</code>. It only registers when
           <code>Sandbox:EnableBashTool</code> is <code>true</code>, so this line is the fastest way

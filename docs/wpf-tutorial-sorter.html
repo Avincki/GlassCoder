@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="A hands-on GlassCoder.Wpf tutorial: letting the agent write a class that sorts an array of doubles, from the seed file it cannot create to the oracle that grades it.">
+<meta name="description" content="A hands-on GlassCoder.Wpf tutorial: letting the agent write a class that sorts an array of doubles, from the executable spec you write first to the oracle that grades it.">
 <title>GlassCoder.Wpf — Tutorial: writing a class</title>
 
 <style>
@@ -607,13 +607,13 @@
     <h1>GlassCoder writes a class</h1>
     <p class="standfirst">
       The first tutorial fixed one line in a file that already existed. This one starts from
-      nothing: a class to sort an array of doubles from low to high, written by the agent, into a
-      file it cannot create — and proved by a test you wrote before it started.
+      nothing: a class to sort an array of doubles from low to high, written by the agent into a
+      file that did not exist — and graded by a spec you wrote before the run started.
     </p>
     <div class="specstrip">
       <div><b>Time</b> about 40 minutes</div>
       <div><b>Needs</b> a served /v1 endpoint</div>
-      <div><b>Fixture</b> four files you write</div>
+      <div><b>Fixture</b> three files you write</div>
       <div><b>Ends with</b> a class you did not write</div>
     </div>
     <div class="backlinks">
@@ -628,16 +628,15 @@
   <nav class="rail" aria-label="Contents">
     <h2>Lessons</h2>
     <ol>
-      <li><a href="#no-create">0 · The tool that cannot create a file</a></li>
+      <li><a href="#verbs">0 · Two verbs that write</a></li>
       <li><a href="#spec">1 · Write the spec first</a></li>
-      <li><a href="#seed">2 · The seed file</a></li>
-      <li><a href="#setup">3 · Pointing the app at it</a></li>
-      <li><a href="#goal">4 · The goal and the plan</a></li>
-      <li><a href="#refused">5 · The refusal you should expect</a></li>
-      <li><a href="#diff">6 · A diff that is all green</a></li>
-      <li><a href="#proof">7 · Proving it three ways</a></li>
-      <li><a href="#loose">8 · What a loose spec costs</a></li>
-      <li><a href="#next">9 · Exercises</a></li>
+      <li><a href="#setup">2 · Pointing the app at it</a></li>
+      <li><a href="#goal">3 · The goal and the plan</a></li>
+      <li><a href="#refused">4 · What the check still refuses</a></li>
+      <li><a href="#diff">5 · A diff that is all green</a></li>
+      <li><a href="#proof">6 · Proving it three ways</a></li>
+      <li><a href="#loose">7 · What a loose spec costs</a></li>
+      <li><a href="#next">8 · Exercises</a></li>
     </ol>
   </nav>
 
@@ -656,19 +655,30 @@
     </div>
 
     <!-- ============ 0 ============ -->
-    <section class="part" id="no-create">
-      <div class="part-head"><span class="num">00</span><h2>The tool that cannot create a file</h2></div>
+    <section class="part" id="verbs">
+      <div class="part-head"><span class="num">00</span><h2>Two verbs that write</h2></div>
+
+      <p>Start from the status bar. It is the only honest inventory of what the model can call:</p>
+
+<pre><code>Ready. 8 tools: update_todos, read_file, grep, glob, create_file, edit_file, build, run_tests</code></pre>
 
       <p>
-        Start from the status bar, because it settles the shape of this whole tutorial:
+        Two of those eight change files, and they are deliberately not one tool:
       </p>
 
-<pre><code>Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</code></pre>
+      <ul class="prose">
+        <li><code>create_file(path, content)</code> writes a whole new file, and
+            <b>refuses to overwrite</b>. Anything already at that path is an error.</li>
+        <li><code>edit_file(path, oldText, newText)</code> replaces one <b>exact, unique</b> string
+            in a file that already exists, and errors if the target is missing <em>or</em> appears
+            more than once.</li>
+      </ul>
 
       <p>
-        There is no <code>write_file</code> and no <code>create_file</code>. The only tool that
-        changes anything is <code>edit_file</code>, and it replaces <em>an exact, unique string in
-        a file that already exists</em>. Point it at a file that is not there and it refuses:
+        Keeping them apart is the point. <code>edit_file</code>'s guarantee is that an edit can
+        never land silently in the wrong place — and an upserting create tool, one that quietly
+        replaced a file's whole contents when it happened to exist, would be a hole straight
+        through that guarantee. So the failure modes are sharp, and you will meet all four:
       </p>
 
       <div class="scroller">
@@ -676,22 +686,22 @@
           <thead><tr><th>You ask for</th><th>Code</th><th>What comes back</th></tr></thead>
           <tbody>
             <tr>
-              <td>An edit to a file that does not exist</td>
+              <td><code>create_file</code> on a path that exists</td>
+              <td class="m">already_exists</td>
+              <td class="m">'DoubleSorter.cs' already exists.</td>
+            </tr>
+            <tr>
+              <td><code>edit_file</code> on a file that does not</td>
               <td class="m">not_found</td>
               <td class="m">'DoubleSorter.cs' does not exist.</td>
             </tr>
             <tr>
-              <td>An edit with an empty <code>oldText</code></td>
-              <td class="m">invalid_argument</td>
-              <td class="m">oldText is required.</td>
-            </tr>
-            <tr>
-              <td>An edit into a zero-byte file</td>
+              <td><code>edit_file</code> whose target text is absent</td>
               <td class="m">not_found</td>
               <td class="m">The text to replace was not found in 'DoubleSorter.cs'.</td>
             </tr>
             <tr>
-              <td>An anchor that occurs twice</td>
+              <td><code>edit_file</code> whose target occurs twice</td>
               <td class="m">ambiguous_target</td>
               <td class="m">The text to replace appears 2 times in 'DoubleSorter.cs'.</td>
             </tr>
@@ -699,33 +709,27 @@
         </table>
       </div>
 
-      <div class="note refuse">
-        <span class="tag">The hint on that second error is optimistic</span>
-        <p>
-          <code>edit_file</code> suggests <em>“To create a file, use an empty file and edit into
-          it, or ask for a file-creation tool.”</em> The first half does not work: a zero-byte
-          file contains no text, so there is nothing for <code>oldText</code> to match and you get
-          the third row of that table. A seed file needs at least one line to anchor on. Lesson 2
-          writes one.
-        </p>
-      </div>
+      <p>
+        The <code>already_exists</code> hint points straight at the other verb — <em>“Use edit_file
+        to change it. This tool will not overwrite a file.”</em> — which is what the agent needs to
+        recover, and what it will do on its second attempt after a rejected approval.
+      </p>
 
       <h3>Why not just give it a shell?</h3>
 
       <p>
-        <code>bash</code> exists and could write the file in one line, but it is not registered at
-        all unless <code>Sandbox:EnableBashTool</code> is set, it then refuses to run unless the
-        container sandbox is available, and — the part that matters here — it does not go through
-        the change log. A file created with <code>bash</code> produces no
-        proposal, no diff, no approval prompt and no row on the Changes surface. The whole point
-        of the second surface is that you see what the agent changed; a tool that writes around it
-        is a tool that makes the surface lie.
+        <code>bash</code> could write a file in one line, but it is not registered at all unless
+        <code>Sandbox:EnableBashTool</code> is set, it then refuses to run unless the container
+        sandbox is available, and — the part that matters here — it does not go through the change
+        log. A file created with <code>bash</code> produces no proposal, no diff, no approval
+        prompt and no row on the Changes surface.
       </p>
 
       <p>
-        So the division of labour is: <b>you create the file, the agent fills it.</b> That is less
-        of a limitation than it sounds. It forces you to decide where the class lives and what it
-        is called before the model has an opinion, which is the right order anyway.
+        <code>create_file</code> takes the same five steps as an edit, in the same order: the path
+        allow-list, the change log, the pre-write compile check, the approval gate, then the write.
+        That is the whole reason it exists as a first-class tool rather than a shell command. A
+        surface that cannot see a write is a surface that lies.
       </p>
     </section>
 
@@ -751,7 +755,8 @@
         <span class="tag">Do this</span>
         <p class="typed">glasscoder fixtures --work .\.debug\fixtures</p>
         <p>Then borrow two files from any suite task, so the harness and the project file are the
-           shipped ones rather than ones you retyped:</p>
+           shipped ones rather than ones you retyped. Three files in total: the agent writes the
+           fourth.</p>
         <p class="typed">mkdir .debug\sorter<br>
         copy .debug\fixtures\suite-03-off-by-one\Check.cs .debug\sorter\<br>
         copy .debug\fixtures\suite-03-off-by-one\Fixture.csproj .debug\sorter\</p>
@@ -816,37 +821,12 @@ Check.That(<span class="k">double</span>.IsNaN(withNaN[0]), <span class="c">"NaN
         writing an implementation, not designing a surface — and the difference between those two
         jobs is the difference between a run you can grade and a run you cannot.
       </p>
-    </section>
-
-    <!-- ============ 2 ============ -->
-    <section class="part" id="seed">
-      <div class="part-head"><span class="num">02</span><h2>The seed file</h2></div>
-
-      <p>Five lines, and every one of them is doing a job:</p>
-
-<pre><code><span class="c">// .debug/sorter/DoubleSorter.cs</span>
-<span class="k">using</span> System;
-
-<span class="k">namespace</span> Fixture;
-
-<span class="c">// GlassCoder: write the sorter here.</span></code></pre>
-
-      <ul class="prose">
-        <li><b>The file exists</b>, so <code>edit_file</code> gets past its first gate.</li>
-        <li><b>The comment is a unique string</b> — the anchor the agent replaces. One line,
-            unmistakable, and it appears nowhere else in the repository.</li>
-        <li><b>The namespace is already declared</b>, so the replacement is a class and nothing
-            else. A model that emits a whole file including <code>namespace Fixture;</code> would
-            produce two file-scoped namespace declarations and the edit would be refused.</li>
-        <li><b><code>using System;</code> is there deliberately</b>, and lesson 5 is entirely
-            about why.</li>
-      </ul>
 
       <h3>Confirm it starts red</h3>
 
       <p>
-        The spec references a class that does not exist yet, so the project does not compile. That
-        is the point — a fixture that already passes measures nothing:
+        The spec calls a class that does not exist, so nothing compiles. That is the point — a
+        fixture that already passes measures nothing:
       </p>
 
 <pre><code>cd .debug\sorter
@@ -860,19 +840,18 @@ Program.cs(17,5): error CS0103: The name 'DoubleSorter' does not exist in the cu
       <div class="note">
         <span class="tag">A broken repository does not block the agent</span>
         <p>
-          Four errors before the agent has done anything might look like a problem for a harness
-          that refuses edits which break the build. It is not. The pre-write check compiles the
-          file <em>before</em> and <em>after</em> the proposed change and only refuses errors the
-          edit itself introduced — an agent is usually editing precisely because something is
-          broken, and refusing to let it start would be a deadlock. These four are pre-existing
-          and are ignored.
+          Four errors before the agent has done anything might look like trouble for a harness that
+          refuses writes which break the build. It is not. The pre-write check compiles the project
+          <em>with</em> and <em>without</em> the new file and only refuses errors the file itself
+          introduces. The most common reason to create a file is that something already refers to
+          it, so a rule that counted these four would refuse every useful creation.
         </p>
       </div>
     </section>
 
-    <!-- ============ 3 ============ -->
+    <!-- ============ 2 ============ -->
     <section class="part" id="setup">
-      <div class="part-head"><span class="num">03</span><h2>Pointing the app at it</h2></div>
+      <div class="part-head"><span class="num">02</span><h2>Pointing the app at it</h2></div>
 
       <p>
         Three settings, all of which default to something safer than what this run needs. Set them
@@ -894,7 +873,7 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
             <tr><td class="m">Workspace:RepoRoot</td><td class="m">.</td>
                 <td>Otherwise the agent works on whatever directory you launched from.</td></tr>
             <tr><td class="m">Workspace:WritablePaths</td><td class="m">[]</td>
-                <td>Empty means <em>nothing</em> is writable, and every edit comes back
+                <td>Empty means <em>nothing</em> is writable, and both write verbs come back
                     <code>path_not_allowed</code>.</td></tr>
             <tr><td class="m">Approval:RequireApprovalForWrites</td><td class="m">false</td>
                 <td>Left false, the write lands silently. You want to see the diff this time.</td></tr>
@@ -933,19 +912,19 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
               <div class="ui-label">Step detail</div>
             </div>
           </div>
-          <div class="ui-status">Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</div>
+          <div class="ui-status">Ready. 8 tools: update_todos, read_file, grep, glob, create_file, edit_file, build, run_tests</div>
         </div>
-        <figcaption>Seven tools, empty transcript. Nothing here tells you whether writes are enabled — only an edit will.</figcaption>
+        <figcaption>Eight tools, empty transcript. Nothing here tells you whether writes are enabled — only an attempt to write will.</figcaption>
       </figure>
     </section>
 
-    <!-- ============ 4 ============ -->
+    <!-- ============ 3 ============ -->
     <section class="part" id="goal">
-      <div class="part-head"><span class="num">04</span><h2>The goal and the plan</h2></div>
+      <div class="part-head"><span class="num">03</span><h2>The goal and the plan</h2></div>
 
       <div class="do">
         <span class="tag">Type this, then press Run</span>
-        <p class="typed">Program.cs describes a class called DoubleSorter that has not been written yet. Read the checks, write the class into DoubleSorter.cs, then build to prove it compiles.</p>
+        <p class="typed">Program.cs describes a class called DoubleSorter that does not exist yet. Read the checks, create DoubleSorter.cs with the class in it, then build to prove it compiles.</p>
       </div>
 
       <p>
@@ -959,7 +938,7 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
         <div class="ui">
           <div class="ui-bar">
             <span class="brand">GlassCoder</span>
-            <span class="ui-input">Program.cs describes a class called DoubleSorter that has not been written yet. Read the checks, write the class into DoubleSorter.cs, then build to prove it compiles.</span>
+            <span class="ui-input">Program.cs describes a class called DoubleSorter that does not exist yet. Read the checks, create DoubleSorter.cs with the class in it, then build to prove it compiles.</span>
             <span class="ui-btn off">Run</span>
             <span class="ui-btn">Cancel</span>
           </div>
@@ -984,7 +963,7 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
               <div class="ui-label">Step detail</div>
               <div class="ui-detail"><span class="toolh">[tool update_todos &rarr; Succeeded]</span> {"ok":true,"tool":"update_todos","summary":"Plan updated: 0/3 complete.",
 "data":{"items":[{"id":"read","title":"Read Program.cs and list every check","status":"InProgress"},
-{"id":"write","title":"Write DoubleSorter.Ascending into DoubleSorter.cs","status":"Pending"},
+{"id":"write","title":"Create DoubleSorter.cs with an Ascending method","status":"Pending"},
 {"id":"build","title":"Build and confirm the errors are gone","status":"Pending"}],"pending":3,"completed":0}}</div>
             </div>
           </div>
@@ -1006,13 +985,13 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
       </ul>
     </section>
 
-    <!-- ============ 5 ============ -->
+    <!-- ============ 4 ============ -->
     <section class="part" id="refused">
-      <div class="part-head"><span class="num">05</span><h2>The refusal you should expect</h2></div>
+      <div class="part-head"><span class="num">04</span><h2>What the check still refuses</h2></div>
 
       <p>
-        Here is what happens on step 4 if you leave <code>using System;</code> out of the seed
-        file. The agent writes a correct class, and the harness refuses to write it:
+        Before the file exists at all, its content is compiled in memory. Two kinds of problem stop
+        it, and the first line of the message tells you which:
       </p>
 
       <figure>
@@ -1025,7 +1004,7 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
             </div>
             <div class="ui-content">
               <div class="ui-filters">
-                <span>Tool</span><span class="ui-combo on">edit_file</span>
+                <span>Tool</span><span class="ui-combo on">create_file</span>
                 <span>Severity</span><span class="ui-combo">All</span>
                 <span>From step</span><span class="ui-text">0</span>
                 <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
@@ -1035,63 +1014,44 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr class="sel"><td>4</td><td>edit_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>edit_file:Failed</td></tr>
+                    <tr class="sel"><td>4</td><td>create_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>create_file:Failed</td></tr>
                   </tbody>
                 </table>
               </div>
               <div class="ui-label">Step detail</div>
-              <div class="ui-detail"><span class="toolh">[tool edit_file &rarr; Failed]</span> The edit was refused: it would break 'DoubleSorter.cs'.
-This edit would introduce 2 new compile error(s).
-2 error(s), 0 warning(s) across 1 file(s).
-  C:\src\sorter\DoubleSorter.cs(12,9): error CS0103: The name 'ArgumentNullException' does not exist in the current context
+              <div class="ui-detail"><span class="toolh">[tool create_file &rarr; Failed]</span> The file was not created: 'DoubleSorter.cs' would not compile.
+This file would introduce 1 new compile error(s).
+1 error(s), 0 warning(s) across 1 file(s).
+  C:\src\sorter\DoubleSorter.cs(5,64): error CS0117: 'Array' does not contain a definition for 'SortedCopy'
 
-Hint: Fix the problem in your replacement text and try again. Nothing has been written.</div>
+Hint: Fix the problem in the content and try again. Nothing has been written.</div>
             </div>
           </div>
           <div class="ui-status">Running…</div>
         </div>
-        <figcaption>A correct class, refused. The check is wrong here, not the code — and it is wrong for an interesting reason.</figcaption>
+        <figcaption>An API that does not exist, caught before the file did. This is rung 2 earning its place.</figcaption>
       </figure>
 
-      <h3>Why the check is wrong</h3>
-
       <p>
-        Rung 2 of the verification ladder is an <em>in-memory</em> Roslyn compile. It parses the
-        C# it finds under the project directory and compiles it against the harness's own
-        reference assemblies, because resolving a real MSBuild graph costs seconds. It never runs
-        MSBuild — so it never sees the global-usings file the SDK generates for
-        <code>ImplicitUsings</code>, which lives under <code>obj/</code>, which the workspace deny
-        list excludes from every access.
-      </p>
-
-      <p>
-        <code>Array</code> and <code>ArgumentNullException</code> live in <code>System</code>. In
-        that compilation, with no implicit usings, they genuinely do not exist. The class is fine;
-        <code>dotnet build</code> compiles it without complaint. The approximation is documented
-        in the analyzer itself — it catches hallucinated APIs and wrong signatures in well under a
-        second, and <code>build</code> stays the authoritative gate — but a greenfield class is
-        exactly the shape of edit that trips it, because a new file is the one place new
-        <code>System</code> references appear.
+        <code>Array.SortedCopy</code> is a plausible-looking method that .NET does not have. A
+        syntax check cannot see that; only a compile can. Catching it here rather than at
+        <code>build</code> saves the loop a step, and — more usefully — the file never reaches
+        disk, so there is no half-written class for a later step to trip over.
       </p>
 
       <div class="scroller">
         <table class="doc">
-          <thead><tr><th>Fix</th><th>What it costs</th></tr></thead>
+          <thead><tr><th>First line reads</th><th>Which means</th></tr></thead>
           <tbody>
             <tr>
-              <td>Put <code>using System;</code> in the seed file</td>
-              <td>Nothing. It is redundant under <code>ImplicitUsings</code> and the real build
-                  does not care. This is what lesson 2 does, and it is the right answer.</td>
+              <td class="m">Syntax check of the new file failed.</td>
+              <td>The content does not parse. Reported against the <em>repo-relative</em> path, as
+                  <code>DoubleSorter.cs(5,58): error CS1525: Invalid expression term ';'</code></td>
             </tr>
             <tr>
-              <td><code>Verification:RejectEditsThatBreakTheBuild</code> → <code>false</code></td>
-              <td>The check still runs and still reports; it stops gating. Real breakage now
-                  reaches the working tree, and <code>build</code> is your only compile oracle.</td>
-            </tr>
-            <tr>
-              <td><code>Verification:VerifyEditsBeforeWrite</code> → <code>false</code></td>
-              <td>No pre-write check at all. Faster, and the arm that measures what that costs is
-                  <code>no-prewrite-verification</code> in the ablation.</td>
+              <td class="m">This file would introduce N new compile error(s).</td>
+              <td>It parses but does not compile. Reported against the <em>full</em> path, because
+                  the compile sub-check is handed the file's absolute location.</td>
             </tr>
           </tbody>
         </table>
@@ -1100,36 +1060,38 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
       <h3>Three details in that one row</h3>
 
       <ul class="prose">
-        <li><b>Two errors, one shown.</b> The summariser keeps the first error per file, so a
-            second error in the same file is counted in the total and not listed. That gap is the
-            cascade ratio on the Metrics surface.</li>
-        <li><b>The path is absolute.</b> This one came from the compile sub-check, which is handed
-            the file's full path. The syntax sub-check is handed the repo-relative path, and
-            <code>build</code> maps everything back to repo-relative too — so the same file can
-            appear three ways across one transcript. Worth knowing before you grep one.</li>
+        <li><b>Nothing was written — not even an empty file.</b> The change is on the Changes
+            surface as <code>Rejected</code>, noted <code>Verification refused the edit.</code>,
+            with the diagnostics attached. There is no <code>DoubleSorter.cs</code> on disk to
+            clean up.</li>
         <li><b>It is <code>Failed</code>, not a warning.</b> The call parsed, bound and ran — the
-            tool simply refused the job. So the row is <code>info</code> severity and it does not
-            dent tool-call validity. Filtering Severity by <code>warning</code>, which is how
-            tutorial one found bad calls, will not find this. Filter by <b>Tool</b> instead.</li>
+            tool simply refused the job. So the row is <code>info</code> severity and does not dent
+            tool-call validity. Filtering Severity by <code>warning</code>, which is how tutorial
+            one found bad calls, will not find this. Filter by <b>Tool</b> instead.</li>
+        <li><b>More errors than are listed.</b> The summariser keeps the first error per file, so a
+            second error in the same file is counted in the total and not shown. That gap is the
+            cascade ratio on the Metrics surface.</li>
       </ul>
 
       <div class="note">
-        <span class="tag">Nothing was written</span>
+        <span class="tag">Rung 2 is approximate on purpose</span>
         <p>
-          The change was recorded before it was attempted, so it is on the Changes surface as
-          <code>Rejected</code>, with the note <code>Verification refused the edit.</code> and the
-          diagnostics attached. The file on disk is still the five-line seed.
+          It parses the C# under the project directory and compiles it against the harness's own
+          reference assemblies rather than resolving a real MSBuild graph, which would cost seconds
+          on every write. It catches hallucinated APIs, wrong signatures and type errors in well
+          under a second; it is not a substitute for <code>build</code>, which remains the
+          authoritative compile gate and is what the next lesson runs.
         </p>
       </div>
     </section>
 
-    <!-- ============ 6 ============ -->
+    <!-- ============ 5 ============ -->
     <section class="part" id="diff">
-      <div class="part-head"><span class="num">06</span><h2>A diff that is all green</h2></div>
+      <div class="part-head"><span class="num">05</span><h2>A diff that is all green</h2></div>
 
       <p>
-        With <code>using System;</code> in the seed, the same edit passes verification and the
-        loop blocks on the approval gate. Click <b>Changes</b>:
+        When the content does compile, the loop blocks on the approval gate instead. Click
+        <b>Changes</b>:
       </p>
 
       <figure>
@@ -1145,26 +1107,24 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
                 <div class="hdr">Approval needed: DoubleSorter.cs</div>
                 <div class="sub">This change has passed verification and is waiting to be written.</div>
                 <div class="diffbox">
-                  <div class="dl ctx"><span class="n">2</span><span class="n">2</span><span class="t"> </span></div>
-                  <div class="dl ctx"><span class="n">3</span><span class="n">3</span><span class="t"> namespace Fixture;</span></div>
-                  <div class="dl ctx"><span class="n">4</span><span class="n">4</span><span class="t"> </span></div>
-                  <div class="dl del"><span class="n">5</span><span class="n"></span><span class="t">-// GlassCoder: write the sorter here.</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">5</span><span class="t">+/// &lt;summary&gt;Sorts arrays of doubles into ascending order.&lt;/summary&gt;</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">6</span><span class="t">+public static class DoubleSorter</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">7</span><span class="t">+{</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">8</span><span class="t">+    /// &lt;summary&gt;</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">9</span><span class="t">+    /// Returns a new array holding every value of &lt;paramref name="values"/&gt;, from lowest to</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">10</span><span class="t">+    /// highest. The input array is left untouched.</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">11</span><span class="t">+    /// &lt;/summary&gt;</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">12</span><span class="t">+    public static double[] Ascending(double[] values)</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">13</span><span class="t">+    {</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">14</span><span class="t">+        ArgumentNullException.ThrowIfNull(values);</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">15</span><span class="t">+</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+        double[] sorted = [.. values];</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">17</span><span class="t">+        Array.Sort(sorted);</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">18</span><span class="t">+        return sorted;</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">19</span><span class="t">+    }</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">20</span><span class="t">+}</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">1</span><span class="t">+namespace Fixture;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">2</span><span class="t">+</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">3</span><span class="t">+/// &lt;summary&gt;Sorts arrays of doubles into ascending order.&lt;/summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">4</span><span class="t">+public static class DoubleSorter</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">5</span><span class="t">+{</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">6</span><span class="t">+    /// &lt;summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">7</span><span class="t">+    /// Returns a new array holding every value of &lt;paramref name="values"/&gt;, from lowest to</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">8</span><span class="t">+    /// highest. The input array is left untouched.</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">9</span><span class="t">+    /// &lt;/summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">10</span><span class="t">+    public static double[] Ascending(double[] values)</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">11</span><span class="t">+    {</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">12</span><span class="t">+        ArgumentNullException.ThrowIfNull(values);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">13</span><span class="t">+</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">14</span><span class="t">+        double[] sorted = [.. values];</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">15</span><span class="t">+        Array.Sort(sorted);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+        return sorted;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">17</span><span class="t">+    }</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">18</span><span class="t">+}</span></div>
                 </div>
                 <div class="acts"><span class="ui-btn">Approve</span><span class="ui-btn">Reject</span></div>
               </div>
@@ -1172,7 +1132,7 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
                 <table class="ui-grid">
                   <thead><tr><th>Time</th><th>Task</th><th>File</th><th>Lines</th><th>Status</th><th>Note</th></tr></thead>
                   <tbody>
-                    <tr class="sel"><td>09:14:22</td><td>desktop</td><td>DoubleSorter.cs</td><td>5-20</td><td>Proposed</td><td></td></tr>
+                    <tr class="sel"><td>09:14:22</td><td>desktop</td><td>DoubleSorter.cs</td><td>1-18</td><td>Proposed</td><td></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1182,18 +1142,19 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
           </div>
           <div class="ui-status">Running…</div>
         </div>
-        <figcaption>Sixteen added lines, one removed. Lines 5-20: the anchor's line number becomes the class's first.</figcaption>
+        <figcaption>Eighteen added lines and nothing else — the banner scrolls at 160px, so a long file is read rather than skimmed.</figcaption>
       </figure>
 
       <h3>Reading a creation as a diff</h3>
 
       <ul class="prose">
-        <li><b>One red line and the rest green</b> is what “the agent wrote a class” looks like
-            here. There is no separate concept of a new file — a creation is an edit whose
-            <em>before</em> happened to be one line of comment.</li>
-        <li><b>The Lines column reads <code>5-20</code></b>, computed from the diff rather than
-            reported by the tool: the lowest and highest line number touched by anything that is
-            not context.</li>
+        <li><b>Every line is green and there is no context.</b> A creation is diffed against an
+            empty <em>before</em>, so there is nothing unchanged to show either side of it. If you
+            see even one red line here, the tool was <code>edit_file</code> and something already
+            existed.</li>
+        <li><b>The Lines column reads <code>1-18</code></b>, computed from the diff rather than
+            reported by the tool: the lowest and highest line touched by anything that is not
+            context. For a creation that is always the whole file.</li>
         <li><b>The line under “Diff — DoubleSorter.cs” is blank.</b> That is the verification
             summary, and on a clean edit the pre-write check returns nothing to say. Blank means
             checked and silent; text there means something was refused or the check could not run.
@@ -1209,15 +1170,27 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
 
       <p>
         The observation the model gets back is one line:
-        <code>Edited DoubleSorter.cs at line 5.</code> — plus a payload carrying the line range,
-        the file's length before and after, and <code>"verified": true</code>, meaning the
-        pre-write compile check actually ran rather than being skipped.
+        <code>Created DoubleSorter.cs (18 lines).</code> — plus a payload carrying the path, the
+        line count and <code>"verified": true</code>, meaning the pre-write compile check actually
+        ran rather than being skipped over as it is for a non-C# file.
       </p>
+
+      <div class="note">
+        <span class="tag">No <code>using System;</code>, and that is worth noticing</span>
+        <p>
+          The class calls <code>ArgumentNullException.ThrowIfNull</code> and <code>Array.Sort</code>
+          with no using directive in sight, because the project has <code>ImplicitUsings</code>
+          enabled. The in-memory check knows that: it reads the project file and synthesises the
+          SDK's global using set, since the generated one lives under <code>obj/</code>, which the
+          workspace deny list excludes. Without that, every new file touching <code>System</code>
+          would be refused — which is exactly the shape of file this tool exists to write.
+        </p>
+      </div>
     </section>
 
-    <!-- ============ 7 ============ -->
+    <!-- ============ 6 ============ -->
     <section class="part" id="proof">
-      <div class="part-head"><span class="num">07</span><h2>Proving it three ways</h2></div>
+      <div class="part-head"><span class="num">06</span><h2>Proving it three ways</h2></div>
 
       <p>
         The agent's own verdict is the weakest evidence available. There are three stronger ones,
@@ -1237,7 +1210,7 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr><td>4</td><td>edit_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>edit_file:Succeeded</td></tr>
+                    <tr><td>4</td><td>create_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>create_file:Succeeded</td></tr>
                     <tr><td>5</td><td>build</td><td>continued</td><td class="num">2240</td><td class="num">1120 ms</td><td>build:Succeeded</td></tr>
                     <tr><td>6</td><td>run_tests</td><td>continued</td><td class="num">2610</td><td class="num">1340 ms</td><td>run_tests:Succeeded</td></tr>
                     <tr><td>7</td><td>update_todos</td><td>continued</td><td class="num">2090</td><td class="num">760 ms</td><td>update_todos:Succeeded</td></tr>
@@ -1250,16 +1223,16 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
           </div>
           <div class="ui-status">Completed after 9 steps · 20455 tokens · tool-call validity 100 %</div>
         </div>
-        <figcaption>edit → build → run_tests → answer. One of those rows is less informative than it looks.</figcaption>
+        <figcaption>create → build → run_tests → answer. One of those rows is less informative than it looks.</figcaption>
       </figure>
 
       <h3>1 · <code>build</code> — real, and authoritative</h3>
 
       <p>
         <code>build</code> shells out to <code>dotnet build</code> inside the sandbox and reports
-        <code>Build succeeded (0 warnings).</code> Those four <code>CS0103</code> errors from
-        lesson 2 are gone, which is genuine evidence: the class exists, it compiles, and
-        <code>Program.cs</code> can see it.
+        <code>Build succeeded (0 warnings).</code> The four <code>CS0103</code> errors from lesson 1
+        are gone, which is genuine evidence: the class exists, it compiles against the real MSBuild
+        graph rather than rung 2's approximation of it, and <code>Program.cs</code> can see it.
       </p>
 
       <div class="note refuse">
@@ -1270,7 +1243,7 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
           You get <code>build:Failed</code> carrying <code>Docker is not reachable, and running
           repository code on the host is not permitted. Start Docker, or set
           GlassCoder:Sandbox:AllowUnsandboxedExecution to true to accept the risk.</code> The
-          in-memory pre-write check needs none of this, which is why the edit still worked.
+          in-memory pre-write check needs none of this, which is why the file still got written.
         </p>
       </div>
 
@@ -1330,9 +1303,9 @@ ALL TESTS PASSED</code></pre>
       </p>
     </section>
 
-    <!-- ============ 8 ============ -->
+    <!-- ============ 7 ============ -->
     <section class="part" id="loose">
-      <div class="part-head"><span class="num">08</span><h2>What a loose spec costs</h2></div>
+      <div class="part-head"><span class="num">07</span><h2>What a loose spec costs</h2></div>
 
       <p>
         Now delete <code>Program.cs</code> from your head for a moment and imagine you had only
@@ -1380,32 +1353,37 @@ ALL TESTS PASSED</code></pre>
       </div>
     </section>
 
-    <!-- ============ 9 ============ -->
+    <!-- ============ 8 ============ -->
     <section class="part" id="next">
-      <div class="part-head"><span class="num">09</span><h2>Exercises</h2></div>
+      <div class="part-head"><span class="num">08</span><h2>Exercises</h2></div>
 
       <div class="scroller">
         <table class="doc">
           <thead><tr><th>Try</th><th>What you should observe</th></tr></thead>
           <tbody>
             <tr>
-              <td>Delete <code>using System;</code> from the seed and rerun</td>
-              <td>Lesson 5's refusal, on demand. Then set
-                  <code>Verification:RejectEditsThatBreakTheBuild</code> to <code>false</code> and
-                  watch the same diagnostics arrive as a report rather than a veto.</td>
+              <td>Run the same goal twice without deleting the file</td>
+              <td>The second run gets <code>already_exists</code> and has to switch verbs. Watch
+                  whether it reaches for <code>edit_file</code> on its own — the hint tells it to,
+                  and whether a model takes that hint is worth knowing about your model.</td>
             </tr>
             <tr>
               <td>Add <code>Descending</code> to the spec and ask for both</td>
-              <td>Two near-identical methods in one file is how the classic greenfield failure
-                  appears: the moment the agent quotes an anchor that occurs in both, it gets
-                  <code>The text to replace appears 2 times in 'DoubleSorter.cs'.</code> and has to
-                  quote more surrounding context to make the target unique.</td>
+              <td>Now the second method has to go into a file that already exists, so the run needs
+                  both verbs. Two near-identical bodies is also where
+                  <code>The text to replace appears 2 times in 'DoubleSorter.cs'.</code> starts
+                  showing up.</td>
+            </tr>
+            <tr>
+              <td>Set <code>Verification:RejectEditsThatBreakTheBuild</code> to <code>false</code></td>
+              <td>Lesson 4's refusal becomes a report. The file with the hallucinated API lands on
+                  disk, and <code>build</code> is left to catch it a step later.</td>
             </tr>
             <tr>
               <td>Empty <code>WritablePaths</code> and rerun</td>
               <td><code>path_not_allowed</code>: <code>No writable paths are configured, so every
-                  write is rejected.</code> Read-only is enforced by the workspace, not by asking
-                  the model nicely.</td>
+                  write is rejected.</code> Creation is gated by the same allow-list as editing —
+                  read-only is enforced by the workspace, not by asking the model nicely.</td>
             </tr>
             <tr>
               <td>Press <b>Reject</b> on a good class</td>
@@ -1438,7 +1416,8 @@ ALL TESTS PASSED</code></pre>
 
       <ul class="prose">
         <li><a href="wpf-tutorial.html">Tutorial one</a> — the same window against a bug rather
-            than a blank file: filters, severities, the approval timeout and a five-arm ablation.</li>
+            than a blank file: <code>edit_file</code>'s exact-and-unique rule, filters, severities,
+            the approval timeout and a five-arm ablation.</li>
         <li><a href="wpf-app.html">Desktop app reference</a> — every column, filter and setting,
             plus how the shell is wired.</li>
         <li><a href="index.html#measure">Operator's guide, §08</a> — the eight shipped fixtures.

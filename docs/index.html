@@ -849,7 +849,7 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
       <div class="part-head"><span class="num">05</span><h2>Tools &amp; the verification ladder</h2></div>
 
       <p>
-        Seven tools are offered, in this order. Order is part of the contract — the model reaches
+        Eight tools are offered, in this order. Order is part of the contract — the model reaches
         for what it is shown first, so the cheap, high-value oracles come before the expensive
         ones.
       </p>
@@ -862,6 +862,7 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
             <tr><td class="m">read_file</td><td>Reads a line range.</td><td>Truncates and says so.</td></tr>
             <tr><td class="m">grep</td><td>Regex search across the workspace.</td><td>The cheapest way to locate code.</td></tr>
             <tr><td class="m">glob</td><td>Lists paths matching a pattern.</td><td>Skips <code>.git</code>, <code>bin</code>, <code>obj</code>.</td></tr>
+            <tr><td class="m">create_file</td><td>Writes a new file.</td><td>Refuses to overwrite — creation and modification stay separate verbs.</td></tr>
             <tr><td class="m">edit_file</td><td>Replaces an exact, unique string.</td><td>Errors if the target is missing <em>or</em> ambiguous.</td></tr>
             <tr><td class="m">build</td><td>Parsed <code>dotnet build</code>.</td><td>The authoritative compile gate.</td></tr>
             <tr><td class="m">run_tests</td><td>Parsed <code>dotnet test</code>.</td><td>Reports failing test names, not just counts.</td></tr>
