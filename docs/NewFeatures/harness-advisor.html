@@ -1,0 +1,1139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Design proposal: a headless Claude reading GlassCoder's own transcripts and metrics to find capability deficits, misleading tool contracts and missing features — emitting proposed workplan tasks with cited evidence.">
+<title>GlassCoder — Proposal: the harness advisor</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-input {
+    flex: 1;
+    min-width: 0;
+    background: #FFFFFF;
+    border: 1px solid #7A8A94;
+    border-radius: 2px;
+    padding: 0.2rem 0.4rem;
+    color: #131A1F;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ui-input.empty { color: #FFFFFF; }
+  .ui-input .caret { border-left: 1px solid #131A1F; margin-left: 1px; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ui-btn.off { background: #F2F4F5; border-color: #D0D6D9; color: #A3ACB1; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .ui-combo, .ui-text {
+    background: #FFFFFF;
+    border: 1px solid #A6AFB5;
+    border-radius: 2px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.75rem;
+    color: #131A1F;
+  }
+
+  .ui-combo::after { content: " ⌄"; color: #5B6B75; }
+  .ui-combo.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+  .ui-text.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+
+  .ui-scroll { overflow-x: auto; }
+
+  table.ui-grid { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.76rem; }
+
+  table.ui-grid th {
+    background: #F3F5F6;
+    border-bottom: 1px solid #C9D1D5;
+    border-right: 1px solid #E3E8EA;
+    color: #1F2933;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.45rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td {
+    border-bottom: 1px solid #E9EDEF;
+    padding: 0.26rem 0.45rem;
+    color: #131A1F;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td.wrap { white-space: normal; }
+  table.ui-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ui-grid tr.err td { color: #B00020; }
+  table.ui-grid tr.warn td { color: #8A6D00; }
+  table.ui-grid tr.ok td { color: #1B5E20; }
+  table.ui-grid tr.sel td { background: #CCE4F7; }
+  table.ui-grid tr.sel.err td { background: #CCE4F7; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-detail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: #131A1F;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0.35rem 0 0.1rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .ui-detail .role { color: #1A6E9E; }
+  .ui-detail .toolh { color: #7A5C00; }
+
+  .ui-empty {
+    border: 1px solid #C9D1D5;
+    background: #EFEFEF;
+    height: 7rem;
+    border-radius: 2px;
+  }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; }
+
+  /* metrics bar — MetricsView.xaml, Fill #4C6FBF */
+  .mbar { display: inline-block; height: 0.6rem; background: #4C6FBF; border-radius: 2px; vertical-align: middle; }
+  .mbar-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 11rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+    .ui-input { flex-basis: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Proposal · not built</div>
+    <h1>The harness advisor</h1>
+    <p class="standfirst">
+      A headless Claude reading finished transcripts and metrics, not to judge a change, but to
+      judge <em>GlassCoder</em> — to find the things the agent could not do, the tools that
+      misled it, and the features that are missing. Its output is proposed work, not advice.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> proposal</div>
+      <div><b>Subject</b> the harness, not the code</div>
+      <div><b>Reads</b> JSONL that already exists</div>
+      <div><b>Writes</b> nothing but a report</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="claude-second-opinion.html">← Proposal: a second opinion from Claude</a>
+      <a href="mcp-retrieval.html">← Proposal: retrieval over MCP</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#gap">0 · The gap this closes</a></li>
+      <li><a href="#looking">1 · What it looks for</a></li>
+      <li><a href="#cases">2 · Two it should have caught</a></li>
+      <li><a href="#reads">3 · What it reads</a></li>
+      <li><a href="#output">4 · Proposals, not advice</a></li>
+      <li><a href="#scoring">5 · Scoring the advisor</a></li>
+      <li><a href="#limits">6 · What it cannot see</a></li>
+      <li><a href="#boundary">7 · Where it must not go</a></li>
+      <li><a href="#work">8 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note refuse">
+      <span class="tag">This describes something that does not exist</span>
+      <p>
+        Nothing here is implemented. Where this page quotes the repository, that is current code.
+        Proposed configuration keys, verbs and schema fields are marked as proposed.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="gap">
+      <div class="part-head"><span class="num">00</span><h2>The gap this closes</h2></div>
+
+      <p>
+        Until recently GlassCoder had no way to create a file. <code>edit_file</code> could change
+        what existed and nothing could add anything, so the suite's own
+        <code>suite-07-feature-three-files</code> — which asks for <em>“a Discount type with a
+        percentage”</em> and ships no <code>Discount.cs</code> — could only be passed by cramming a
+        new type into an existing file. That task was measuring the tool set rather than the model,
+        and had been since <code>edit_file</code> landed.
+      </p>
+
+      <p>
+        It was found by a person, by accident, while writing a tutorial.
+      </p>
+
+      <p>
+        But it was never hidden. Every run that reached for a file that was not there would have
+        written this into the transcript:
+      </p>
+
+<pre><code><span class="toolh">[tool edit_file → Failed]</span> 'Discount.cs' does not exist.
+<span class="c">  code: not_found</span></code></pre>
+
+      <p>
+        One line, in a schema built to be machine-read, repeating across runs and across tasks.
+        Nothing was reading for it. <b>That is the gap this proposal closes:</b> the harness
+        records everything it would need to notice its own deficits, and nothing currently looks.
+      </p>
+
+      <div class="note">
+        <span class="tag">The distinction that matters</span>
+        <p>
+          This is not a tuning tool. A misconfigured lever is what an ablation arm tests, and the
+          <a href="claude-second-opinion.html">critic proposal</a> covers judging individual
+          changes. This one is aimed at the class of problem no configuration change can fix —
+          <b>the agent tried to do something the harness cannot do at all</b> — and its intended
+          output is a new tool, a new rung, a new field, or a fixed contract.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="looking">
+      <div class="part-head"><span class="num">01</span><h2>What it looks for</h2></div>
+
+      <p>
+        Five classes of finding, ordered by how much they are worth. The first is the reason to
+        build this; the rest come almost free once something is reading the logs at all.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Class</th><th>Log signature</th><th>Output</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Capability deficit</b><br><span class="pill fail">highest value</span></td>
+              <td>The same tool failing the same way across unrelated tasks, or a visible workaround
+                  — a sequence of calls that achieves clumsily what one missing tool would do
+                  directly.</td>
+              <td>A proposed <b>tool</b> or subsystem, as a workplan task.</td>
+            </tr>
+            <tr>
+              <td><b>Contract defect</b></td>
+              <td><code>InvalidArguments</code> clustered on one parameter of one tool; or a tool
+                  chosen for a job it does not do, which is a description problem wearing a model
+                  problem's clothes.</td>
+              <td>A schema or <code>[Description]</code> fix — the cheapest change in the harness.</td>
+            </tr>
+            <tr>
+              <td><b>Missing oracle</b></td>
+              <td>Runs that pass every rung and then fail the task oracle. Something was wrong that
+                  nothing in the ladder can see.</td>
+              <td>A proposed rung, or a fixture that pins the behaviour.</td>
+            </tr>
+            <tr>
+              <td><b>Observability blind spot</b></td>
+              <td>The advisor forms a hypothesis it cannot test, because the field it needs is not
+                  in the schema.</td>
+              <td>A proposed <code>StepRecord</code> or <code>RunMetrics</code> field.</td>
+            </tr>
+            <tr>
+              <td><b>Harness lever</b><br><span class="pill info">lowest value</span></td>
+              <td>A configured value that looks wrong for the observed behaviour.</td>
+              <td>A proposed ablation arm, tested by machinery that already exists.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The workaround signature is the interesting one</h3>
+
+      <p>
+        A capability deficit does not always announce itself as an error. Sometimes the agent finds
+        a way around, and the way around is the evidence. The missing-file case had a textbook
+        example: with no create tool, the only route to a new class was to append it to a file that
+        already existed. That produces an <code>edit_file</code> whose <code>oldText</code> is the
+        end of one type and whose <code>newText</code> declares a second — a shape that is
+        detectable, unusual, and means <em>“I wanted a new file.”</em>
+      </p>
+
+      <p>
+        Errors are easy to grep for. Workarounds need something that understands what the agent was
+        trying to do, which is precisely the thing a model is better at than a query.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="cases">
+      <div class="part-head"><span class="num">02</span><h2>Two it should have caught</h2></div>
+
+      <p>
+        Both of these were real, both were live for months, both were found by hand, and both left
+        a machine-readable trail. They are the acceptance test for this feature: an advisor that
+        cannot find these on historical logs is not worth running.
+      </p>
+
+      <h3>Case 1 · No tool could create a file</h3>
+
+      <div class="scroller">
+        <table class="doc">
+          <tbody>
+            <tr><td><b>Signature</b></td><td><code>edit_file</code> → <code>not_found</code>,
+                message ending <code>does not exist.</code>, on paths that never appear in any
+                successful <code>read_file</code>.</td></tr>
+            <tr><td><b>Corroboration</b></td><td>It recurs across tasks with nothing else in common,
+                which rules out one broken fixture.</td></tr>
+            <tr><td><b>The tell</b></td><td>The tool's own hint said
+                <em>“or ask for a file-creation tool”</em> — the executor was documenting its own
+                deficit in every failure message it emitted.</td></tr>
+            <tr><td><b>Correct output</b></td><td>Propose <code>create_file</code>. Note that
+                suite-07 cannot be passed cleanly without it, so the suite is measuring the tool
+                set.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Case 2 · The pre-write check refused correct new code</h3>
+
+      <p>
+        Rung 2 compiles in memory without running MSBuild, so it never saw the global usings the
+        SDK generates for <code>ImplicitUsings</code> — that file lives under <code>obj/</code>,
+        which the workspace deny list excludes. Any new code touching <code>System</code> was
+        refused before it reached disk.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <tbody>
+            <tr><td><b>Signature</b></td><td><code>verification_failed</code> whose diagnostics are
+                overwhelmingly <code>CS0103</code> on well-known framework names —
+                <code>Array</code>, <code>Console</code>, <code>ArgumentNullException</code>.</td></tr>
+            <tr><td><b>Corroboration</b></td><td>A <code>build</code> in the same run succeeding on
+                code rung 2 called broken. Two oracles disagreeing is a strong signal, and both
+                verdicts are in the same transcript.</td></tr>
+            <tr><td><b>Why a human missed it</b></td><td>Each refusal looks locally reasonable. The
+                pattern only exists across runs.</td></tr>
+            <tr><td><b>Correct output</b></td><td>Propose synthesising the SDK's global usings when
+                the project asks for implicit usings — or, failing that diagnosis, at minimum flag
+                that rung 2 and <code>build</code> disagree systematically.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Two oracles disagreeing is the highest-value pattern in the logs</span>
+        <p>
+          It cannot be a model failure. When a cheap rung refuses something an expensive rung then
+          accepts, one of them is wrong about the world, and the transcript holds both verdicts
+          side by side. If the advisor only ever looked for this one pattern it would still earn
+          its place.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="reads">
+      <div class="part-head"><span class="num">03</span><h2>What it reads</h2></div>
+
+      <p>
+        Nothing new. <code>TranscriptReader</code> states the property this whole proposal rests
+        on:
+      </p>
+
+<pre><code><span class="c">// if the log cannot be read back into a complete run, then the log was never a</span>
+<span class="c">// transcript. Everything downstream - the live transcript view, the metrics</span>
+<span class="c">// harness, the ablation runner - reads through here.</span></code></pre>
+
+      <p>The advisor is one more thing reading through there, over four artifacts:</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Artifact</th><th>Carries</th></tr></thead>
+          <tbody>
+            <tr><td class="m">StepRecord</td><td>The prompt as actually sent, the response, every
+                <code>ToolCallRecord</code> with arguments, status and result,
+                <code>ContextCompacted</code>, <code>EstimatedContextTokens</code>,
+                <code>Outcome</code>, <code>Error</code>, and the plan as it stood.</td></tr>
+            <tr><td class="m">RunRecord</td><td>Goal, stop reason, totals, config hash, commit.</td></tr>
+            <tr><td class="m">RunMetrics</td><td>Twenty-odd indicators including validity rate,
+                compile errors per edit, recovery rate, cascade ratio and <code>Arm</code>.</td></tr>
+            <tr><td class="m">ChangeLog</td><td>What was proposed versus applied versus refused, and
+                by whom.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Offline, and that is a design decision</h3>
+
+      <ul class="prose">
+        <li><b>It cannot contaminate a measurement.</b> An observer able to influence a run changes
+            what the run measures. One reading finished JSONL cannot.</li>
+        <li><b>It sees many runs at once.</b> Every case above is a cross-run pattern. A per-run
+            observer would have missed both, for the same reason the humans did.</li>
+        <li><b>It is re-runnable.</b> Improve the analysis and re-run it over months of history at
+            no cost to any live run.</li>
+      </ul>
+
+      <h3>Why headless Claude Code rather than an API call</h3>
+
+      <p>
+        Volume. Prompts are logged up to <code>MaxLoggedTextLength</code> — 16 000 characters — and
+        an ablation is dozens of runs. That does not fit in a request.
+      </p>
+
+      <p>
+        What fits is an agent that starts from the skeleton — steps, tool names, statuses,
+        outcomes, metrics — spots something odd, and then pulls the full prompt for those specific
+        steps. A read-only loop over a log directory with grep and read is exactly the shape
+        <code>claude -p</code> is good at, and exactly the shape a single Messages call is bad at.
+        This is the inverse of the recommendation in the
+        <a href="claude-second-opinion.html#fork">critic proposal</a>, and for the opposite reason:
+        there, latency was bounded and context was small.
+      </p>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="output">
+      <div class="part-head"><span class="num">04</span><h2>Proposals, not advice</h2></div>
+
+      <p>
+        The failure mode to design against is obvious once stated. A model handed transcripts will
+        produce ten confident, plausible, mostly generic suggestions — <em>improve your tool
+        descriptions, consider more context</em> — and evaluating them will cost more than ignoring
+        them would have. That is also flatly at odds with how the rest of this repository works,
+        where every claim gets a lever and a number.
+      </p>
+
+      <p>
+        <b>So constrain the output shape.</b> A finding is not prose; it is a candidate workplan
+        task with evidence attached, in the format <code>WORKPLAN.md</code> already uses.
+      </p>
+
+<pre><code>{
+  "class":     "capability-deficit",
+  "title":     "Implement create_file with guardrail and pre-write verification",
+  "estimate":  "1d",
+  "dependsOn": [8, 14, 27, 28],
+
+  "evidence": [
+    { "runId": "…", "task": "suite-07", "step": 6,
+      "quote": "'Discount.cs' does not exist.", "code": "not_found" },
+    { "runId": "…", "task": "desktop",   "step": 4,
+      "quote": "'Helpers.cs' does not exist.",  "code": "not_found" }
+  ],
+  "occurrences": 23,
+  "tasksAffected": ["suite-07", "desktop"],
+
+  "rationale":  "edit_file cannot create files. Its own hint names the missing tool.",
+  "acceptance": "A new file is created through the change log and the approval gate;
+                 an existing path is refused rather than overwritten.",
+  "predicted":  { "metric": "pass@1", "task": "suite-07", "direction": "up" }
+}</code></pre>
+
+      <p>Four properties of that shape are doing real work:</p>
+
+      <ul class="prose">
+        <li><b>Evidence is quoted, with run and step ids.</b> Every claim is checkable in ten
+            seconds against the transcript view. A finding whose evidence does not resolve is a
+            hallucination, and it is trivially detectable as one.</li>
+        <li><b>Occurrences are counted.</b> One instance is an anecdote. Twenty-three across two
+            unrelated tasks is a deficit. The number is what turns a hunch into a priority.</li>
+        <li><b>There is a prediction.</b> Which makes the proposal falsifiable, and lets section 5
+            work at all.</li>
+        <li><b>It lands in the existing plan.</b> A candidate task with an estimate, dependencies
+            and acceptance criteria is a thing you can accept or reject in one reading. Prose is
+            not.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="scoring">
+      <div class="part-head"><span class="num">05</span><h2>Scoring the advisor</h2></div>
+
+      <p>
+        The advisor is a measurement instrument pointed at a project whose whole discipline is
+        measuring before believing. It would be absurd to exempt it. Because every finding carries
+        a prediction, it can be scored on its own terms:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Metric</th><th>Definition</th><th>Reading</th></tr></thead>
+          <tbody>
+            <tr><td><b>Adoption rate</b></td><td>Findings accepted into the workplan ÷ findings
+                raised.</td><td>Low means it is generating noise you have to wade through.</td></tr>
+            <tr><td><b>Hit rate</b></td><td>Implemented findings whose predicted metric moved in
+                the predicted direction ÷ implemented findings.</td>
+                <td>The real number. Below roughly a third, it is guessing.</td></tr>
+            <tr><td><b>Evidence integrity</b></td><td>Findings whose quoted run and step ids
+                resolve to the quoted text.</td>
+                <td>Must be 100%. Anything less is fabrication, and grounds for distrusting the
+                    rest of the report.</td></tr>
+            <tr><td><b>Lead time</b></td><td>How long the earliest evidence for a finding sat in the
+                logs before the advisor raised it.</td>
+                <td>Run against history, this is the feature's whole argument, in months.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Evidence integrity is the one to enforce mechanically rather than measure: the report
+        writer should resolve every citation against the transcript before emitting it, and drop
+        findings that fail. A fabricated quote is not a low-quality finding, it is a
+        non-finding — and one is enough to make a reader stop trusting the other nine.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="limits">
+      <div class="part-head"><span class="num">06</span><h2>What it cannot see</h2></div>
+
+      <p>Four honest limits, and the last is the sharpest.</p>
+
+      <ul class="prose">
+        <li><b>Its ceiling is the schema.</b> If something matters and is not in
+            <code>StepRecord</code>, no analysis surfaces it. This is why “propose a new field” is a
+            first-class output class rather than an afterthought.</li>
+        <li><b>It only sees what the agent bumped into.</b> A deficit becomes visible when the agent
+            tries and fails. Nothing in the logs reveals a tool nobody has yet needed, so the
+            advisor is a good detector of friction and a poor source of vision.</li>
+        <li><b>Some defects never reach the logs at all.</b> Two real examples from this repository:
+            the critic panel counting an unreachable critic as non-refuting, and the analyzer
+            throwing when walking a directory that does not exist yet. The first is behind a
+            disabled feature; the second was unreachable until <code>create_file</code> existed.
+            Neither would appear in any transcript. <b>The advisor complements code review; it does
+            not replace it.</b></li>
+        <li><b>There is a conflict of interest.</b> A large cloud model advising on a harness whose
+            thesis is that a <em>local</em> model can do the work may drift toward proposals that
+            suit a large cloud model — more tools, more context, more capability. The prediction
+            and the hit rate are the defence: a proposal that does not move the number is rejected
+            however sensible it sounded.</li>
+      </ul>
+
+      <div class="note refuse">
+        <span class="tag">Transcripts contain your source code</span>
+        <p>
+          <code>Logging:LogSourceContent</code> is <code>true</code> by default and prompts carry
+          repository content, so pointing a cloud model at a log directory sends that code
+          outward. The config already documents the switch — <code>false</code> keeps
+          <em>“the step skeleton”</em> and drops all source content — so a redacted advisor mode is
+          half-built. That mode still finds both cases in section 2, because both are visible in
+          tool names, error codes and diagnostic ids rather than in source.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="boundary">
+      <div class="part-head"><span class="num">07</span><h2>Where it must not go</h2></div>
+
+      <p>
+        “GlassCoder improves itself” has an obvious next step, and it is the wrong one.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Tempting</th><th>Why not</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Let the advisor's findings be implemented by GlassCoder, on GlassCoder</td>
+              <td>A measurement instrument that rewrites itself in response to its own measurements
+                  stops being an instrument. When pass@1 moves you would no longer know whether the
+                  harness improved or the yardstick bent. Findings are proposals for a human to
+                  accept — that is the entire boundary, and it is worth being rigid about.</td>
+            </tr>
+            <tr>
+              <td>Run the advisor live, so it can interrupt a bad run</td>
+              <td>That is a supervisor, not an advisor, and it is a different feature —
+                  <code>Orchestrator.cs</code> and <code>Orchestration:Enabled</code> already sit at
+                  <code>false</code> for Phase 5. Conflating them gives you an advisor that
+                  influences the runs it reports on.</td>
+            </tr>
+            <tr>
+              <td>Give the advisor write access so it can open issues or branches</td>
+              <td>Read-only is what makes it safe to point at every log you have. The report is an
+                  artifact; what happens to it is a separate, human decision.</td>
+            </tr>
+            <tr>
+              <td>Let it grade individual runs</td>
+              <td>The suite oracle already does that, deterministically and for free. The advisor's
+                  subject is the harness, and every step toward judging runs is a step away from
+                  the thing nothing else is doing.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The one-line version, worth putting in the class comment: <b>the advisor proposes, humans
+        dispose, and it never touches the repository it is reporting on.</b>
+      </p>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">08</span><h2>Shape of the work</h2></div>
+
+      <p>
+        Continuing the workplan numbering after the two sibling proposals. The first task is the
+        one that decides whether the rest is worth doing.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr><td class="m">46</td><td><b>Backtest first.</b> Point a headless Claude at existing
+                logs by hand and ask only whether it finds the two deficits in section 2. If it
+                cannot, stop — the rest of this is scaffolding around an analysis that does not
+                work.</td><td class="m">0.5d</td><td class="m">11, 20</td></tr>
+            <tr><td class="m">47</td><td>A corpus reducer: transcripts and metrics collapsed to a
+                skeleton an agent can survey, with drill-down by run and step id.</td>
+                <td class="m">1d</td><td class="m">11</td></tr>
+            <tr><td class="m">48</td><td>The finding schema and its writer, with every citation
+                resolved against the transcript before emission and unresolvable findings
+                dropped.</td><td class="m">1d</td><td class="m">47</td></tr>
+            <tr><td class="m">49</td><td><code>glasscoder advise</code>: run the analysis over a log
+                and metrics directory, emit a report artifact. Redacted mode honoured.</td>
+                <td class="m">1.5d</td><td class="m">30, 47, 48</td></tr>
+            <tr><td class="m">50</td><td>An Advisor surface in the desktop app, reading the report
+                from disk exactly as the Metrics surface already does.</td><td class="m">1d</td>
+                <td class="m">25, 49</td></tr>
+            <tr><td class="m">51</td><td>Finding provenance: record accepted, rejected and
+                implemented findings so adoption and hit rate can be computed rather than
+                remembered.</td><td class="m">0.5d</td><td class="m">49</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance</h3>
+
+      <ul class="prose">
+        <li>Run against logs predating <code>create_file</code>, the advisor raises a
+            capability-deficit finding for a file-creation tool, with citations that resolve.</li>
+        <li>Run against logs predating the implicit-usings fix, it raises the rung 2 / <code>build</code>
+            disagreement.</li>
+        <li>Every citation in every emitted finding resolves to the quoted text. No exceptions and
+            no partial credit.</li>
+        <li>The advisor never opens a file in the repository under analysis for writing, and its
+            report is the only artifact it produces.</li>
+        <li>In redacted mode, no repository source content appears anywhere in the report.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="claude-second-opinion.html">A second opinion from Claude</a> — the same model
+          family pointed at a change rather than at the harness, and mostly already written.
+          <a href="mcp-retrieval.html">Retrieval over MCP</a> — where the record/replay and
+          redaction thinking this proposal reuses was first worked out.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder proposal · the harness advisor · not implemented ·
+  companion to <a href="claude-second-opinion.html">a second opinion from Claude</a>,
+  <a href="mcp-retrieval.html">retrieval over MCP</a> and the
+  <a href="../index.html">operator's guide</a>
+</footer>
+</body>
+</html>
