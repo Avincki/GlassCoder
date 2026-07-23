@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Design proposal: putting Claude in front of a proposed GlassCoder change, as the critic role on rung 6 and as an advisory button at the approval gate.">
+<title>GlassCoder — Proposal: a second opinion from Claude</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-input {
+    flex: 1;
+    min-width: 0;
+    background: #FFFFFF;
+    border: 1px solid #7A8A94;
+    border-radius: 2px;
+    padding: 0.2rem 0.4rem;
+    color: #131A1F;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ui-input.empty { color: #FFFFFF; }
+  .ui-input .caret { border-left: 1px solid #131A1F; margin-left: 1px; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ui-btn.off { background: #F2F4F5; border-color: #D0D6D9; color: #A3ACB1; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .ui-combo, .ui-text {
+    background: #FFFFFF;
+    border: 1px solid #A6AFB5;
+    border-radius: 2px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.75rem;
+    color: #131A1F;
+  }
+
+  .ui-combo::after { content: " ⌄"; color: #5B6B75; }
+  .ui-combo.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+  .ui-text.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+
+  .ui-scroll { overflow-x: auto; }
+
+  table.ui-grid { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.76rem; }
+
+  table.ui-grid th {
+    background: #F3F5F6;
+    border-bottom: 1px solid #C9D1D5;
+    border-right: 1px solid #E3E8EA;
+    color: #1F2933;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.45rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td {
+    border-bottom: 1px solid #E9EDEF;
+    padding: 0.26rem 0.45rem;
+    color: #131A1F;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td.wrap { white-space: normal; }
+  table.ui-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ui-grid tr.err td { color: #B00020; }
+  table.ui-grid tr.warn td { color: #8A6D00; }
+  table.ui-grid tr.ok td { color: #1B5E20; }
+  table.ui-grid tr.sel td { background: #CCE4F7; }
+  table.ui-grid tr.sel.err td { background: #CCE4F7; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-detail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: #131A1F;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0.35rem 0 0.1rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .ui-detail .role { color: #1A6E9E; }
+  .ui-detail .toolh { color: #7A5C00; }
+
+  .ui-empty {
+    border: 1px solid #C9D1D5;
+    background: #EFEFEF;
+    height: 7rem;
+    border-radius: 2px;
+  }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; }
+
+  /* metrics bar — MetricsView.xaml, Fill #4C6FBF */
+  .mbar { display: inline-block; height: 0.6rem; background: #4C6FBF; border-radius: 2px; vertical-align: middle; }
+  .mbar-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 11rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+    .ui-input { flex-basis: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Proposal · not built</div>
+    <h1>A second opinion from Claude</h1>
+    <p class="standfirst">
+      Two ways to put a different model family in front of a proposed change: one advisory to the
+      agent, mid-run and automatic; one advisory to you, at the approval gate and on demand. The
+      first is mostly already written.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> proposal</div>
+      <div><b>Touches</b> Models · Core.Verification · Wpf</div>
+      <div><b>Reuses</b> CriticPanel, rung 6</div>
+      <div><b>Blocks</b> nothing — both are opt-in</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="../wpf-app.html">← Desktop app reference</a>
+      <a href="mcp-retrieval.html">Proposal: retrieval over MCP →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#exists">0 · What already exists</a></li>
+      <li><a href="#two">1 · Two features, not one</a></li>
+      <li><a href="#critic">2 · A · Claude as the critic role</a></li>
+      <li><a href="#gate">3 · B · Ask Claude at the gate</a></li>
+      <li><a href="#fork">4 · API or Claude Code headless</a></li>
+      <li><a href="#invariants">5 · What must not change</a></li>
+      <li><a href="#bug">6 · Fix this first</a></li>
+      <li><a href="#decisions">7 · Decisions needed</a></li>
+      <li><a href="#work">8 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note refuse">
+      <span class="tag">This describes something that does not exist</span>
+      <p>
+        Nothing on this page is implemented. It is a design note for a future version, written
+        against the code as it stands so the estimates and the names are real. Where it quotes the
+        repository, that is current; where it quotes configuration keys that would be
+        <em>added</em>, they are marked as proposed.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="exists">
+      <div class="part-head"><span class="num">00</span><h2>What already exists</h2></div>
+
+      <p>
+        More than you would expect. <code>CriticPanel</code> is rung 6 of the verification ladder
+        and it is fully written: it fans out N critics in parallel, gives each a different lens,
+        parses a JSON verdict, and counts votes against a threshold.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Piece</th><th>Where</th><th>State</th></tr></thead>
+          <tbody>
+            <tr><td>Multi-critic refutation</td><td class="m">Core/Verification/CriticPanel.cs</td>
+                <td>Written. <code>Critique:Enabled</code> is <code>false</code>.</td></tr>
+            <tr><td>Ladder integration</td><td class="m">Core/Verification/VerificationLadder.cs</td>
+                <td>Written. Rung 6, runs last, skipped when critique is off.</td></tr>
+            <tr><td>An arm that turns it on</td><td class="m">Lab/Ablation/StandardArms.cs</td>
+                <td>Written — <code>with-critique</code>. Not in <code>Default</code>.</td></tr>
+            <tr><td>Hosted-role configuration</td><td class="m">Models/Configuration/ModelRoleOptions.cs</td>
+                <td>Written: <code>ApiKey</code>, <code>ApiKeyEnvironmentVariable</code>, per-role cost.</td></tr>
+            <tr><td>A non-OpenAI transport</td><td class="m">Models/ChatClientFactory.cs</td>
+                <td><b>Missing.</b> This is the whole gap.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The critic prompt already asks for the right thing. Each critic is told to
+        <em>refute</em> rather than review, which the class documents as deliberate:
+      </p>
+
+<pre><code><span class="c">// CriticPanel.cs</span>
+<span class="c">// "is this good?" invites agreement from a model that has just been shown a</span>
+<span class="c">// plausible-looking diff, while "find what is wrong with this" gives it a job</span>
+<span class="c">// it can fail at honestly.</span></code></pre>
+
+      <p>
+        And the three lenses are already split so the critics are not redundant:
+        <b>correctness</b> (does it do what the goal asked, in every case the goal implies),
+        <b>regression</b> (does it break behaviour other code depends on) and
+        <b>evidence</b> (does the evidence prove the change works, or only that it compiles).
+      </p>
+
+      <div class="note">
+        <span class="tag">The argument is already in your codebase</span>
+        <p>
+          <code>CritiqueOptions.Role</code> is documented as <em>“ideally a different model family
+          from the worker, so the critic's blind spots are not the worker's blind spots.”</em>
+          That is the case for this feature, written before the feature was proposed. A local
+          worker critiqued by a second instance of itself mostly agrees with itself.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="two">
+      <div class="part-head"><span class="num">01</span><h2>Two features, not one</h2></div>
+
+      <p>
+        “Let Claude check a proposal” collapses two different things. They differ in who the
+        advice is <em>for</em>, and that changes almost every design decision downstream.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th></th><th>A · Critic role</th><th>B · Ask Claude</th></tr></thead>
+          <tbody>
+            <tr><td>Advises</td><td>The agent</td><td>You</td></tr>
+            <tr><td>When</td><td>Every change, automatically</td><td>Only when you press it</td></tr>
+            <tr><td>Where</td><td>Rung 6 of the ladder</td><td>The approval banner</td></tr>
+            <tr><td>Consumed by</td><td>The next model step</td><td>A human reading a diff</td></tr>
+            <tr><td>Latency budget</td><td>Tight — it is in the loop</td><td>Loose — someone is already waiting</td></tr>
+            <tr><td>Output</td><td>Structured verdict, machine-read</td><td>Prose, human-read</td></tr>
+            <tr><td>Cost profile</td><td>Every change × N critics</td><td>One call, on demand</td></tr>
+            <tr><td>Effort</td><td>Small — a transport</td><td>Medium — new UI and gate semantics</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        They are complementary rather than alternatives. A is a better oracle; B is a better
+        review experience. Build A first because it is nearly free, but B is the one that changes
+        how the app feels to use.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="critic">
+      <div class="part-head"><span class="num">02</span><h2>A · Claude as the critic role</h2></div>
+
+      <p>
+        In the ideal case this is a configuration change and nothing else — which is exactly what
+        <code>ModelRoleOptions</code> promises: <em>“swapping a local server for a hosted API
+        … must never be a code change.”</em>
+      </p>
+
+<pre><code><span class="c">// config/appsettings.json — the shape it should end up as</span>
+"critic": {
+  "Provider": "anthropic",              <span class="c">// proposed: new field</span>
+  "Endpoint": "https://api.anthropic.com",
+  "ModelAlias": "claude-opus-4-8",
+  "ApiKeyEnvironmentVariable": "ANTHROPIC_API_KEY",
+  "Temperature": 0.0,
+  "InputCostPerMillionTokens": 0.0,     <span class="c">// fill in from current pricing</span>
+  "OutputCostPerMillionTokens": 0.0
+}</code></pre>
+
+      <p>
+        The gap is that <code>ChatClientFactory</code> builds one shape of client:
+        <code>Microsoft.Extensions.AI.OpenAI</code> over an OpenAI-compatible base endpoint. The
+        pipeline it assembles — role defaults, then constrained decoding, then OpenTelemetry, then
+        transport — is worth keeping intact, so the change is a <em>transport swap at the
+        innermost layer</em>, not a parallel factory.
+      </p>
+
+      <ul class="prose">
+        <li><b>Add <code>Provider</code> to <code>ModelRoleOptions</code></b>, defaulting to
+            <code>openai</code> so every existing config keeps working untouched.</li>
+        <li><b>Branch only on the innermost client.</b> Everything outside it — telemetry, role
+            defaults, cost accounting, the deliberate <em>absence</em> of
+            <code>UseFunctionInvocation()</code> — stays shared.</li>
+        <li><b>Constrained decoding does not apply.</b> The critic returns JSON by prompt, not by
+            grammar, and <code>CriticPanel.Parse</code> already falls back to a text heuristic
+            when the JSON is malformed. Leave the stage in the pipeline; it will simply attach
+            nothing for this provider.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Cost is already instrumented</span>
+        <p>
+          Per-role <code>InputCostPerMillionTokens</code> and
+          <code>OutputCostPerMillionTokens</code> feed the cost-per-solved-task metric, and
+          <code>Agent:MaxCostUsd</code> is an existing hard budget. A paid critic slots into both
+          without new plumbing — which also means a runaway critique loop trips a budget rather
+          than a credit card.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="gate">
+      <div class="part-head"><span class="num">03</span><h2>B · Ask Claude at the gate</h2></div>
+
+      <p>
+        A third button on the approval banner, next to <b>Approve</b> and <b>Reject</b>. It does
+        not decide anything — it fills a pane underneath with an opinion, and leaves the decision
+        where it was.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-approval">
+                <div class="hdr">Approval needed: DoubleSorter.cs</div>
+                <div class="sub">This change has passed verification and is waiting to be written.</div>
+                <div class="diffbox">
+                  <div class="dl add"><span class="n"></span><span class="n">14</span><span class="t">+        ArgumentNullException.ThrowIfNull(values);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">15</span><span class="t">+</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+        Array.Sort(values);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">17</span><span class="t">+        return values;</span></div>
+                </div>
+                <div class="acts">
+                  <span class="ui-btn">Approve</span>
+                  <span class="ui-btn">Reject</span>
+                  <span class="ui-btn">Ask Claude</span>
+                </div>
+              </div>
+              <div class="ui-label">Second opinion — claude-opus-4-8 · 2.4s · 1,830 tokens</div>
+              <div class="ui-sub">
+                <b>Concern: the input array is sorted in place.</b> <code>Ascending</code> returns the
+                same array it was given, so a caller holding <code>input</code> sees it reordered.
+                Program.cs line 9 asserts <code>input[0]</code> is still 3.5 after the call, so this
+                will compile, pass the syntax and compile rungs, and then fail the oracle.<br>
+                Suggested: <code>double[] sorted = [.. values];</code> then sort the copy.
+              </div>
+            </div>
+          </div>
+          <div class="ui-status">Running… · waiting for approval (timer paused)</div>
+        </div>
+        <figcaption>Mockup. The banner stays up: only Approve and Reject resolve the gate.</figcaption>
+      </figure>
+
+      <h3>Three things the implementation has to get right</h3>
+
+      <ul class="prose">
+        <li><b>The button must not complete the <code>TaskCompletionSource</code>.</b> The loop
+            thread is parked inside <code>WpfApprovalGate.RequestAsync</code> awaiting
+            <code>ChangesViewModel.RequestApprovalAsync</code>. Only
+            <code>ApproveCommand</code> and <code>RejectCommand</code> may call
+            <code>TrySetResult</code>. A third command runs a side query and raises a property.</li>
+        <li><b>The approval timeout is a trap.</b> <code>WpfApprovalGate</code> starts a
+            <code>CancelAfter(ApprovalTimeoutSeconds)</code> — 300 by default — the moment the
+            banner goes up, and expiry is a <em>rejection</em>. A Claude round-trip plus your
+            reading time can cross that and silently discard the change. The timer needs to be
+            suspended while an advisory query is in flight, or reset when one returns. This is the
+            single most likely thing to be got wrong.</li>
+        <li><b>Cancellation still has to win.</b> Pressing <b>Cancel</b> during an advisory query
+            must abandon it and reject the change with the existing wording,
+            <code>The run was cancelled while waiting for approval.</code></li>
+      </ul>
+
+      <p>
+        What the query gets is the interesting design question. The minimum is what rung 6 already
+        assembles: the goal, the diff, and the verification evidence. That is enough to catch the
+        example above. It is <em>not</em> enough to catch “this duplicates a helper three files
+        away” — which is the argument for the second option in the next section.
+      </p>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="fork">
+      <div class="part-head"><span class="num">04</span><h2>API or Claude Code headless</h2></div>
+
+      <p>
+        “Headless Claude” could mean two quite different things, and the choice does not have to
+        be the same for A and B.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th></th><th>Messages API</th><th>Claude Code headless</th></tr></thead>
+          <tbody>
+            <tr><td>Sees</td><td>Only what you put in the prompt</td><td>The repository, by reading it</td></tr>
+            <tr><td>Integration</td><td>An <code>IChatClient</code> behind the existing seam</td><td>A process invocation</td></tr>
+            <tr><td>Latency</td><td>One round trip</td><td>Its own agent loop</td></tr>
+            <tr><td>Cost</td><td>Predictable per call</td><td>Unbounded until it stops</td></tr>
+            <tr><td>Catches</td><td>Errors visible in the diff</td><td>Errors visible only in context</td></tr>
+            <tr><td>Sandbox story</td><td>Network call from the harness</td><td>A second agent with file access</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        <b>Recommendation:</b> Messages API for A, because rung 6 runs on every change and needs a
+        bounded cost and latency. Consider the CLI only for B, where a human is already waiting
+        and depth is worth seconds — and where a single unbounded call is a decision someone just
+        made deliberately by pressing a button.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">The CLI option is a second agent, not a second opinion</span>
+        <p>
+          Claude Code headless has its own tools, its own loop and its own budget. Nothing in
+          GlassCoder's transcript, metrics or change log would see inside it, so a run that used
+          it would have a hole in exactly the place this project exists to make visible. If it is
+          used at all, it should be read-only and its output treated as text — never as a tool
+          call, and never as something that can write.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="invariants">
+      <div class="part-head"><span class="num">05</span><h2>What must not change</h2></div>
+
+      <p>
+        This is the part worth being stubborn about. The project's claim is that a
+        <em>local</em> model, driven by a good harness, can do useful work. A remote critic is
+        compatible with that claim, but only under conditions.
+      </p>
+
+      <ul class="prose">
+        <li><b>The worker stays local.</b> The thing being measured is the worker. If Claude ever
+            writes code that lands, the measurement is gone and the project is answering a
+            different question.</li>
+        <li><b><code>Critique:Gates</code> stays <code>false</code>.</b> Your own comment gives one
+            reason — <em>“a model refuting a compiler-verified change is a claim worth reading
+            rather than obeying.”</em> There is now a second: the moment a remote critic can veto,
+            “the local model solved suite-03” stops being a clean result.</li>
+        <li><b>Suite and ablation runs default to critique off.</b> A hosted critic makes runs
+            non-reproducible and costs money per arm. <code>with-critique</code> stays a named arm
+            you opt into, not part of <code>StandardArms.Default</code>.</li>
+        <li><b>The critic never sees secrets.</b> Whatever is sent goes through the existing
+            <code>SecretRedactor</code> path, not around it.</li>
+      </ul>
+
+      <p>
+        There is a positive version of this too. Because critique does not gate, turning it on
+        cannot change <code>pass@1</code> — so the honest way to justify the feature is to show it
+        moves <b>recovery rate</b>: how often the agent gets out of a hole it has dug. That number
+        already exists on the Metrics surface, and <code>with-critique</code> already exists as the
+        arm that measures it.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="bug">
+      <div class="part-head"><span class="num">06</span><h2>Fix this first</h2></div>
+
+      <p>
+        <code>CriticPanel.AskAsync</code> catches a failed critic and returns a verdict. The
+        comment above it says what it intends:
+      </p>
+
+<pre><code><span class="c">// A critic that cannot be reached must not silently become an approving vote.</span>
+_logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a refusal to judge"</span>);
+<span class="k">return new</span> CritiqueVerdict(<span class="k">false</span>, 0d, $<span class="c">"Critic unavailable: {ex.Message}"</span>);</code></pre>
+
+      <p>
+        The verdict is recorded with <code>Refuted = false</code>. The tally counts refutations
+        and compares them to a threshold, so a critic that could not be reached is arithmetically
+        indistinguishable from one that read the change and accepted it — and the summary string
+        reports it under <em>“N/M critics accepted the change”</em>. With three critics and a
+        threshold of two, two unreachable critics and one genuine refutation produce “not
+        refuted”.
+      </p>
+
+      <p>
+        Today this is nearly unreachable: the critic is a local endpoint that is either up or the
+        whole run fails. Point it at a hosted API and unreachable critics become <em>routine</em> —
+        rate limits, timeouts, a tripped cost budget, an expired key. So this wants fixing before
+        the transport lands, not after.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Option</th><th>Behaviour</th></tr></thead>
+          <tbody>
+            <tr><td>Quorum</td><td>Require a minimum number of <em>real</em> verdicts; below it,
+                report the panel as inconclusive rather than as accepting. Matches the comment's
+                intent most closely.</td></tr>
+            <tr><td>Fail closed</td><td>An unreachable critic counts as refuting. Safe, but a flaky
+                network becomes a stream of false refutations — and with <code>Gates = false</code>
+                those are noise in the agent's context.</td></tr>
+            <tr><td>Report only</td><td>Keep the tally, but never let a panel with unreachable
+                critics claim consensus in its summary text.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Quorum is the one I would pick, with the count of unavailable critics surfaced in
+        <code>CritiqueResult</code> so the transcript shows how much of the panel actually voted.
+      </p>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="decisions">
+      <div class="part-head"><span class="num">07</span><h2>Decisions needed</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Question</th><th>Why it matters</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Does B share the critic role, or get its own?</td>
+              <td>Sharing means one config and one cost line. A separate role lets the interactive
+                  one be a larger, slower model, since a human is waiting rather than a loop.</td>
+            </tr>
+            <tr>
+              <td>Does B's opinion reach the agent?</td>
+              <td>If you reject after reading it, the agent is told the write was refused but not
+                  why. Feeding the text back as the rejection reason would make it act on your
+                  reviewer's reasoning — powerful, and a change to what rejection means.</td>
+            </tr>
+            <tr>
+              <td>Is B's output recorded?</td>
+              <td>Everything else on the Changes surface is. An advisory opinion that shaped a
+                  decision but left no trace is the one thing on that surface you could not
+                  reconstruct afterwards. It probably belongs on <code>CodeChange</code>.</td>
+            </tr>
+            <tr>
+              <td>How much context does B send?</td>
+              <td>Diff only is cheap and catches diff-visible errors. Diff plus the files it
+                  touches catches more and costs more. There is no reason both cannot be offered.</td>
+            </tr>
+            <tr>
+              <td>What happens with no API key?</td>
+              <td>The button should be absent or disabled, not fail on press. <code>Enabled</code>
+                  on <code>ICriticPanel</code> already models exactly this for rung 6.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">08</span><h2>Shape of the work</h2></div>
+
+      <p>
+        In workplan terms this is four tasks, continuing the numbering at 36. None of them is
+        large; the third is the only one with real design content.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr><td class="m">36</td><td>Quorum handling for unreachable critics, with the count
+                surfaced in <code>CritiqueResult</code>.</td><td class="m">0.5d</td><td class="m">23</td></tr>
+            <tr><td class="m">37</td><td><code>Provider</code> on <code>ModelRoleOptions</code> and an
+                Anthropic transport at the innermost layer of the client pipeline.</td><td class="m">1d</td><td class="m">4</td></tr>
+            <tr><td class="m">38</td><td>Enable critique against a hosted critic; add
+                <code>with-critique</code> to a named comparison and read recovery rate.</td><td class="m">0.5d</td><td class="m">36, 37</td></tr>
+            <tr><td class="m">39</td><td><b>Ask Claude</b> command on <code>ChangesViewModel</code>,
+                timeout suspension in <code>WpfApprovalGate</code>, opinion pane in
+                <code>ChangesView</code>.</td><td class="m">1.5d</td><td class="m">28, 37</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance, in the style of the existing plan</h3>
+
+      <ul class="prose">
+        <li>A panel with fewer real verdicts than its quorum reports inconclusive, and never
+            reports consensus.</li>
+        <li>Switching the critic role from a local endpoint to a hosted one is a configuration
+            change with no code change and no test change.</li>
+        <li>The <b>Ask Claude</b> button never resolves the approval gate, and a change left with
+            an opinion on screen for longer than <code>ApprovalTimeoutSeconds</code> is still
+            awaiting a decision rather than silently rejected.</li>
+        <li><code>pass@1</code> is unchanged by enabling critique; if it moves, something gates
+            that should not.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="mcp-retrieval.html">Retrieval over MCP</a> — the other half of this brainstorm,
+          and the one with the harder measurement problem.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder proposal · a second opinion from Claude · not implemented ·
+  companion to <a href="mcp-retrieval.html">retrieval over MCP</a> and the
+  <a href="../index.html">operator's guide</a>
+</footer>
+</body>
+</html>

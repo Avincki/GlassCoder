@@ -1,0 +1,1044 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Design proposal: Microsoft Learn and GitHub code search as MCP tools for GlassCoder, and the record/replay cache the ablation harness needs first.">
+<title>GlassCoder — Proposal: retrieval over MCP</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-input {
+    flex: 1;
+    min-width: 0;
+    background: #FFFFFF;
+    border: 1px solid #7A8A94;
+    border-radius: 2px;
+    padding: 0.2rem 0.4rem;
+    color: #131A1F;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ui-input.empty { color: #FFFFFF; }
+  .ui-input .caret { border-left: 1px solid #131A1F; margin-left: 1px; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ui-btn.off { background: #F2F4F5; border-color: #D0D6D9; color: #A3ACB1; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .ui-combo, .ui-text {
+    background: #FFFFFF;
+    border: 1px solid #A6AFB5;
+    border-radius: 2px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.75rem;
+    color: #131A1F;
+  }
+
+  .ui-combo::after { content: " ⌄"; color: #5B6B75; }
+  .ui-combo.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+  .ui-text.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+
+  .ui-scroll { overflow-x: auto; }
+
+  table.ui-grid { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.76rem; }
+
+  table.ui-grid th {
+    background: #F3F5F6;
+    border-bottom: 1px solid #C9D1D5;
+    border-right: 1px solid #E3E8EA;
+    color: #1F2933;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.45rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td {
+    border-bottom: 1px solid #E9EDEF;
+    padding: 0.26rem 0.45rem;
+    color: #131A1F;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td.wrap { white-space: normal; }
+  table.ui-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ui-grid tr.err td { color: #B00020; }
+  table.ui-grid tr.warn td { color: #8A6D00; }
+  table.ui-grid tr.ok td { color: #1B5E20; }
+  table.ui-grid tr.sel td { background: #CCE4F7; }
+  table.ui-grid tr.sel.err td { background: #CCE4F7; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-detail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: #131A1F;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0.35rem 0 0.1rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .ui-detail .role { color: #1A6E9E; }
+  .ui-detail .toolh { color: #7A5C00; }
+
+  .ui-empty {
+    border: 1px solid #C9D1D5;
+    background: #EFEFEF;
+    height: 7rem;
+    border-radius: 2px;
+  }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; }
+
+  /* metrics bar — MetricsView.xaml, Fill #4C6FBF */
+  .mbar { display: inline-block; height: 0.6rem; background: #4C6FBF; border-radius: 2px; vertical-align: middle; }
+  .mbar-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 11rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+    .ui-input { flex-basis: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Proposal · not built</div>
+    <h1>Retrieval over MCP</h1>
+    <p class="standfirst">
+      Giving the agent Microsoft Learn and GitHub code search as tools — and the record/replay
+      cache that has to come with them, because live network results would quietly destroy the
+      one property the ablation harness depends on.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> proposal</div>
+      <div><b>Touches</b> Tools · Lab · Context</div>
+      <div><b>Package</b> already pinned, unreferenced</div>
+      <div><b>Risk</b> hermeticity, context budget, injection</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="../wpf-app.html">← Desktop app reference</a>
+      <a href="claude-second-opinion.html">← Proposal: a second opinion from Claude</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#exists">0 · What already exists</a></li>
+      <li><a href="#which">1 · Which servers, and why</a></li>
+      <li><a href="#hermetic">2 · The hermeticity problem</a></li>
+      <li><a href="#contract">3 · What it costs the tool contract</a></li>
+      <li><a href="#context">4 · The context budget</a></li>
+      <li><a href="#network">5 · Where the network actually is</a></li>
+      <li><a href="#untrusted">6 · Untrusted content</a></li>
+      <li><a href="#measure">7 · How to know it helped</a></li>
+      <li><a href="#work">8 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note refuse">
+      <span class="tag">This describes something that does not exist</span>
+      <p>
+        Nothing here is implemented. Configuration keys shown are proposed unless marked
+        otherwise. Where this page quotes the repository, that is current code.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="exists">
+      <div class="part-head"><span class="num">00</span><h2>What already exists</h2></div>
+
+      <p>
+        One line, and it is a decision someone already made:
+      </p>
+
+<pre><code><span class="c">&lt;!-- Directory.Packages.props --&gt;</span>
+&lt;ItemGroup Label="Compiler feedback and sandboxing (CLAUDE.md §8) - wired in later tasks"&gt;
+  …
+  &lt;PackageVersion Include="ModelContextProtocol" Version="1.4.1" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+      <p>
+        Pinned, and referenced by no project in the solution. The intent was recorded and the work
+        was deferred. Everything else this proposal needs — the tool registry, the observation
+        contract, the ablation runner, the metrics schema — is built and in use.
+      </p>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="which">
+      <div class="part-head"><span class="num">01</span><h2>Which servers, and why</h2></div>
+
+      <p>
+        Three were considered. They are not interchangeable, and two of them answer genuinely
+        different questions.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Server</th><th>Answers</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Microsoft Learn</b></td>
+              <td><em>What is correct?</em> Authoritative, versioned API surface.</td>
+              <td><span class="pill pass">start here</span></td>
+            </tr>
+            <tr>
+              <td><b>GitHub</b></td>
+              <td><em>What exists, and how is it used?</em> Code and repository search across
+                  public GitHub — not just your own repository.</td>
+              <td><span class="pill info">close second</span></td>
+            </tr>
+            <tr>
+              <td><b>Stack Overflow</b></td>
+              <td>Mostly what the other two answer better.</td>
+              <td><span class="pill warn">skip</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Why Learn first</h3>
+
+      <p>
+        It targets a failure mode this repository already documents and already tries to detect. A
+        local worker with a training cutoff writes code against APIs it half-remembers; rung 2
+        catches the invented ones, but only <em>after</em> a step has been spent writing them. The
+        <code>Provenance</code> subsystem exists to judge whether the context was newer than the
+        code. Learn is the cheapest way to make the context newer, and its results carry a version
+        — which matters more than it sounds, per the next paragraph.
+      </p>
+
+      <h3>Why GitHub is close, and where it is weaker</h3>
+
+      <p>
+        Public code search is a much larger claim on the “knowledge” slot than issues and pull
+        requests. Learn tells you a signature; real code shows the idiom, the wiring, the
+        three-type interaction that documentation describes badly. Learn also stops at Microsoft's
+        surface — the moment the agent touches a third-party library, Learn has nothing and GitHub
+        has everything.
+      </p>
+
+      <p>Two properties make it weaker <em>for this harness specifically</em>:</p>
+
+      <ul class="prose">
+        <li><b>Recency is not legible.</b> A snippet does not say what it targets. Code written for
+            an older framework looks identical to current code in isolation, and public
+            repositories skew old because age is what accumulates stars. Retrieval intended to fix
+            a stale cutoff can hand back equally stale code with nothing marking it as such.</li>
+        <li><b>There is no authority gradient.</b> Learn has one answer. Code search has ten
+            thousand, including abandoned, wrong, and increasingly model-generated code. Ranking by
+            popularity is not ranking by correctness.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">The narrow use that is unambiguously good</span>
+        <p>
+          Code search is an excellent <b>hallucination detector</b>. <code>Array.SortedCopy</code>
+          returns essentially nothing across public C#; <code>Array.Sort</code> returns millions.
+          That is a cheap existence check on a symbol the model has just invented, it runs
+          <em>before</em> a step is spent writing the file, and none of the ranking problems above
+          apply to it — a count of zero is a count of zero. If GitHub earns its place, this is
+          probably why.
+        </p>
+      </div>
+
+      <h3>Why Stack Overflow is out</h3>
+
+      <p>
+        Answers skew old, the accepted answer is often a decade past its usefulness, and the model
+        has already absorbed most of public Stack Overflow during pretraining. You would be paying
+        context-window rent to re-inject noisier copies of things it already knows. It is also
+        worth confirming a suitable public MCP server exists at all before planning around one.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="hermetic">
+      <div class="part-head"><span class="num">02</span><h2>The hermeticity problem</h2></div>
+
+      <p>
+        This is the part that has to be designed first, because it is the part that quietly breaks
+        the project rather than the feature. <code>TaskSuiteDefinition</code> states the property
+        it depends on:
+      </p>
+
+<pre><code><span class="c">// The fixtures live here as text rather than as files on disk so the suite is</span>
+<span class="c">// hermetic - every run starts from a byte-identical repository, which is what</span>
+<span class="c">// makes two ablation arms comparable at all.</span></code></pre>
+
+      <p>
+        A live network tool is byte-identical to nothing. Search results change between Tuesday and
+        Thursday; a repository gets more stars; an article is revised. Two arms run a day apart
+        stop being comparable, and the comparison is the reason this repository exists.
+      </p>
+
+      <h3>The cache is the feature</h3>
+
+      <p>
+        Record every MCP request and response to disk on first use; replay from the recording
+        during <code>suite</code> and <code>ablate</code>. Three modes, one setting:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Mode</th><th>Behaviour</th><th>Used by</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Live</td><td>Always call out; do not record.</td><td>Interactive desktop work.</td></tr>
+            <tr><td class="m">Record</td><td>Call out, write every exchange to the cache.</td><td>Once, to build a corpus.</td></tr>
+            <tr><td class="m">Replay</td><td>Serve from the cache; a miss is an error, never a live call.</td><td><b>Every suite and ablation run.</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        A miss in replay mode has to fail loudly. A cache that silently falls back to the network
+        is a cache that gives you non-reproducible runs <em>and</em> the belief that they are
+        reproducible, which is worse than not having one.
+      </p>
+
+      <p>
+        The payoff is larger than reproducibility. With a cache, “does retrieval actually help?”
+        becomes a proper single-lever arm alongside <code>no-context</code> and
+        <code>no-constrained-decoding</code> — the same question, asked the same way, answered with
+        the same numbers. Without one, it is an anecdote.
+      </p>
+
+      <div class="note">
+        <span class="tag">Practical, not just philosophical</span>
+        <p>
+          GitHub code search is authenticated and rate-limited. An ablation is dozens of runs over
+          eight tasks. Replay is what stops the fourth arm from being throttled into a different
+          shape than the first.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="contract">
+      <div class="part-head"><span class="num">03</span><h2>What it costs the tool contract</h2></div>
+
+      <p>
+        §7's invariant is that a tool's schema is generated from its C# signature, <em>“so the
+        model's contract cannot drift from the executor.”</em> An MCP tool arrives with a
+        server-declared schema and a server-side executor. The invariant weakens to “trust the
+        server”, and there is no way to keep it fully. What can be kept:
+      </p>
+
+      <ul class="prose">
+        <li><b>Validate at registration.</b> <code>ToolFunctionFactory.ValidateSchema</code>
+            already rejects anything that is not a usable JSON object schema. Run the same check
+            over advertised MCP tools and refuse to register the ones that fail, loudly, at
+            startup — not on first use, mid-run.</li>
+        <li><b>Errors stay observations.</b> A dead server, a timeout, a 429 must come back as
+            <code>ToolObservation.Fail</code> with a stable code, never as an exception escaping
+            into the loop. <code>sandbox_unavailable</code> has an obvious analogue here; a new
+            <code>upstream_unavailable</code> is probably worth adding to
+            <code>ToolErrorCodes</code>, since metrics group by those codes.</li>
+        <li><b>Namespace the names.</b> Three servers will each want to be called
+            <code>search</code>. Prefix on registration — <code>learn_search</code>,
+            <code>gh_search_code</code> — and the transcript's tool filter keeps working.</li>
+        <li><b>Descriptions are prompt, not documentation.</b> Server-authored tool descriptions go
+            straight into the model's context and are written by someone optimising for a different
+            agent. Budget for rewriting them locally.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="context">
+      <div class="part-head"><span class="num">04</span><h2>The context budget</h2></div>
+
+      <p>
+        <code>Context:MaxContextTokens</code> is 48000, and deliberately below what any served
+        model advertises — the config says why: <em>“effective context lags advertised context, and
+        dilution costs wall-clock on every step.”</em> Every tool's name, description and parameter
+        schema is in that window on <em>every step of every run</em>.
+      </p>
+
+      <p>
+        The harness has eight tools today. Two MCP servers could plausibly double or triple that,
+        with descriptions written to sell the tool rather than to fit a budget. Two things follow:
+      </p>
+
+      <ul class="prose">
+        <li><b>Register a subset, not a catalogue.</b> Take the two or three tools per server that
+            do the job. There is no obligation to expose everything a server advertises, and a
+            server's full surface is designed for a general agent, not a C# repair loop.</li>
+        <li><b>Watch tool-call validity, not just pass@1.</b> Validity is the Phase 0 metric and it
+            is the one most likely to degrade as the tool list grows — more tools means more ways
+            to pick the wrong one. If it drops below about 90%, the retrieval is not paying for
+            itself no matter how good the results are.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="network">
+      <div class="part-head"><span class="num">05</span><h2>Where the network actually is</h2></div>
+
+      <p>
+        Worth stating plainly in the operator's guide, because it is easy to assume otherwise.
+        <code>Sandbox:AllowNetwork</code> is <code>false</code> and
+        <code>Sandbox:Mode</code> is <code>Docker</code>. Those govern <b>repository code</b> —
+        what <code>build</code>, <code>run_tests</code> and <code>bash</code> may reach.
+      </p>
+
+      <p>
+        MCP clients would run <em>in the harness process</em>, not in the container. Their traffic
+        does not pass through the sandbox seam and is not covered by that setting. The guarantee
+        stays true — untrusted repository code still cannot phone home — but the harness itself
+        becomes a networked process, and anyone reading <code>AllowNetwork: false</code> as “this
+        run touched nothing external” would be wrong.
+      </p>
+
+      <ul class="prose">
+        <li>Secrets — a GitHub token — resolve through the existing
+            <code>ApiKeyEnvironmentVariable</code> pattern rather than living in config files.</li>
+        <li>MCP responses land in transcripts, so they go through
+            <code>SecretRedactor</code> like everything else. A token echoed in an error body is
+            the obvious way to leak one.</li>
+        <li>Server processes started by the harness are a lifetime problem: they need to die with
+            the run, including when it is cancelled.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="untrusted">
+      <div class="part-head"><span class="num">06</span><h2>Untrusted content</h2></div>
+
+      <p>
+        This is a real risk here rather than a theoretical one, and it got worse the moment
+        <code>create_file</code> shipped. Retrieved text enters the context of an agent that can
+        create and edit files in the workspace.
+      </p>
+
+      <p>
+        Microsoft Learn is a trusted publisher. Public GitHub categorically is not: a README, a
+        code comment, a string literal in any repository on earth is attacker-controllable text
+        that a search can surface. “Ignore your previous instructions” in a repository description
+        is not a hypothetical attack, it is a cheap one.
+      </p>
+
+      <ul class="prose">
+        <li><b>Tag it as untrusted in the prompt.</b> Retrieved content is quoted evidence, not
+            instruction, and should be framed that way where it enters the window.</li>
+        <li><b>Never let retrieval alone justify a write.</b> The verification ladder is
+            unaffected by anything a search returned — a change still has to compile and pass. That
+            is a genuine structural defence and it is already in place.</li>
+        <li><b>The approval gate is the backstop.</b> Which is an argument for turning
+            <code>Approval:RequireApprovalForWrites</code> on whenever retrieval is on.</li>
+        <li><b>Start read-only.</b> Search and fetch, nothing that writes to an external system.
+            No creating issues, no commenting on pull requests.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="measure">
+      <div class="part-head"><span class="num">07</span><h2>How to know it helped</h2></div>
+
+      <p>
+        The arms follow the existing pattern in <code>StandardArms</code>: one lever each, expressed
+        as configuration overrides, read against <code>baseline</code>.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Arm</th><th>Lever</th><th>Watch</th></tr></thead>
+          <tbody>
+            <tr><td class="m">with-learn</td><td>Learn tools registered, replay mode.</td>
+                <td>pass@1 and the freshness metric. This is the arm the feature lives or dies by.</td></tr>
+            <tr><td class="m">with-code-search</td><td>GitHub search tools registered, replay mode.</td>
+                <td>pass@1 and compile errors per edit — the hallucination-detector hypothesis.</td></tr>
+            <tr><td class="m">retrieval-no-cache</td><td>Live mode instead of replay.</td>
+                <td>Run-to-run variance. If it is large, every uncached result you have ever read
+                    was an anecdote.</td></tr>
+            <tr><td class="m">tools-only</td><td>MCP tools registered but stubbed to return nothing.</td>
+                <td>Tool-call validity and tokens. Isolates the <em>cost of having the tools</em>
+                    from the value of their answers — the thing a naive comparison confounds.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        That last arm is the one most people would skip and it is probably the most informative.
+        If <code>tools-only</code> is meaningfully worse than <code>baseline</code>, retrieval has
+        to clear that deficit before it breaks even, and you would want to know the size of the
+        hole before reading any result as a win.
+      </p>
+
+      <div class="note">
+        <span class="tag">The suite may need a task that requires retrieval</span>
+        <p>
+          All eight fixtures are self-contained by design and none needs external knowledge, so a
+          perfect retrieval tool would score exactly zero improvement on the current suite. Proving
+          the feature helps needs a task whose answer is not in the repository and not reliably in
+          a local model's weights — a current API used correctly. That fixture does not exist yet,
+          and writing it is part of this work rather than an afterthought.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">08</span><h2>Shape of the work</h2></div>
+
+      <p>Continuing the workplan numbering after the Claude proposal's tasks:</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr><td class="m">40</td><td>MCP client host: connect configured servers, adapt advertised
+                tools into the registry with namespacing, schema validation at startup, and failures
+                as observations.</td><td class="m">2d</td><td class="m">7</td></tr>
+            <tr><td class="m">41</td><td>Record/replay cache with Live · Record · Replay modes; a miss
+                in replay is a hard error.</td><td class="m">1.5d</td><td class="m">40</td></tr>
+            <tr><td class="m">42</td><td>Microsoft Learn server wired in, with a locally authored tool
+                description and a registered subset rather than the full surface.</td><td class="m">0.5d</td><td class="m">40, 41</td></tr>
+            <tr><td class="m">43</td><td>A suite task whose answer is not in the repository, so
+                retrieval has something to prove.</td><td class="m">1d</td><td class="m">21</td></tr>
+            <tr><td class="m">44</td><td>The four arms above; re-baseline and read the result.</td>
+                <td class="m">0.5d</td><td class="m">22, 42, 43</td></tr>
+            <tr><td class="m">45</td><td>GitHub code and repository search, read-only, decided on the
+                evidence from 44.</td><td class="m">1d</td><td class="m">44</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance</h3>
+
+      <ul class="prose">
+        <li>A run in replay mode with a cold cache fails loudly and never reaches the network.</li>
+        <li>Two ablation runs of the same arm, days apart, produce identical retrieved content.</li>
+        <li>An unreachable MCP server produces a failed observation and a continuing run, never an
+            exception out of the loop.</li>
+        <li>Registering the Learn tools does not drop tool-call validity below the Phase 0 gate on
+            the existing suite.</li>
+        <li>No retrieved content ever appears unredacted in a transcript when it contains something
+            the redactor recognises.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="claude-second-opinion.html">A second opinion from Claude</a> — the other half of
+          this brainstorm, and the one that is mostly already written.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder proposal · retrieval over MCP · not implemented ·
+  companion to <a href="claude-second-opinion.html">a second opinion from Claude</a> and the
+  <a href="../index.html">operator's guide</a>
+</footer>
+</body>
+</html>
