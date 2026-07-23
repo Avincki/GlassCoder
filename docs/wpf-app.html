@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Working with GlassCoder.Wpf: the annotated window, how to launch it against the right repository, the three surfaces, the approval gate, and how the shell is wired.">
+<title>GlassCoder.Wpf — Desktop App Guide</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlink {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .backlink:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    padding: 2.5rem 0;
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol {
+    list-style: none;
+    margin: 0 0 1.9rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    letter-spacing: 0.08em;
+  }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-size: 1.24rem;
+    font-weight: 600;
+    margin: 2.4rem 0 0.7rem;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- annotated screenshot ---------- */
+
+  figure { margin: 0 0 1.6rem; }
+
+  .shot {
+    position: relative;
+    display: block;
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    background: var(--surface);
+    padding: 0.4rem;
+    line-height: 0;
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 2px;
+  }
+
+  .shot .mark {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 1.55rem;
+    height: 1.55rem;
+    border-radius: 50%;
+    background: var(--signal);
+    color: #FFFFFF;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.55rem;
+    text-align: center;
+    font-weight: 600;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 1px 4px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+
+  figcaption {
+    font-size: 0.86rem;
+    color: var(--faint);
+    margin-top: 0.6rem;
+    font-family: var(--mono);
+  }
+
+  .legend {
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.4rem;
+  }
+
+  .legend > div {
+    display: grid;
+    grid-template-columns: 1.9rem 12rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .legend .n {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--signal);
+  }
+
+  .legend dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+  }
+
+  .legend dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- spec rows ---------- */
+
+  .spec {
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.4rem;
+  }
+
+  .spec > div {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+  }
+
+  .spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- state pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  /* ---------- steps ---------- */
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.08rem; }
+
+  /* ---------- wiring diagram ---------- */
+
+  .wiring {
+    max-width: var(--measure);
+    margin: 0 0 1.4rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .wiring .row {
+    display: grid;
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.7rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .wiring .row:last-child { border-bottom: none; }
+  .wiring .lbl { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); }
+  .wiring .row span { font-size: 0.92rem; color: var(--muted); }
+  .wiring .row b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    .legend > div { grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.15rem 0.8rem; }
+    .legend dd { grid-column: 2; }
+    .wiring .row { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+    .shot .mark { width: 1.25rem; height: 1.25rem; line-height: 1.25rem; font-size: 0.66rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Desktop app guide</div>
+    <h1>Working with GlassCoder.Wpf</h1>
+    <p class="standfirst">
+      The desktop front end is not a wrapper around the console host — it is the same host, with
+      three surfaces bolted on and one service swapped. This is what each control does, what it is
+      bound to, and what will bite you the first time you press <b>Run</b>.
+    </p>
+    <div class="specstrip">
+      <div><b>Project</b> src/GlassCoder.Wpf</div>
+      <div><b>Target</b> net10.0-windows · WinExe</div>
+      <div><b>Pattern</b> MVVM · no code-behind</div>
+      <div><b>Bootstrap</b> shared with the console host</div>
+    </div>
+    <a class="backlink" href="index.html">← Operator's guide</a>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#window">The window, annotated</a></li>
+      <li><a href="#launch">Starting it</a></li>
+      <li><a href="#before">Before the first Run</a></li>
+      <li><a href="#transcript">Transcript</a></li>
+      <li><a href="#changes">Changes &amp; approval</a></li>
+      <li><a href="#metrics">Metrics</a></li>
+      <li><a href="#wiring">How the shell is wired</a></li>
+      <li><a href="#extend">Adding a surface</a></li>
+      <li><a href="#stuck">When it looks wrong</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="window">
+      <div class="part-head"><span class="num">01</span><h2>The window, annotated</h2></div>
+
+      <p>
+        One window, one goal box, three surfaces. The screenshot below is the app at rest — booted,
+        nothing run yet.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../GlassCoder.png"
+               alt="The GlassCoder desktop window: a dark header with the goal text box and Run and Cancel buttons, a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 7 tools&quot;.">
+          <span class="mark" style="left:48.9%; top:7.2%;">1</span>
+          <span class="mark" style="left:93.5%; top:7.2%;">2</span>
+          <span class="mark" style="left:6.2%;  top:18.6%;">3</span>
+          <span class="mark" style="left:43%;   top:12.8%;">4</span>
+          <span class="mark" style="left:56%;   top:40%;">5</span>
+          <span class="mark" style="left:56%;   top:76%;">6</span>
+          <span class="mark" style="left:60%;   top:97.5%;">7</span>
+        </div>
+        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet.</figcaption>
+      </figure>
+
+      <dl class="legend">
+        <div>
+          <span class="n">1</span>
+          <dt>Goal box</dt>
+          <dd>Free text, bound two-way on every keystroke. This is the entire task description —
+              there is no separate task form.</dd>
+        </div>
+        <div>
+          <span class="n">2</span>
+          <dt>Run · Cancel</dt>
+          <dd>Mutually exclusive: <b>Run</b> is enabled only when idle, <b>Cancel</b> only while a
+              run is in flight. Cancel trips the run's <code>CancellationToken</code>.</dd>
+        </div>
+        <div>
+          <span class="n">3</span>
+          <dt>Surface list</dt>
+          <dd>Transcript, Changes, Metrics. Selecting one swaps the view model; WPF picks the view
+              from a <code>DataTemplate</code>. Selecting <b>Metrics</b> also reloads it from disk.</dd>
+        </div>
+        <div>
+          <span class="n">4</span>
+          <dt>Filter bar</dt>
+          <dd>Tool, severity, minimum step and free-text search. All four combine with AND and
+              apply live to the table below.</dd>
+        </div>
+        <div>
+          <span class="n">5</span>
+          <dt>Step table</dt>
+          <dd>One row per loop step, appended as the run happens. Empty here because nothing has
+              run yet.</dd>
+        </div>
+        <div>
+          <span class="n">6</span>
+          <dt>Step detail</dt>
+          <dd>The full prompt, response and tool results for the selected row — read-only,
+              monospaced, selectable so you can copy a prompt out.</dd>
+        </div>
+        <div>
+          <span class="n">7</span>
+          <dt>Status bar</dt>
+          <dd>At rest, the registered tool count and their names. During a run, <code>Running…</code>.
+              Afterwards, the stop reason, step count, tokens and tool-call validity.</dd>
+        </div>
+      </dl>
+
+      <div class="note">
+        <span class="tag">Read the status bar first</span>
+        <p>
+          <code>Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</code>
+          is the honest inventory of what the model can actually call this session. Note what is
+          <em>absent</em>: <code>bash</code>. It only registers when
+          <code>Sandbox:EnableBashTool</code> is <code>true</code>, so this line is the fastest way
+          to confirm which configuration the app really loaded.
+        </p>
+      </div>
+
+      <p>
+        Nothing in the window is driven from code-behind. <code>MainWindow.xaml.cs</code> is
+        eighteen lines and its only statement of substance is <code>DataContext = viewModel</code>.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="launch">
+      <div class="part-head"><span class="num">02</span><h2>Starting it</h2></div>
+
+<pre><code><span class="c"># from the repository you want the agent to work on</span>
+dotnet run --project src/GlassCoder.Wpf
+
+<span class="c"># or build once and launch the exe from that repository</span>
+dotnet build -c Release
+src\GlassCoder.Wpf\bin\Release\net10.0-windows\GlassCoder.Wpf.exe</code></pre>
+
+      <h3>The working directory is not a detail</h3>
+
+      <p>
+        Two different roots are in play, and confusing them is the most common way to get a
+        confusing first run:
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt>Content root</dt>
+          <dd>Always <code>AppContext.BaseDirectory</code> — the output folder. This is where
+              <code>appsettings.json</code> is read from, so the app finds its configuration no
+              matter where you launch it.</dd>
+        </div>
+        <div>
+          <dt>Working directory</dt>
+          <dd>Whatever the process inherits. <code>Workspace:RepoRoot</code> defaults to
+              <code>"."</code>, so <b>the directory you launch from is the repository the agent
+              reads and edits</b>.</dd>
+        </div>
+      </dl>
+
+      <p>
+        That split is deliberate: config travels with the binary, the target repository does not.
+        The consequence is that <code>dotnet run</code> from the repository root does the right
+        thing, because the app inherits your shell's directory rather than the project's.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Visual Studio trap</span>
+        <p>
+          <code>GlassCoder.Host</code> ships a <code>Properties/launchSettings.json</code> whose
+          every profile sets <code>"workingDirectory": "..\\.."</code>.
+          <b><code>GlassCoder.Wpf</code> has no launchSettings file at all.</b> Press F5 on it and
+          the app starts in its own <code>bin\Debug\net10.0-windows</code> folder — so
+          <code>RepoRoot</code> becomes the output directory, and the agent will grep its own DLLs
+          and find nothing useful.
+        </p>
+      </div>
+
+      <p>Either add the missing profile:</p>
+
+<pre><code><span class="c">// src/GlassCoder.Wpf/Properties/launchSettings.json</span>
+{
+  <span class="k">"profiles"</span>: {
+    <span class="k">"GlassCoder.Wpf"</span>: {
+      <span class="k">"commandName"</span>: "Project",
+      <span class="k">"workingDirectory"</span>: "..\\.."
+    }
+  }
+}</code></pre>
+
+      <p>or name the repository explicitly, which works from anywhere:</p>
+
+<pre><code><span class="c"># PowerShell</span>
+$env:GlassCoder__Workspace__RepoRoot = "C:\src\the-repo"
+dotnet run --project src/GlassCoder.Wpf</code></pre>
+
+      <p>
+        The console host has a <code>--repo</code> switch for this. The desktop app has no
+        equivalent — configuration or the working directory are your only levers.
+      </p>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="before">
+      <div class="part-head"><span class="num">03</span><h2>Before the first Run</h2></div>
+
+      <p>
+        The app inherits <code>config/appsettings.json</code> wholesale. Five settings decide
+        whether your first run does anything interesting:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Setting</th><th class="m">Ships as</th><th>Why you care</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">Models:Roles:worker:Endpoint</td>
+              <td class="m">http://localhost:8001/v1</td>
+              <td>Nothing works until something answers here. The app does not host a model.</td>
+            </tr>
+            <tr>
+              <td class="m">Workspace:WritablePaths</td>
+              <td class="m">[]</td>
+              <td>Empty means <b>nothing is writable</b>. Leave it empty for a read-only first run;
+                  set <code>["src", "tests"]</code> before you expect an edit to land.</td>
+            </tr>
+            <tr>
+              <td class="m">Approval:RequireApprovalForWrites</td>
+              <td class="m">false</td>
+              <td>The gate approves silently. Set <code>true</code> or the Changes surface will
+                  never prompt you.</td>
+            </tr>
+            <tr>
+              <td class="m">Sandbox:Mode</td>
+              <td class="m">Docker</td>
+              <td>Builds and tests run in a container with the network dropped. No Docker means no
+                  build rung — and no silent fallback to running on your host.</td>
+            </tr>
+            <tr>
+              <td class="m">Metrics:Directory</td>
+              <td class="m">metrics</td>
+              <td>Resolved against the working directory. The Metrics surface reads this exact
+                  path, so a wrong working directory shows an empty dashboard.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Any of them can be overridden without touching the file — double underscore separates the
+        levels:
+      </p>
+
+<pre><code>$env:GlassCoder__Approval__RequireApprovalForWrites = "true"
+$env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
+
+      <h3>What pressing Run actually does</h3>
+
+      <p>
+        It refuses on a blank goal or while already running, then flips to
+        <span class="pill info">Transcript</span> — you are always looking at the surface that is
+        filling. The run is submitted as task id <code>desktop</code>, which is how you will
+        recognise it later in <code>metrics.jsonl</code> and on the Changes surface.
+      </p>
+
+      <p>
+        When it ends, the status bar carries the verdict — stop reason, steps, total tokens and
+        tool-call validity. A thrown exception becomes <code>Failed: …</code> rather than a crash
+        dialog, and cancelling reads <code>Cancelled.</code>
+      </p>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="transcript">
+      <div class="part-head"><span class="num">04</span><h2>Transcript</h2></div>
+
+      <p>
+        Steps arrive from the in-process transcript bus as the loop turns and are appended live.
+        Six columns:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Column</th><th>Holds</th></tr></thead>
+          <tbody>
+            <tr><td class="m">#</td><td>Step index — the same number the JSONL log uses.</td></tr>
+            <tr><td class="m">Tools</td><td>Comma-separated tool names for the step, or <code>-</code> when the model only spoke.</td></tr>
+            <tr><td class="m">Outcome</td><td>The step's recorded outcome.</td></tr>
+            <tr><td class="m">Tokens</td><td>Total tokens for the step.</td></tr>
+            <tr><td class="m">Latency</td><td>Model latency in milliseconds.</td></tr>
+            <tr><td class="m">Summary</td><td><code>name:status</code> per tool call, or the response text when there were none.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Severity is derived, not reported</h3>
+
+      <p>
+        Rows colour themselves, and the severity filter matches the same three values. Nothing sets
+        them by hand — they fall out of the record:
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt><span class="pill fail">error</span></dt>
+          <dd>The step itself carries an error. Rendered dark red.</dd>
+        </div>
+        <div>
+          <dt><span class="pill warn">warning</span></dt>
+          <dd>At least one tool call failed to parse — the model emitted something the schema
+              rejected. Rendered amber.</dd>
+        </div>
+        <div>
+          <dt><span class="pill pass">info</span></dt>
+          <dd>Everything else.</dd>
+        </div>
+      </dl>
+
+      <p>
+        Filtering on <b>warning</b> is therefore the direct way to inspect tool-call validity
+        failures, which is the metric Phase 0 is judged on.
+      </p>
+
+      <h3>The filters</h3>
+
+      <p>
+        Tool, severity, minimum step and search are ANDed. The search box is the broad one: it
+        matches the row summary <em>and</em> the full detail text, so searching for a filename
+        finds every step that read it, edited it, or merely mentioned it in a prompt.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Clear is not a filter</span>
+        <p>
+          The <b>Clear</b> button empties the transcript bus as well as the table. It discards the
+          in-memory step history for the session — the filters go back to showing everything
+          because there is no longer anything to show. The JSONL written under
+          <code>Logging:Directory</code> is untouched, so the run is still recoverable from disk;
+          the live view is not.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="changes">
+      <div class="part-head"><span class="num">05</span><h2>Changes &amp; approval</h2></div>
+
+      <p>
+        Every change the agent proposed appears here — time, task, file, line range, status and
+        note — including the ones that were refused. A view that showed only successful writes
+        could not tell you what the agent <em>tried</em> to do, which is usually the more
+        interesting question.
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt><span class="pill warn">Proposed</span></dt>
+          <dd>Waiting on a decision.</dd>
+        </div>
+        <div>
+          <dt><span class="pill pass">Applied</span></dt>
+          <dd>Written to disk. Green.</dd>
+        </div>
+        <div>
+          <dt><span class="pill fail">Rejected</span></dt>
+          <dd>Refused, with the reason in the Note column. Red.</dd>
+        </div>
+        <div>
+          <dt><span class="pill info">Reverted</span></dt>
+          <dd>Applied, then rolled back.</dd>
+        </div>
+      </dl>
+
+      <p>
+        Selecting a row renders it as a before/after diff underneath, with old and new line numbers
+        and per-line colouring, and the compile or test result that change produced shown above the
+        diff. Verification is attached to the change rather than reported separately, so
+        "did this edit break the build" is answered in the same place as "what did this edit do".
+      </p>
+
+      <h3>The approval prompt</h3>
+
+      <p>
+        With <code>Approval:RequireApprovalForWrites</code> on, each write pauses and an amber
+        banner appears at the top of the surface: the path, the diff itself, and
+        <b>Approve</b> / <b>Reject</b>. The decision is made next to the actual change — never in a
+        modal dialog naming a file you would then have to go and look up.
+      </p>
+
+      <p>Three behaviours are worth knowing before you rely on it:</p>
+
+      <ul class="prose">
+        <li><b>A timeout is a refusal.</b> Nobody answering within
+            <code>ApprovalTimeoutSeconds</code> (300 by default) rejects the change with that
+            reason recorded. An unattended prompt must never become a write.</li>
+        <li><b>Cancelling a run rejects what is pending</b>, noted as cancelled while waiting for
+            approval — it does not leave a half-decided change behind.</li>
+        <li><b>Approval is the last gate, not the only one.</b> The banner says the change has
+            already passed verification; anything the ladder refuses never reaches you.</li>
+      </ul>
+
+      <p>
+        The console host cannot ask anyone, so it fails closed instead. The desktop app is the only
+        front end where interactive approval is a real option — that is precisely why
+        <code>WpfApprovalGate</code> replaces the headless gate at startup.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="metrics">
+      <div class="part-head"><span class="num">06</span><h2>Metrics</h2></div>
+
+      <p>
+        The dashboard reads <code>metrics.jsonl</code> — the same file a notebook would read, with
+        no intermediate database — and aggregates it. It reloads when you select the surface, and
+        on demand from the <b>Reload</b> button.
+      </p>
+
+      <p>
+        Rows are groups, not runs. Group by <b>Arm</b> (the default, falling back to the run source
+        when an arm is unnamed), <b>Task</b> or <b>Source</b>. A single run's numbers are noise; the
+        question an ablation answers is always <em>which arm, and by how much</em>.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Column</th><th>Aggregation</th></tr></thead>
+          <tbody>
+            <tr><td class="m">pass@1</td><td>Share of <em>graded</em> runs that passed the oracle. Shows <code>-</code> when nothing in the group was graded — not 0%.</td></tr>
+            <tr><td class="m">Tool validity</td><td>Mean tool-call validity rate.</td></tr>
+            <tr><td class="m">Tokens to solve</td><td>Mean tokens, with a bar. The bar is scaled to the widest row <em>in the current grouping</em> — it is relative, so it rescales when you regroup.</td></tr>
+            <tr><td class="m">Wall-clock</td><td>Mean seconds per run.</td></tr>
+            <tr><td class="m">Compile err/edit</td><td>Mean compile errors per edit — the Phase 1 number.</td></tr>
+            <tr><td class="m">Recovery</td><td>Mean recovery rate — the Phase 2 number.</td></tr>
+            <tr><td class="m">Cascade</td><td>Mean cascade ratio.</td></tr>
+            <tr><td class="m">Fresh</td><td>Count of runs whose context was fresher than the code — the Phase 6 comparison.</td></tr>
+            <tr><td class="m">Cost</td><td>Summed, not averaged: total spend for the group.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The status line under the table always names the file it read. If a group looks wrong, that
+        path is the first thing to check — it is resolved against the working directory, so it
+        follows wherever you launched from.
+      </p>
+
+      <div class="note">
+        <span class="tag">Safe to read mid-run</span>
+        <p>
+          A malformed final line — the harness writing a run out as you look — is skipped rather
+          than emptying the dashboard. You can open Metrics while a suite is still going.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="wiring">
+      <div class="part-head"><span class="num">07</span><h2>How the shell is wired</h2></div>
+
+      <p>
+        <code>App.OnStartup</code> builds the <em>same</em> host the console front end builds, then
+        adds only what a UI needs on top. That is the whole design: if the two front ends resolved
+        different services, they would slowly become two different agents and nothing measured in
+        one would apply to the other.
+      </p>
+
+      <div class="wiring">
+        <div class="row"><span class="lbl">shared</span><span><b>GlassCoderHost.CreateBuilder(args)</b> — configuration, logging, tools, the agent loop.</span></div>
+        <div class="row"><span class="lbl">+ singleton</span><span>The UI <b>Dispatcher</b>, so view models can marshal onto it.</span></div>
+        <div class="row"><span class="lbl">+ singleton</span><span>Transcript, Changes, Metrics and MainWindow view models.</span></div>
+        <div class="row"><span class="lbl">replace</span><span><b>IApprovalGate → WpfApprovalGate</b>, the one service that genuinely differs.</span></div>
+        <div class="row"><span class="lbl">then</span><span>Start the host, resolve <b>MainWindow</b>, show it.</span></div>
+      </div>
+
+      <p>
+        The view models are singletons on purpose. <code>WpfApprovalGate</code> is handed the very
+        same <code>ChangesViewModel</code> instance the Changes surface is bound to — that shared
+        instance <em>is</em> the channel through which a background approval request reaches the
+        screen.
+      </p>
+
+      <h3>Navigation without a navigation service</h3>
+
+      <p>
+        There is no navigator and no page registry. The window declares one
+        <code>DataTemplate</code> per view-model type; selecting a surface assigns a view model to
+        <code>CurrentView</code>, and WPF resolves the view by type:
+      </p>
+
+<pre><code>&lt;DataTemplate DataType="{x:Type vm:TranscriptViewModel}"&gt;
+  &lt;views:TranscriptView /&gt;
+&lt;/DataTemplate&gt;</code></pre>
+
+      <p>
+        Adding a surface therefore cannot desynchronise a lookup table, because there is no lookup
+        table to keep in sync.
+      </p>
+
+      <h3>Threads</h3>
+
+      <p>
+        The agent loop runs on a background thread; the collections it feeds are bound to the UI.
+        Both live-updating view models take the dispatcher by constructor injection and marshal
+        every mutation through <code>BeginInvoke</code> — the transcript when a step is recorded,
+        the changes view when a change is added or updated. Both parameters default to
+        <code>Dispatcher.CurrentDispatcher</code>, which is what lets the view models be
+        constructed directly in unit tests.
+      </p>
+
+      <p>
+        Approval crosses the same boundary in the other direction. The gate is called on the loop's
+        thread and awaits a <code>TaskCompletionSource</code>; the banner is raised on the UI thread
+        and the button click completes it. The loop is genuinely blocked in the meantime — which is
+        the point of a gate.
+      </p>
+
+      <h3>Command enabling</h3>
+
+      <p>
+        <code>RelayCommand</code> routes <code>CanExecuteChanged</code> through WPF's
+        <code>CommandManager.RequerySuggested</code>. Run and Cancel re-evaluate when the framework
+        next goes idle rather than on an explicit raise — so their enabled state can lag a state
+        change by a frame. That is normal and not a bug you need to chase.
+      </p>
+
+      <h3>Shutdown</h3>
+
+      <p>
+        <code>OnExit</code> stops the host with a five-second grace period and disposes it, and the
+        shell view model cancels any run still in flight. Closing the window mid-run cancels it
+        rather than orphaning it.
+      </p>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="extend">
+      <div class="part-head"><span class="num">08</span><h2>Adding a surface</h2></div>
+
+      <p>Three edits, in three files, with no navigation plumbing in between.</p>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Write the view model and the view</h3>
+            <p>
+              Derive from <code>ViewModelBase</code>; use <code>SetProperty</code> for bindable
+              state and <code>RelayCommand</code> for buttons. Take the <code>Dispatcher</code> as
+              an optional constructor parameter if anything updates from a background thread.
+              Add a matching <code>UserControl</code> under <code>Views/</code>.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Register it</h3>
+            <p>
+              One <code>AddSingleton&lt;YourViewModel&gt;()</code> in <code>App.OnStartup</code>,
+              and one <code>DataTemplate</code> in <code>MainWindow.xaml</code> mapping the type to
+              the control.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>List it</h3>
+            <p>
+              Add the name to <code>MainWindowViewModel.Surfaces</code>, inject the view model, and
+              add its arm to the <code>SelectedSurface</code> switch. Do any on-entry refresh work
+              there — that is where the Metrics surface triggers its reload.
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="note">
+        <span class="tag">House rule</span>
+        <p>
+          No business logic in code-behind. Every view's <code>.xaml.cs</code> in this project
+          contains <code>InitializeComponent()</code> and nothing else, and architecture tests
+          exist to keep it that way — put the logic in the view model.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="stuck">
+      <div class="part-head"><span class="num">09</span><h2>When it looks wrong</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause, and the fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Status bar lists fewer tools than expected</td>
+              <td>Config was not the one you edited, or a tool is gated off. <code>bash</code> needs
+                  <code>Sandbox:EnableBashTool</code>. Remember <code>appsettings.json</code> is
+                  read from the <em>output</em> folder — rebuild after editing
+                  <code>config/appsettings.json</code>.</td>
+            </tr>
+            <tr>
+              <td>The agent cannot find obvious files</td>
+              <td>Wrong working directory — almost always F5 from Visual Studio, which starts the
+                  app in <code>bin\Debug\net10.0-windows</code>. Add the launchSettings profile or
+                  set <code>GlassCoder__Workspace__RepoRoot</code>.</td>
+            </tr>
+            <tr>
+              <td>Every edit is refused</td>
+              <td><code>Workspace:WritablePaths</code> is empty, which means nothing is writable.
+                  Opt in explicitly.</td>
+            </tr>
+            <tr>
+              <td>Writes land with no prompt</td>
+              <td><code>Approval:RequireApprovalForWrites</code> is <code>false</code> — the
+                  shipped default. The gate is installed and approves immediately.</td>
+            </tr>
+            <tr>
+              <td>Approval rejected itself</td>
+              <td>Nobody answered within <code>ApprovalTimeoutSeconds</code>, or the run was
+                  cancelled while the banner was up. The reason is in the change's Note.</td>
+            </tr>
+            <tr>
+              <td>Metrics says no metrics yet</td>
+              <td>The status line names the exact path it looked at. Either nothing has been run
+                  yet, or the working directory is not what you assumed.</td>
+            </tr>
+            <tr>
+              <td>pass@1 shows <code>-</code></td>
+              <td>No run in that group was graded against an oracle. This is not zero — it is
+                  "unmeasured". Run the task suite rather than ad-hoc goals.</td>
+            </tr>
+            <tr>
+              <td>Transcript went empty</td>
+              <td><b>Clear</b> was pressed; it empties the bus, not just the view. The JSONL under
+                  <code>Logging:Directory</code> still has the run.</td>
+            </tr>
+            <tr>
+              <td>Run does nothing</td>
+              <td>The goal box is blank, or a run is already in flight. Both are silent no-ops.</td>
+            </tr>
+            <tr>
+              <td>Build steps fail immediately</td>
+              <td><code>Sandbox:Mode</code> is <code>Docker</code> and Docker is not available.
+                  There is no fallback to running on the host, by design.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder desktop guide · src/GlassCoder.Wpf · companion to the <a href="index.html">operator's guide</a>
+</footer>
+</body>
+</html>
