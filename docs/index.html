@@ -1190,6 +1190,42 @@ glasscoder suite --suite-task suite-03-off-by-one</code></pre>
 
 <pre><code>glasscoder suite --config config/phase0.json   <span class="c"># read-only baseline</span>
 glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</span></code></pre>
+
+      <h3>Beyond the ladder</h3>
+
+      <p>
+        Three design notes for features that do not exist yet live under
+        <code>docs/NewFeatures</code>. They are written against the current code, so the names,
+        configuration keys and estimates are real — but nothing in them is implemented, and none of
+        them is a prerequisite for any phase above.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Proposal</th><th>Idea</th><th>State</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><a href="NewFeatures/claude-second-opinion.html">A second opinion from Claude</a></td>
+              <td>A different model family judging a proposed change — as the critic role on rung 6,
+                  and as an advisory button beside <b>Approve</b> and <b>Reject</b>.</td>
+              <td>Mostly written already: <code>CriticPanel</code> exists, the transport does not.</td>
+            </tr>
+            <tr>
+              <td><a href="NewFeatures/mcp-retrieval.html">Retrieval over MCP</a></td>
+              <td>Microsoft Learn and GitHub code search as tools, with the record/replay cache the
+                  ablation harness needs before either can be measured.</td>
+              <td>Package pinned, referenced by nothing.</td>
+            </tr>
+            <tr>
+              <td><a href="NewFeatures/harness-advisor.html">The harness advisor</a></td>
+              <td>A headless Claude reading finished transcripts to find what GlassCoder itself
+                  cannot do — missing tools, misleading contracts, absent oracles — and emitting
+                  proposed workplan tasks with cited evidence.</td>
+              <td>Reads JSONL that is already written; needs a backtest before anything else.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <!-- ============ 11 ============ -->
