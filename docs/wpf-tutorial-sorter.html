@@ -1,0 +1,1459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="A hands-on GlassCoder.Wpf tutorial: letting the agent write a class that sorts an array of doubles, from the seed file it cannot create to the oracle that grades it.">
+<title>GlassCoder.Wpf — Tutorial: writing a class</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-input {
+    flex: 1;
+    min-width: 0;
+    background: #FFFFFF;
+    border: 1px solid #7A8A94;
+    border-radius: 2px;
+    padding: 0.2rem 0.4rem;
+    color: #131A1F;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ui-input.empty { color: #FFFFFF; }
+  .ui-input .caret { border-left: 1px solid #131A1F; margin-left: 1px; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ui-btn.off { background: #F2F4F5; border-color: #D0D6D9; color: #A3ACB1; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .ui-combo, .ui-text {
+    background: #FFFFFF;
+    border: 1px solid #A6AFB5;
+    border-radius: 2px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.75rem;
+    color: #131A1F;
+  }
+
+  .ui-combo::after { content: " ⌄"; color: #5B6B75; }
+  .ui-combo.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+  .ui-text.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+
+  .ui-scroll { overflow-x: auto; }
+
+  table.ui-grid { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.76rem; }
+
+  table.ui-grid th {
+    background: #F3F5F6;
+    border-bottom: 1px solid #C9D1D5;
+    border-right: 1px solid #E3E8EA;
+    color: #1F2933;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.45rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td {
+    border-bottom: 1px solid #E9EDEF;
+    padding: 0.26rem 0.45rem;
+    color: #131A1F;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td.wrap { white-space: normal; }
+  table.ui-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ui-grid tr.err td { color: #B00020; }
+  table.ui-grid tr.warn td { color: #8A6D00; }
+  table.ui-grid tr.ok td { color: #1B5E20; }
+  table.ui-grid tr.sel td { background: #CCE4F7; }
+  table.ui-grid tr.sel.err td { background: #CCE4F7; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-detail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: #131A1F;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0.35rem 0 0.1rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .ui-detail .role { color: #1A6E9E; }
+  .ui-detail .toolh { color: #7A5C00; }
+
+  .ui-empty {
+    border: 1px solid #C9D1D5;
+    background: #EFEFEF;
+    height: 7rem;
+    border-radius: 2px;
+  }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; }
+
+  /* metrics bar — MetricsView.xaml, Fill #4C6FBF */
+  .mbar { display: inline-block; height: 0.6rem; background: #4C6FBF; border-radius: 2px; vertical-align: middle; }
+  .mbar-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 11rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+    .ui-input { flex-basis: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Tutorial · two</div>
+    <h1>GlassCoder writes a class</h1>
+    <p class="standfirst">
+      The first tutorial fixed one line in a file that already existed. This one starts from
+      nothing: a class to sort an array of doubles from low to high, written by the agent, into a
+      file it cannot create — and proved by a test you wrote before it started.
+    </p>
+    <div class="specstrip">
+      <div><b>Time</b> about 40 minutes</div>
+      <div><b>Needs</b> a served /v1 endpoint</div>
+      <div><b>Fixture</b> four files you write</div>
+      <div><b>Ends with</b> a class you did not write</div>
+    </div>
+    <div class="backlinks">
+      <a href="index.html">← Operator's guide</a>
+      <a href="wpf-app.html">← Desktop app reference</a>
+      <a href="wpf-tutorial.html">← Tutorial one: fixing a bug</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Lessons</h2>
+    <ol>
+      <li><a href="#no-create">0 · The tool that cannot create a file</a></li>
+      <li><a href="#spec">1 · Write the spec first</a></li>
+      <li><a href="#seed">2 · The seed file</a></li>
+      <li><a href="#setup">3 · Pointing the app at it</a></li>
+      <li><a href="#goal">4 · The goal and the plan</a></li>
+      <li><a href="#refused">5 · The refusal you should expect</a></li>
+      <li><a href="#diff">6 · A diff that is all green</a></li>
+      <li><a href="#proof">7 · Proving it three ways</a></li>
+      <li><a href="#loose">8 · What a loose spec costs</a></li>
+      <li><a href="#next">9 · Exercises</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note">
+      <span class="tag">About the mockups</span>
+      <p>
+        As in <a href="wpf-tutorial.html">tutorial one</a>, the window images are reproductions
+        rather than screenshots — colours, columns and wording come from
+        <code>MainWindow.xaml</code>, the three views and <code>DiffConverters.cs</code>. Token
+        counts and latencies are illustrative. Everything else on this page — every error message,
+        diff, line number and status string — was produced by running the code in this repository
+        against the fixture below, and is quoted as it actually renders.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="no-create">
+      <div class="part-head"><span class="num">00</span><h2>The tool that cannot create a file</h2></div>
+
+      <p>
+        Start from the status bar, because it settles the shape of this whole tutorial:
+      </p>
+
+<pre><code>Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</code></pre>
+
+      <p>
+        There is no <code>write_file</code> and no <code>create_file</code>. The only tool that
+        changes anything is <code>edit_file</code>, and it replaces <em>an exact, unique string in
+        a file that already exists</em>. Point it at a file that is not there and it refuses:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>You ask for</th><th>Code</th><th>What comes back</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>An edit to a file that does not exist</td>
+              <td class="m">not_found</td>
+              <td class="m">'DoubleSorter.cs' does not exist.</td>
+            </tr>
+            <tr>
+              <td>An edit with an empty <code>oldText</code></td>
+              <td class="m">invalid_argument</td>
+              <td class="m">oldText is required.</td>
+            </tr>
+            <tr>
+              <td>An edit into a zero-byte file</td>
+              <td class="m">not_found</td>
+              <td class="m">The text to replace was not found in 'DoubleSorter.cs'.</td>
+            </tr>
+            <tr>
+              <td>An anchor that occurs twice</td>
+              <td class="m">ambiguous_target</td>
+              <td class="m">The text to replace appears 2 times in 'DoubleSorter.cs'.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note refuse">
+        <span class="tag">The hint on that second error is optimistic</span>
+        <p>
+          <code>edit_file</code> suggests <em>“To create a file, use an empty file and edit into
+          it, or ask for a file-creation tool.”</em> The first half does not work: a zero-byte
+          file contains no text, so there is nothing for <code>oldText</code> to match and you get
+          the third row of that table. A seed file needs at least one line to anchor on. Lesson 2
+          writes one.
+        </p>
+      </div>
+
+      <h3>Why not just give it a shell?</h3>
+
+      <p>
+        <code>bash</code> exists and could write the file in one line, but it is not registered at
+        all unless <code>Sandbox:EnableBashTool</code> is set, it then refuses to run unless the
+        container sandbox is available, and — the part that matters here — it does not go through
+        the change log. A file created with <code>bash</code> produces no
+        proposal, no diff, no approval prompt and no row on the Changes surface. The whole point
+        of the second surface is that you see what the agent changed; a tool that writes around it
+        is a tool that makes the surface lie.
+      </p>
+
+      <p>
+        So the division of labour is: <b>you create the file, the agent fills it.</b> That is less
+        of a limitation than it sounds. It forces you to decide where the class lives and what it
+        is called before the model has an opinion, which is the right order anyway.
+      </p>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="spec">
+      <div class="part-head"><span class="num">01</span><h2>Write the spec first</h2></div>
+
+      <p>
+        “Write a class that sorts an array of doubles from low to high” sounds complete and is
+        not. It leaves at least four decisions open, and the agent will make all four of them
+        without telling you. So write them down as code that runs.
+      </p>
+
+      <p>
+        GlassCoder's own task suite has a convention for exactly this, and it is worth copying: a
+        self-contained console project with <b>no package references</b>, whose entry point
+        asserts the required behaviour and returns a non-zero exit code when it does not hold.
+        Exit code zero and the words <code>ALL TESTS PASSED</code> are the oracle. No test
+        framework to restore, nothing to interpret.
+      </p>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p class="typed">glasscoder fixtures --work .\.debug\fixtures</p>
+        <p>Then borrow two files from any suite task, so the harness and the project file are the
+           shipped ones rather than ones you retyped:</p>
+        <p class="typed">mkdir .debug\sorter<br>
+        copy .debug\fixtures\suite-03-off-by-one\Check.cs .debug\sorter\<br>
+        copy .debug\fixtures\suite-03-off-by-one\Fixture.csproj .debug\sorter\</p>
+      </div>
+
+      <p>
+        <code>Check.cs</code> is thirty lines: <code>Check.That</code>,
+        <code>Check.Equal</code> and <code>Check.Exit</code>. Now write the spec.
+      </p>
+
+<pre><code><span class="c">// .debug/sorter/Program.cs</span>
+<span class="k">using</span> Fixture;
+
+<span class="k">double</span>[] input = [3.5, -1.25, 10, 0, 2];
+<span class="k">double</span>[] sorted = DoubleSorter.Ascending(input);
+
+Check.Equal(5, sorted.Length, <span class="c">"every value is returned"</span>);
+Check.Equal(-1.25d, sorted[0], <span class="c">"the smallest value comes first"</span>);
+Check.Equal(10d, sorted[4], <span class="c">"the largest value comes last"</span>);
+Check.Equal(3.5d, input[0], <span class="c">"the input array is not reordered"</span>);
+Check.Equal(0, DoubleSorter.Ascending([]).Length, <span class="c">"an empty array sorts to an empty array"</span>);
+
+<span class="k">double</span>[] withNaN = DoubleSorter.Ascending([1, <span class="k">double</span>.NaN, -1]);
+Check.That(<span class="k">double</span>.IsNaN(withNaN[0]), <span class="c">"NaN sorts before every number"</span>);
+
+<span class="k">try</span>
+{
+    DoubleSorter.Ascending(<span class="k">null</span>!);
+    Check.That(<span class="k">false</span>, <span class="c">"a null input throws ArgumentNullException"</span>);
+}
+<span class="k">catch</span> (ArgumentNullException)
+{
+    Check.That(<span class="k">true</span>, <span class="c">"a null input throws ArgumentNullException"</span>);
+}
+
+<span class="k">return</span> Check.Exit();</code></pre>
+
+      <p>
+        Seven checks, and four of them exist only because the English sentence was ambiguous:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>The sentence does not say</th><th>So the spec says it</th></tr></thead>
+          <tbody>
+            <tr><td>Whether the input may be reordered in place</td>
+                <td>It may not — <code>input[0]</code> is still <code>3.5</code> afterwards.</td></tr>
+            <tr><td>Where <code>NaN</code> goes</td>
+                <td>First. That is what <code>Array.Sort</code> does; pinning it makes it a decision
+                    rather than an accident.</td></tr>
+            <tr><td>What an empty array does</td>
+                <td>Returns an empty array, rather than throwing.</td></tr>
+            <tr><td>What <code>null</code> does</td>
+                <td>Throws <code>ArgumentNullException</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        This file also fixes the API: the class is <code>DoubleSorter</code>, the method is
+        <code>Ascending</code>, it takes a <code>double[]</code> and returns one. The agent is
+        writing an implementation, not designing a surface — and the difference between those two
+        jobs is the difference between a run you can grade and a run you cannot.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="seed">
+      <div class="part-head"><span class="num">02</span><h2>The seed file</h2></div>
+
+      <p>Five lines, and every one of them is doing a job:</p>
+
+<pre><code><span class="c">// .debug/sorter/DoubleSorter.cs</span>
+<span class="k">using</span> System;
+
+<span class="k">namespace</span> Fixture;
+
+<span class="c">// GlassCoder: write the sorter here.</span></code></pre>
+
+      <ul class="prose">
+        <li><b>The file exists</b>, so <code>edit_file</code> gets past its first gate.</li>
+        <li><b>The comment is a unique string</b> — the anchor the agent replaces. One line,
+            unmistakable, and it appears nowhere else in the repository.</li>
+        <li><b>The namespace is already declared</b>, so the replacement is a class and nothing
+            else. A model that emits a whole file including <code>namespace Fixture;</code> would
+            produce two file-scoped namespace declarations and the edit would be refused.</li>
+        <li><b><code>using System;</code> is there deliberately</b>, and lesson 5 is entirely
+            about why.</li>
+      </ul>
+
+      <h3>Confirm it starts red</h3>
+
+      <p>
+        The spec references a class that does not exist yet, so the project does not compile. That
+        is the point — a fixture that already passes measures nothing:
+      </p>
+
+<pre><code>cd .debug\sorter
+dotnet build
+
+Program.cs(4,19): error CS0103: The name 'DoubleSorter' does not exist in the current context
+Program.cs(10,16): error CS0103: The name 'DoubleSorter' does not exist in the current context
+Program.cs(12,20): error CS0103: The name 'DoubleSorter' does not exist in the current context
+Program.cs(17,5): error CS0103: The name 'DoubleSorter' does not exist in the current context</code></pre>
+
+      <div class="note">
+        <span class="tag">A broken repository does not block the agent</span>
+        <p>
+          Four errors before the agent has done anything might look like a problem for a harness
+          that refuses edits which break the build. It is not. The pre-write check compiles the
+          file <em>before</em> and <em>after</em> the proposed change and only refuses errors the
+          edit itself introduced — an agent is usually editing precisely because something is
+          broken, and refusing to let it start would be a deadlock. These four are pre-existing
+          and are ignored.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="setup">
+      <div class="part-head"><span class="num">03</span><h2>Pointing the app at it</h2></div>
+
+      <p>
+        Three settings, all of which default to something safer than what this run needs. Set them
+        in the shell you launch from — the working directory is what decides which repository the
+        agent reads and writes, so name it rather than relying on where you happen to be:
+      </p>
+
+<pre><code><span class="c"># PowerShell</span>
+$env:GlassCoder__Workspace__RepoRoot = "$PWD\.debug\sorter"
+$env:GlassCoder__Workspace__WritablePaths__0 = "."
+$env:GlassCoder__Approval__RequireApprovalForWrites = "true"
+
+dotnet run --project src/GlassCoder.Wpf</code></pre>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Setting</th><th>Ships as</th><th>Why it has to change</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Workspace:RepoRoot</td><td class="m">.</td>
+                <td>Otherwise the agent works on whatever directory you launched from.</td></tr>
+            <tr><td class="m">Workspace:WritablePaths</td><td class="m">[]</td>
+                <td>Empty means <em>nothing</em> is writable, and every edit comes back
+                    <code>path_not_allowed</code>.</td></tr>
+            <tr><td class="m">Approval:RequireApprovalForWrites</td><td class="m">false</td>
+                <td>Left false, the write lands silently. You want to see the diff this time.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-bar">
+            <span class="brand">GlassCoder</span>
+            <span class="ui-input empty">&nbsp;<span class="caret">&nbsp;</span></span>
+            <span class="ui-btn">Run</span>
+            <span class="ui-btn off">Cancel</span>
+          </div>
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Tool</span><span class="ui-combo">All</span>
+                <span>Severity</span><span class="ui-combo">All</span>
+                <span>From step</span><span class="ui-text">0</span>
+                <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                <span class="ui-btn">Clear</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                </table>
+              </div>
+              <div class="ui-empty"></div>
+              <div class="ui-label">Step detail</div>
+            </div>
+          </div>
+          <div class="ui-status">Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</div>
+        </div>
+        <figcaption>Seven tools, empty transcript. Nothing here tells you whether writes are enabled — only an edit will.</figcaption>
+      </figure>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="goal">
+      <div class="part-head"><span class="num">04</span><h2>The goal and the plan</h2></div>
+
+      <div class="do">
+        <span class="tag">Type this, then press Run</span>
+        <p class="typed">Program.cs describes a class called DoubleSorter that has not been written yet. Read the checks, write the class into DoubleSorter.cs, then build to prove it compiles.</p>
+      </div>
+
+      <p>
+        Notice what the goal does not contain: the algorithm, the signature, or the edge cases.
+        They are all in <code>Program.cs</code>, and telling the agent to go and read them is
+        cheaper — and far less likely to drift from what the oracle actually checks — than
+        restating them in the prompt.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-bar">
+            <span class="brand">GlassCoder</span>
+            <span class="ui-input">Program.cs describes a class called DoubleSorter that has not been written yet. Read the checks, write the class into DoubleSorter.cs, then build to prove it compiles.</span>
+            <span class="ui-btn off">Run</span>
+            <span class="ui-btn">Cancel</span>
+          </div>
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr><td>0</td><td>update_todos</td><td>continued</td><td class="num">1420</td><td class="num">910 ms</td><td>update_todos:Succeeded</td></tr>
+                    <tr><td>1</td><td>glob</td><td>continued</td><td class="num">1655</td><td class="num">600 ms</td><td>glob:Succeeded</td></tr>
+                    <tr><td>2</td><td>read_file</td><td>continued</td><td class="num">2480</td><td class="num">1040 ms</td><td>read_file:Succeeded</td></tr>
+                    <tr><td>3</td><td>read_file</td><td>continued</td><td class="num">2915</td><td class="num">870 ms</td><td>read_file:Succeeded</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+              <div class="ui-detail"><span class="toolh">[tool update_todos &rarr; Succeeded]</span> {"ok":true,"tool":"update_todos","summary":"Plan updated: 0/3 complete.",
+"data":{"items":[{"id":"read","title":"Read Program.cs and list every check","status":"InProgress"},
+{"id":"write","title":"Write DoubleSorter.Ascending into DoubleSorter.cs","status":"Pending"},
+{"id":"build","title":"Build and confirm the errors are gone","status":"Pending"}],"pending":3,"completed":0}}</div>
+            </div>
+          </div>
+          <div class="ui-status">Running…</div>
+        </div>
+        <figcaption>Step 0 is the plan. Reading the spec before writing anything is the behaviour you want.</figcaption>
+      </figure>
+
+      <h3>Two things worth knowing about that first row</h3>
+
+      <ul class="prose">
+        <li><b>The plan is stored on every step, not once.</b> Each step record carries the plan as
+            it stood at that moment, so a plan the agent quietly abandoned halfway is visible
+            afterwards — you can see the item that went from <code>InProgress</code> back to
+            nothing.</li>
+        <li><b><code>update_todos</code> replaces the whole list.</b> There is no per-item
+            mutation, and it refuses a list with two items marked <code>InProgress</code>:
+            <code>2 items are InProgress. Work on one thing at a time.</code></li>
+      </ul>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="refused">
+      <div class="part-head"><span class="num">05</span><h2>The refusal you should expect</h2></div>
+
+      <p>
+        Here is what happens on step 4 if you leave <code>using System;</code> out of the seed
+        file. The agent writes a correct class, and the harness refuses to write it:
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Tool</span><span class="ui-combo on">edit_file</span>
+                <span>Severity</span><span class="ui-combo">All</span>
+                <span>From step</span><span class="ui-text">0</span>
+                <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                <span class="ui-btn">Clear</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr class="sel"><td>4</td><td>edit_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>edit_file:Failed</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+              <div class="ui-detail"><span class="toolh">[tool edit_file &rarr; Failed]</span> The edit was refused: it would break 'DoubleSorter.cs'.
+This edit would introduce 2 new compile error(s).
+2 error(s), 0 warning(s) across 1 file(s).
+  C:\src\sorter\DoubleSorter.cs(12,9): error CS0103: The name 'ArgumentNullException' does not exist in the current context
+
+Hint: Fix the problem in your replacement text and try again. Nothing has been written.</div>
+            </div>
+          </div>
+          <div class="ui-status">Running…</div>
+        </div>
+        <figcaption>A correct class, refused. The check is wrong here, not the code — and it is wrong for an interesting reason.</figcaption>
+      </figure>
+
+      <h3>Why the check is wrong</h3>
+
+      <p>
+        Rung 2 of the verification ladder is an <em>in-memory</em> Roslyn compile. It parses the
+        C# it finds under the project directory and compiles it against the harness's own
+        reference assemblies, because resolving a real MSBuild graph costs seconds. It never runs
+        MSBuild — so it never sees the global-usings file the SDK generates for
+        <code>ImplicitUsings</code>, which lives under <code>obj/</code>, which the workspace deny
+        list excludes from every access.
+      </p>
+
+      <p>
+        <code>Array</code> and <code>ArgumentNullException</code> live in <code>System</code>. In
+        that compilation, with no implicit usings, they genuinely do not exist. The class is fine;
+        <code>dotnet build</code> compiles it without complaint. The approximation is documented
+        in the analyzer itself — it catches hallucinated APIs and wrong signatures in well under a
+        second, and <code>build</code> stays the authoritative gate — but a greenfield class is
+        exactly the shape of edit that trips it, because a new file is the one place new
+        <code>System</code> references appear.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Fix</th><th>What it costs</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Put <code>using System;</code> in the seed file</td>
+              <td>Nothing. It is redundant under <code>ImplicitUsings</code> and the real build
+                  does not care. This is what lesson 2 does, and it is the right answer.</td>
+            </tr>
+            <tr>
+              <td><code>Verification:RejectEditsThatBreakTheBuild</code> → <code>false</code></td>
+              <td>The check still runs and still reports; it stops gating. Real breakage now
+                  reaches the working tree, and <code>build</code> is your only compile oracle.</td>
+            </tr>
+            <tr>
+              <td><code>Verification:VerifyEditsBeforeWrite</code> → <code>false</code></td>
+              <td>No pre-write check at all. Faster, and the arm that measures what that costs is
+                  <code>no-prewrite-verification</code> in the ablation.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Three details in that one row</h3>
+
+      <ul class="prose">
+        <li><b>Two errors, one shown.</b> The summariser keeps the first error per file, so a
+            second error in the same file is counted in the total and not listed. That gap is the
+            cascade ratio on the Metrics surface.</li>
+        <li><b>The path is absolute.</b> Pre-write diagnostics name the file by its full path;
+            <code>build</code> diagnostics are repo-relative. If you are grepping transcripts, the
+            two rungs do not look alike.</li>
+        <li><b>It is <code>Failed</code>, not a warning.</b> The call parsed, bound and ran — the
+            tool simply refused the job. So the row is <code>info</code> severity and it does not
+            dent tool-call validity. Filtering Severity by <code>warning</code>, which is how
+            tutorial one found bad calls, will not find this. Filter by <b>Tool</b> instead.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Nothing was written</span>
+        <p>
+          The change was recorded before it was attempted, so it is on the Changes surface as
+          <code>Rejected</code>, with the note <code>Verification refused the edit.</code> and the
+          diagnostics attached. The file on disk is still the five-line seed.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="diff">
+      <div class="part-head"><span class="num">06</span><h2>A diff that is all green</h2></div>
+
+      <p>
+        With <code>using System;</code> in the seed, the same edit passes verification and the
+        loop blocks on the approval gate. Click <b>Changes</b>:
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-approval">
+                <div class="hdr">Approval needed: DoubleSorter.cs</div>
+                <div class="sub">This change has passed verification and is waiting to be written.</div>
+                <div class="diffbox">
+                  <div class="dl ctx"><span class="n">2</span><span class="n">2</span><span class="t"> </span></div>
+                  <div class="dl ctx"><span class="n">3</span><span class="n">3</span><span class="t"> namespace Fixture;</span></div>
+                  <div class="dl ctx"><span class="n">4</span><span class="n">4</span><span class="t"> </span></div>
+                  <div class="dl del"><span class="n">5</span><span class="n"></span><span class="t">-// GlassCoder: write the sorter here.</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">5</span><span class="t">+/// &lt;summary&gt;Sorts arrays of doubles into ascending order.&lt;/summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">6</span><span class="t">+public static class DoubleSorter</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">7</span><span class="t">+{</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">8</span><span class="t">+    /// &lt;summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">9</span><span class="t">+    /// Returns a new array holding every value of &lt;paramref name="values"/&gt;, from lowest to</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">10</span><span class="t">+    /// highest. The input array is left untouched.</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">11</span><span class="t">+    /// &lt;/summary&gt;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">12</span><span class="t">+    public static double[] Ascending(double[] values)</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">13</span><span class="t">+    {</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">14</span><span class="t">+        ArgumentNullException.ThrowIfNull(values);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">15</span><span class="t">+</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+        double[] sorted = [.. values];</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">17</span><span class="t">+        Array.Sort(sorted);</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">18</span><span class="t">+        return sorted;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">19</span><span class="t">+    }</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">20</span><span class="t">+}</span></div>
+                </div>
+                <div class="acts"><span class="ui-btn">Approve</span><span class="ui-btn">Reject</span></div>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>Time</th><th>Task</th><th>File</th><th>Lines</th><th>Status</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr class="sel"><td>09:14:22</td><td>desktop</td><td>DoubleSorter.cs</td><td>5-20</td><td>Proposed</td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Diff — DoubleSorter.cs</div>
+              <div class="ui-sub">&nbsp;</div>
+            </div>
+          </div>
+          <div class="ui-status">Running…</div>
+        </div>
+        <figcaption>Sixteen added lines, one removed. Lines 5-20: the anchor's line number becomes the class's first.</figcaption>
+      </figure>
+
+      <h3>Reading a creation as a diff</h3>
+
+      <ul class="prose">
+        <li><b>One red line and the rest green</b> is what “the agent wrote a class” looks like
+            here. There is no separate concept of a new file — a creation is an edit whose
+            <em>before</em> happened to be one line of comment.</li>
+        <li><b>The Lines column reads <code>5-20</code></b>, computed from the diff rather than
+            reported by the tool: the lowest and highest line number touched by anything that is
+            not context.</li>
+        <li><b>The line under “Diff — DoubleSorter.cs” is blank.</b> That is the verification
+            summary, and on a clean edit the pre-write check returns nothing to say. Blank means
+            checked and silent; text there means something was refused or the check could not run.
+            An empty line is good news, which is worth internalising because it does not look like
+            good news.</li>
+      </ul>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p>Press <b>Approve</b>. The row turns green and reads <code>Applied</code>, and the loop
+           continues — it has a build to run.</p>
+      </div>
+
+      <p>
+        The observation the model gets back is one line:
+        <code>Edited DoubleSorter.cs at line 5.</code> — plus a payload carrying the line range,
+        the file's length before and after, and <code>"verified": true</code>, meaning the
+        pre-write compile check actually ran rather than being skipped.
+      </p>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="proof">
+      <div class="part-head"><span class="num">07</span><h2>Proving it three ways</h2></div>
+
+      <p>
+        The agent's own verdict is the weakest evidence available. There are three stronger ones,
+        and they are not equally strong either.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr><td>4</td><td>edit_file</td><td>continued</td><td class="num">3860</td><td class="num">1980 ms</td><td>edit_file:Succeeded</td></tr>
+                    <tr><td>5</td><td>build</td><td>continued</td><td class="num">2240</td><td class="num">1120 ms</td><td>build:Succeeded</td></tr>
+                    <tr><td>6</td><td>run_tests</td><td>continued</td><td class="num">2610</td><td class="num">1340 ms</td><td>run_tests:Succeeded</td></tr>
+                    <tr><td>7</td><td>update_todos</td><td>continued</td><td class="num">2090</td><td class="num">760 ms</td><td>update_todos:Succeeded</td></tr>
+                    <tr><td>8</td><td>-</td><td>Completed</td><td class="num">3180</td><td class="num">890 ms</td><td class="wrap">DoubleSorter.Ascending copies the input, sorts the copy and returns it. The build is clean.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 9 steps · 20455 tokens · tool-call validity 100 %</div>
+        </div>
+        <figcaption>edit → build → run_tests → answer. One of those rows is less informative than it looks.</figcaption>
+      </figure>
+
+      <h3>1 · <code>build</code> — real, and authoritative</h3>
+
+      <p>
+        <code>build</code> shells out to <code>dotnet build</code> inside the sandbox and reports
+        <code>Build succeeded (0 warnings).</code> Those four <code>CS0103</code> errors from
+        lesson 2 are gone, which is genuine evidence: the class exists, it compiles, and
+        <code>Program.cs</code> can see it.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">If Docker is not running</span>
+        <p>
+          <code>build</code> and <code>run_tests</code> execute repository code, so they go through
+          the sandbox seam — <code>Docker</code> by default, with no silent fallback to the host.
+          You get <code>build:Failed</code> carrying <code>Docker is not reachable, and running
+          repository code on the host is not permitted. Start Docker, or set
+          GlassCoder:Sandbox:AllowUnsandboxedExecution to true to accept the risk.</code> The
+          in-memory pre-write check needs none of this, which is why the edit still worked.
+        </p>
+      </div>
+
+      <h3>2 · <code>run_tests</code> — a row that proves nothing here</h3>
+
+      <p>
+        <code>run_tests</code> runs <code>dotnet test</code>. This fixture is a console
+        application with no test framework in it, so there is nothing for <code>dotnet test</code>
+        to find, and the row still reads <code>run_tests:Succeeded</code>.
+      </p>
+
+      <p>
+        That is not a bug, and it is the single most misread thing on the transcript.
+        <b><code>Succeeded</code> describes the call, not the code.</b> It means the arguments
+        bound, the tool ran, and it handed back an observation. The result has two levels, and
+        they disagree on purpose:
+      </p>
+
+<pre><code>{"ok":<span class="k">true</span>,"tool":"run_tests","summary":"0 of 0 tests failed.",
+ "data":{"path":".","ok":<span class="k">false</span>,"passed":0,"failed":0,"skipped":0,"total":0, … }}
+   <span class="c">↑ the call worked          ↑ the run did not</span></code></pre>
+
+      <p>
+        Zero of zero, out of a project with no tests in it. The rule generalises: a failing build
+        also arrives as <code>build:Succeeded</code>, with <code>Build failed with 3 error(s).</code>
+        as its summary and <code>"succeeded": false</code> in the payload — because a failed build
+        is information the agent should act on rather than a tool malfunction. The five statuses —
+        <code>Succeeded</code>, <code>Failed</code>, <code>UnknownTool</code>,
+        <code>InvalidArguments</code>, <code>Faulted</code> — describe the <em>call</em>. Read the
+        payload for the outcome.
+      </p>
+
+      <h3>3 · The oracle — the only one that grades behaviour</h3>
+
+      <p>
+        Neither a clean build nor a green tool status says the sort is correct. Run the fixture
+        yourself, outside the app, exactly as the suite runner does:
+      </p>
+
+<pre><code>cd .debug\sorter
+dotnet run
+
+  pass  every value is returned (expected 5, got 5)
+  pass  the smallest value comes first (expected -1.25, got -1.25)
+  pass  the largest value comes last (expected 10, got 10)
+  pass  the input array is not reordered (expected 3.5, got 3.5)
+  pass  an empty array sorts to an empty array (expected 0, got 0)
+  pass  NaN sorts before every number
+  pass  a null input throws ArgumentNullException
+ALL TESTS PASSED</code></pre>
+
+      <p>
+        Exit code 0, and the words <code>ALL TESTS PASSED</code> in the output. Those two together
+        are what <code>glasscoder suite</code> requires before it records a pass, and they are the
+        reason the fixture convention is worth following for one-off work like this: you get a
+        gradeable task instead of an anecdote.
+      </p>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="loose">
+      <div class="part-head"><span class="num">08</span><h2>What a loose spec costs</h2></div>
+
+      <p>
+        Now delete <code>Program.cs</code> from your head for a moment and imagine you had only
+        asked for “a class that sorts an array of doubles from low to high”. A perfectly
+        reasonable implementation of that sentence is:
+      </p>
+
+<pre><code><span class="k">public static</span> <span class="k">double</span>[] Ascending(<span class="k">double</span>[] values)
+{
+    Array.Sort(values);
+    <span class="k">return</span> values;
+}</code></pre>
+
+      <p>
+        Two lines, sorts low to high, and it is correct against the English. It also passes rung 1,
+        passes rung 2, builds clean, and returns exactly the values you asked for. Every oracle in
+        the harness that does not know what you meant says yes:
+      </p>
+
+<pre><code>  pass  every value is returned (expected 5, got 5)
+  pass  the smallest value comes first (expected -1.25, got -1.25)
+  pass  the largest value comes last (expected 10, got 10)
+  FAIL  the input array is not reordered (expected 3.5, got -1.25)
+  pass  an empty array sorts to an empty array (expected 0, got 0)
+  pass  NaN sorts before every number
+  pass  a null input throws ArgumentNullException
+1 TEST(S) FAILED</code></pre>
+
+      <p>
+        It sorted the caller's array in place. Somewhere upstream, a variable the caller still
+        believed in has quietly changed. No compiler can see that, no diff review would flag it —
+        the diff looks great — and the agent had no way to know, because nobody told it.
+      </p>
+
+      <div class="note">
+        <span class="tag">The general shape</span>
+        <p>
+          The verification ladder gets cheaper and stronger as you climb: syntax, compile,
+          analyzers, tests. Everything below the test rung is checking that the code is
+          <em>well-formed</em>. Only the test rung checks that it is <em>right</em>, and only
+          against the properties you wrote down. An agent with a compiler and no tests is an agent
+          that can be confidently, buildably wrong — which is why the four checks in lesson 1 were
+          worth the ten minutes they took.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="next">
+      <div class="part-head"><span class="num">09</span><h2>Exercises</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Try</th><th>What you should observe</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Delete <code>using System;</code> from the seed and rerun</td>
+              <td>Lesson 5's refusal, on demand. Then set
+                  <code>Verification:RejectEditsThatBreakTheBuild</code> to <code>false</code> and
+                  watch the same diagnostics arrive as a report rather than a veto.</td>
+            </tr>
+            <tr>
+              <td>Add <code>Descending</code> to the spec and ask for both</td>
+              <td>Two near-identical methods in one file is how the classic greenfield failure
+                  appears: the moment the agent quotes an anchor that occurs in both, it gets
+                  <code>The text to replace appears 2 times in 'DoubleSorter.cs'.</code> and has to
+                  quote more surrounding context to make the target unique.</td>
+            </tr>
+            <tr>
+              <td>Empty <code>WritablePaths</code> and rerun</td>
+              <td><code>path_not_allowed</code>: <code>No writable paths are configured, so every
+                  write is rejected.</code> Read-only is enforced by the workspace, not by asking
+                  the model nicely.</td>
+            </tr>
+            <tr>
+              <td>Press <b>Reject</b> on a good class</td>
+              <td>Row turns red with <code>A reviewer rejected this change.</code> The loop
+                  resumes, the agent is told the write was refused, and what it tries next is the
+                  interesting part.</td>
+            </tr>
+            <tr>
+              <td>Change the spec so <code>NaN</code> must sort <em>last</em></td>
+              <td>The natural implementation now fails. This is the cheapest demonstration that
+                  the spec, not the goal text, is what the agent is really being measured against.</td>
+            </tr>
+            <tr>
+              <td>Ask for the class with no <code>Program.cs</code> at all</td>
+              <td>It will write something plausible, the build will pass, and you will have no way
+                  to tell whether it is right. That is the state most ad-hoc agent runs are
+                  actually in.</td>
+            </tr>
+            <tr>
+              <td>Run the same goal twice and group Metrics by <b>Task</b></td>
+              <td>Both land under <code>desktop</code>, and pass@1 shows <code>-</code> rather than
+                  a percentage: ad-hoc goals are never graded against an oracle. Only suite tasks
+                  are.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Where to go next</h3>
+
+      <ul class="prose">
+        <li><a href="wpf-tutorial.html">Tutorial one</a> — the same window against a bug rather
+            than a blank file: filters, severities, the approval timeout and a five-arm ablation.</li>
+        <li><a href="wpf-app.html">Desktop app reference</a> — every column, filter and setting,
+            plus how the shell is wired.</li>
+        <li><a href="index.html#measure">Operator's guide, §08</a> — the eight shipped fixtures.
+            <code>suite-02-documented-empty</code> is this tutorial's task in suite form: a
+            documented, unimplemented <code>Statistics.Median</code> that has to sort a copy of its
+            input without disturbing it.</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder tutorial two · a greenfield class · companion to
+  <a href="wpf-tutorial.html">tutorial one</a>, the <a href="wpf-app.html">desktop app reference</a>
+  and the <a href="index.html">operator's guide</a>
+</footer>
+</body>
+</html>
