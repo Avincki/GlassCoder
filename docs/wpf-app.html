@@ -167,14 +167,16 @@
     display: block;
   }
 
-  .backlink {
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+
+  .backlinks a {
     font-family: var(--mono);
     font-size: 0.78rem;
     color: var(--muted);
     text-decoration: none;
   }
 
-  .backlink:hover { color: var(--signal); }
+  .backlinks a:hover { color: var(--signal); }
 
   /* ---------- shell ---------- */
 
@@ -601,7 +603,10 @@
       <div><b>Pattern</b> MVVM · no code-behind</div>
       <div><b>Bootstrap</b> shared with the console host</div>
     </div>
-    <a class="backlink" href="index.html">← Operator's guide</a>
+    <div class="backlinks">
+      <a href="index.html">← Operator's guide</a>
+      <a href="wpf-tutorial.html">Tutorial: nine lessons against a fixture →</a>
+    </div>
   </div>
 </header>
 

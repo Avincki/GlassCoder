@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="A hands-on GlassCoder.Wpf tutorial: nine lessons against a known-buggy fixture, each showing exactly what you type and what the window shows back.">
+<title>GlassCoder.Wpf — Tutorial</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-input {
+    flex: 1;
+    min-width: 0;
+    background: #FFFFFF;
+    border: 1px solid #7A8A94;
+    border-radius: 2px;
+    padding: 0.2rem 0.4rem;
+    color: #131A1F;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ui-input.empty { color: #FFFFFF; }
+  .ui-input .caret { border-left: 1px solid #131A1F; margin-left: 1px; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .ui-btn.off { background: #F2F4F5; border-color: #D0D6D9; color: #A3ACB1; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.45rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    font-size: 0.76rem;
+  }
+
+  .ui-combo, .ui-text {
+    background: #FFFFFF;
+    border: 1px solid #A6AFB5;
+    border-radius: 2px;
+    padding: 0.12rem 0.35rem;
+    font-size: 0.75rem;
+    color: #131A1F;
+  }
+
+  .ui-combo::after { content: " ⌄"; color: #5B6B75; }
+  .ui-combo.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+  .ui-text.on { border-color: #1A6E9E; box-shadow: 0 0 0 1px #1A6E9E; }
+
+  .ui-scroll { overflow-x: auto; }
+
+  table.ui-grid { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.76rem; }
+
+  table.ui-grid th {
+    background: #F3F5F6;
+    border-bottom: 1px solid #C9D1D5;
+    border-right: 1px solid #E3E8EA;
+    color: #1F2933;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.74rem;
+    padding: 0.28rem 0.45rem;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td {
+    border-bottom: 1px solid #E9EDEF;
+    padding: 0.26rem 0.45rem;
+    color: #131A1F;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+
+  table.ui-grid td.wrap { white-space: normal; }
+  table.ui-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.ui-grid tr.err td { color: #B00020; }
+  table.ui-grid tr.warn td { color: #8A6D00; }
+  table.ui-grid tr.ok td { color: #1B5E20; }
+  table.ui-grid tr.sel td { background: #CCE4F7; }
+  table.ui-grid tr.sel.err td { background: #CCE4F7; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-detail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    color: #131A1F;
+    white-space: pre-wrap;
+    margin: 0;
+    padding: 0.35rem 0 0.1rem;
+    background: none;
+    border: none;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .ui-detail .role { color: #1A6E9E; }
+  .ui-detail .toolh { color: #7A5C00; }
+
+  .ui-empty {
+    border: 1px solid #C9D1D5;
+    background: #EFEFEF;
+    height: 7rem;
+    border-radius: 2px;
+  }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; }
+
+  /* metrics bar — MetricsView.xaml, Fill #4C6FBF */
+  .mbar { display: inline-block; height: 0.6rem; background: #4C6FBF; border-radius: 2px; vertical-align: middle; }
+  .mbar-wrap { display: flex; align-items: center; gap: 0.4rem; min-width: 11rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+    .ui-input { flex-basis: 100%; order: 3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Tutorial</div>
+    <h1>GlassCoder.Wpf, end to end</h1>
+    <p class="standfirst">
+      Nine short lessons against a repository that is broken on purpose. Each one shows exactly
+      what you type and exactly what the window shows back — from an empty transcript to an
+      approved diff to an ablation you can read.
+    </p>
+    <div class="specstrip">
+      <div><b>Time</b> about 45 minutes</div>
+      <div><b>Needs</b> a served /v1 endpoint</div>
+      <div><b>Fixture</b> suite-03-off-by-one</div>
+      <div><b>Ends with</b> a five-arm comparison</div>
+    </div>
+    <div class="backlinks">
+      <a href="index.html">← Operator's guide</a>
+      <a href="wpf-app.html">← Desktop app reference</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Lessons</h2>
+    <ol>
+      <li><a href="#setup">0 · A repo that is broken on purpose</a></li>
+      <li><a href="#launch">1 · First launch</a></li>
+      <li><a href="#first-goal">2 · Your first goal</a></li>
+      <li><a href="#one-step">3 · Reading one step</a></li>
+      <li><a href="#bad-call">4 · Catching a bad tool call</a></li>
+      <li><a href="#edit">5 · Letting it edit</a></li>
+      <li><a href="#approved">6 · After you approve</a></li>
+      <li><a href="#refused">7 · When verification refuses</a></li>
+      <li><a href="#metrics">8 · Comparing arms</a></li>
+      <li><a href="#next">9 · Exercises</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note">
+      <span class="tag">About the mockups</span>
+      <p>
+        The window images below are reproductions, not screenshots — colours, columns and
+        wording are taken from <code>MainWindow.xaml</code>, the three views and
+        <code>DiffConverters.cs</code>. The <em>numbers</em> in them are illustrative: your model,
+        your machine and your endpoint will produce different token counts and latencies. The
+        shapes, statuses and message formats are what you will actually see.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="setup">
+      <div class="part-head"><span class="num">00</span><h2>A repo that is broken on purpose</h2></div>
+
+      <p>
+        Pointing the agent at your own repository for a first run is a bad idea twice over: you
+        do not know what it should do, so you cannot tell whether it did it. Use a fixture
+        instead. GlassCoder ships eight, and the console host will write them to disk for you.
+      </p>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p class="typed">glasscoder fixtures --work .\.debug\fixtures</p>
+      </div>
+
+      <p>
+        That materialises every suite task into its own folder and checks each one starts in the
+        state its task claims. We will use <code>suite-03-off-by-one</code>, which is four files
+        and one genuine bug:
+      </p>
+
+<pre><code><span class="c">// .debug/fixtures/suite-03-off-by-one/Pager.cs</span>
+<span class="k">public</span> <span class="k">int</span> PageCount =&gt; ItemCount / PageSize;   <span class="c">// line 16</span></code></pre>
+
+      <p>
+        Integer division truncates, so 31 items at 10 per page reports 3 pages rather than 4, and
+        1 item reports 0 pages. <code>Program.cs</code> already asserts the correct answers, so
+        the fixture starts red — and you will be able to tell, unambiguously, whether the agent
+        fixed it.
+      </p>
+
+      <h3>Point the app at the fixture</h3>
+
+      <p>
+        The working directory is what decides which repository the agent reads and writes, so
+        name it explicitly rather than relying on where you happen to launch from:
+      </p>
+
+<pre><code><span class="c"># PowerShell</span>
+$env:GlassCoder__Workspace__RepoRoot = "$PWD\.debug\fixtures\suite-03-off-by-one"
+dotnet run --project src/GlassCoder.Wpf</code></pre>
+
+      <div class="note refuse">
+        <span class="tag">Do not press F5 yet</span>
+        <p>
+          <code>GlassCoder.Wpf</code> has no <code>launchSettings.json</code>, so Visual Studio
+          starts it in <code>bin\Debug\net10.0-windows</code> and the agent would explore its own
+          build output. The <a href="wpf-app.html#launch">reference guide</a> has the profile to
+          add if you want F5 to work.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="launch">
+      <div class="part-head"><span class="num">01</span><h2>First launch</h2></div>
+
+      <p>The window opens on the Transcript surface with nothing in it. That is correct:</p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-bar">
+            <span class="brand">GlassCoder</span>
+            <span class="ui-input empty">&nbsp;<span class="caret">&nbsp;</span></span>
+            <span class="ui-btn">Run</span>
+            <span class="ui-btn off">Cancel</span>
+          </div>
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Tool</span><span class="ui-combo">All</span>
+                <span>Severity</span><span class="ui-combo">All</span>
+                <span>From step</span><span class="ui-text">0</span>
+                <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                <span class="ui-btn">Clear</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                </table>
+              </div>
+              <div class="ui-empty"></div>
+              <div class="ui-label">Step detail</div>
+            </div>
+          </div>
+          <div class="ui-status">Ready. 7 tools: update_todos, read_file, grep, glob, edit_file, build, run_tests</div>
+        </div>
+        <figcaption>Idle. Cancel is disabled because no run is in flight.</figcaption>
+      </figure>
+
+      <h3>Read the status bar before anything else</h3>
+
+      <p>
+        It is the only honest inventory of what the model can call this session. Count the tools
+        and notice what is missing — there is no <code>bash</code>, because
+        <code>Sandbox:EnableBashTool</code> is <code>false</code>. If that line does not say what
+        you expect, the app did not load the configuration you think it did, and every lesson
+        below will behave strangely.
+      </p>
+
+      <div class="note">
+        <span class="tag">Sanity check</span>
+        <p>
+          Seven tools, Cancel greyed out, empty grid. If instead you see a
+          <code>Failed:</code> message, the app started but could not reach your endpoint —
+          check <code>Models:Roles:worker:Endpoint</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="first-goal">
+      <div class="part-head"><span class="num">02</span><h2>Your first goal</h2></div>
+
+      <p>
+        Start read-only. <code>Workspace:WritablePaths</code> ships empty, which means nothing is
+        writable at all, so this run physically cannot change the fixture — a good property for a
+        first look.
+      </p>
+
+      <div class="do">
+        <span class="tag">Type this, then press Run</span>
+        <p class="typed">Find the class that computes how many pages are needed, and tell me which file and line it is on.</p>
+      </div>
+
+      <p>The status bar switches to <code>Running…</code> and rows appear as each step completes:</p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-bar">
+            <span class="brand">GlassCoder</span>
+            <span class="ui-input">Find the class that computes how many pages are needed, and tell me which file and line it is on.</span>
+            <span class="ui-btn off">Run</span>
+            <span class="ui-btn">Cancel</span>
+          </div>
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Tool</span><span class="ui-combo">All</span>
+                <span>Severity</span><span class="ui-combo">All</span>
+                <span>From step</span><span class="ui-text">0</span>
+                <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                <span class="ui-btn">Clear</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr><td>0</td><td>glob</td><td>continued</td><td class="num">1188</td><td class="num">640 ms</td><td>glob:succeeded</td></tr>
+                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:succeeded</td></tr>
+                    <tr><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:succeeded</td></tr>
+                    <tr><td>3</td><td>-</td><td>Completed</td><td class="num">3204</td><td class="num">820 ms</td><td class="wrap">Pager.PageCount on line 16 of Pager.cs computes ItemCount / PageSize.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 4 steps · 8994 tokens · tool-call validity 100 %</div>
+        </div>
+        <figcaption>Four steps: glob to find files, grep to locate, read_file to confirm, then an answer.</figcaption>
+      </figure>
+
+      <h3>What the last row tells you</h3>
+
+      <p>
+        Step 3 has <code>-</code> in Tools and <code>Completed</code> as its outcome. That is not
+        a special "finished" record — it is how the loop ends. The model answered with text
+        instead of calling a tool, so the loop treats the goal as met and stops. Every earlier
+        step reads <code>continued</code>.
+      </p>
+
+      <p>
+        The Summary column shows the response text for that final step, and the tool
+        <code>name:status</code> pairs for the others. <code>succeeded</code> is one of five
+        registry statuses; the other four are <code>failed</code>, <code>unknown_tool</code>,
+        <code>invalid_arguments</code> and <code>faulted</code>.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Status bar reads</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Completed</td><td>The model stopped calling tools. It believes it is done — which is not the same as being right.</td></tr>
+            <tr><td class="m">StepLimit</td><td>Hit <code>Agent:MaxSteps</code>. Usually a loop that is going in circles.</td></tr>
+            <tr><td class="m">ToolFailureLimit</td><td>Too many consecutive unparseable calls. Look at Lesson 4.</td></tr>
+            <tr><td class="m">TokenLimit · TimeLimit · CostLimit</td><td>A budget in <code>Agent:</code> tripped.</td></tr>
+            <tr><td class="m">Cancelled</td><td>You pressed Cancel.</td></tr>
+            <tr><td class="m">ModelError</td><td>The endpoint itself failed. The status bar shows <code>Failed: …</code>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        <b>Tool-call validity 100 %</b> is the number Phase 0 lives or dies by: every call the
+        model made parsed and bound to a real tool. Below about 90 % nothing further is worth
+        measuring, because the harness is spending its steps on malformed calls.
+      </p>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="one-step">
+      <div class="part-head"><span class="num">03</span><h2>Reading one step</h2></div>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p>Click row <b>2</b> — the <code>read_file</code> step.</p>
+      </div>
+
+      <p>The pane underneath fills with the entire step: prompt, response, and tool results.</p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:succeeded</td></tr>
+                    <tr class="sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:succeeded</td></tr>
+                    <tr><td>3</td><td>-</td><td>Completed</td><td class="num">3204</td><td class="num">820 ms</td><td>Pager.PageCount on line 16 …</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+              <div class="ui-detail"><span class="role">[system]</span> You are GlassCoder, a coding agent. Use the tools provided…
+<span class="role">[user]</span> Find the class that computes how many pages are needed, and tell me
+which file and line it is on.
+<span class="role">[assistant]</span> (tool call: grep)
+<span class="role">[tool]</span> Pager.cs:16: public int PageCount =&gt; ItemCount / PageSize;
+
+<span class="role">[assistant]</span> I need the surrounding class to be certain.
+
+<span class="toolh">[tool read_file → succeeded]</span> Pager.cs (17 lines)
+  1  namespace Fixture;
+  3  public sealed class Pager
+ 15      /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;
+ 16      public int PageCount =&gt; ItemCount / PageSize;
+ 17  }</div>
+            </div>
+          </div>
+        </div>
+        <figcaption>The detail pane is read-only but selectable — copy a prompt straight out of it.</figcaption>
+      </figure>
+
+      <p>
+        Four kinds of line appear, tagged by role: <code>[system]</code>, <code>[user]</code> and
+        <code>[assistant]</code> come from the prompt that was actually sent, and
+        <code>[tool <em>name</em> → <em>status</em>]</code> blocks carry what each tool returned.
+      </p>
+
+      <div class="note">
+        <span class="tag">This is the prompt, not a summary of it</span>
+        <p>
+          The recorded prompt is the exact window sent to the model for that step, after
+          compaction and redaction. If a run went wrong because the model never saw something you
+          assumed it saw, this pane is where you find out.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="bad-call">
+      <div class="part-head"><span class="num">04</span><h2>Catching a bad tool call</h2></div>
+
+      <p>
+        Sooner or later a model emits arguments that do not fit the schema. Those steps colour
+        themselves amber, and you can isolate them without reading the run.
+      </p>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p>Set <b>Severity</b> to <code>warning</code>.</p>
+      </div>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Tool</span><span class="ui-combo">All</span>
+                <span>Severity</span><span class="ui-combo on">warning</span>
+                <span>From step</span><span class="ui-text">0</span>
+                <span>Search</span><span class="ui-text">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>
+                <span class="ui-btn">Clear</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr class="warn sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">1755</td><td class="num">690 ms</td><td>read_file:invalid_arguments</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+              <div class="ui-detail"><span class="toolh">[tool read_file → invalid_arguments]</span> The 'path' argument is required.
+Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 6 steps · 14208 tokens · tool-call validity 83 %</div>
+        </div>
+        <figcaption>One malformed call out of six drops validity to 83 %.</figcaption>
+      </figure>
+
+      <h3>Where the colours come from</h3>
+
+      <p>Nothing sets severity by hand — it is derived from the step record:</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Severity</th><th>Condition</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pill fail">error</span></td><td>The step carries an error — typically the model call itself failed.</td></tr>
+            <tr><td><span class="pill warn">warning</span></td><td>At least one tool call did not parse. This is the complement of tool-call validity.</td></tr>
+            <tr><td><span class="pill pass">info</span></td><td>Everything else.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        So filtering on <code>warning</code> shows you precisely the calls that dragged the
+        validity number down, and the detail pane shows the arguments the model actually sent. If
+        you see a pattern — always the same missing field — that is a prompt or schema problem,
+        not a model problem.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Clear is not a filter</span>
+        <p>
+          The <b>Clear</b> button empties the transcript bus, not just the table. The run is still
+          in the JSONL under <code>Logging:Directory</code>, but the live view is gone. Use the
+          filters to narrow, and <b>Clear</b> only when you want a clean slate.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="edit">
+      <div class="part-head"><span class="num">05</span><h2>Letting it edit</h2></div>
+
+      <p>Two settings have to change before an edit can land, and both default to refusing.</p>
+
+      <div class="do">
+        <span class="tag">Do this, then restart the app</span>
+        <p class="typed">$env:GlassCoder__Workspace__WritablePaths__0 = "."<br>
+        $env:GlassCoder__Approval__RequireApprovalForWrites = "true"</p>
+      </div>
+
+      <p>
+        The first opts the fixture root into being writable — empty means nothing is. The second
+        turns on the interactive gate; leave it <code>false</code> and writes land silently with
+        no prompt at all.
+      </p>
+
+      <div class="do">
+        <span class="tag">Type this, then press Run</span>
+        <p class="typed">Pager.PageCount is wrong when the last page is partial. Fix it, then run the tests to prove the fix.</p>
+      </div>
+
+      <p>
+        The run switches you to Transcript automatically. When the agent proposes its edit,
+        <em>the loop blocks</em> and the Changes surface raises a banner. Click <b>Changes</b>:
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-approval">
+                <div class="hdr">Approval needed: Pager.cs</div>
+                <div class="sub">This change has passed verification and is waiting to be written.</div>
+                <div class="diffbox">
+                  <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">    /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
+                  <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">    public int PageCount =&gt; ItemCount / PageSize;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
+                  <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t">}</span></div>
+                </div>
+                <div class="acts"><span class="ui-btn">Approve</span><span class="ui-btn">Reject</span></div>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>Time</th><th>Task</th><th>File</th><th>Lines</th><th>Status</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr class="sel"><td>14:32:07</td><td>desktop</td><td>Pager.cs</td><td>16-16</td><td>Proposed</td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Diff — Pager.cs</div>
+              <div class="ui-sub">Build of Pager.cs<br>No diagnostics.</div>
+            </div>
+          </div>
+          <div class="ui-status">Running…</div>
+        </div>
+        <figcaption>The decision is made next to the diff, never in a dialog naming a file.</figcaption>
+      </figure>
+
+      <h3>Three things are true while that banner is up</h3>
+
+      <ul class="prose">
+        <li><b>The agent is genuinely blocked.</b> The gate is awaited on the loop's thread; the
+            banner is raised on the UI thread. Nothing proceeds until you click.</li>
+        <li><b>Silence is refusal.</b> After <code>Approval:ApprovalTimeoutSeconds</code> — 300 by
+            default — the change is rejected with
+            <code>Nobody answered within 300 seconds, so the change was not written.</code></li>
+        <li><b>The change already passed verification.</b> The banner says so, and the summary
+            under the grid shows it: <code>Build of Pager.cs / No diagnostics.</code> Approval is
+            the last gate, not the only one.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Task id</span>
+        <p>
+          Every desktop run is recorded under the task id <code>desktop</code>. That is how you
+          will pick these runs out of <code>metrics.jsonl</code> later, and why suite runs get
+          their own ids.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="approved">
+      <div class="part-head"><span class="num">06</span><h2>After you approve</h2></div>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p>Press <b>Approve</b>.</p>
+      </div>
+
+      <p>
+        The banner disappears, the row turns green, and the loop continues — in this case straight
+        into <code>run_tests</code>, because the goal asked for proof.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>Time</th><th>Task</th><th>File</th><th>Lines</th><th>Status</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr class="ok sel"><td>14:32:07</td><td>desktop</td><td>Pager.cs</td><td>16-16</td><td>Applied</td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Diff — Pager.cs</div>
+              <div class="ui-sub">Build of Pager.cs<br>No diagnostics.</div>
+              <div class="diffbox">
+                <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">    /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
+                <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">    public int PageCount =&gt; ItemCount / PageSize;</span></div>
+                <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
+                <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t">}</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 9 steps · 21860 tokens · tool-call validity 100 %</div>
+        </div>
+        <figcaption>Applied changes render green; the verification summary stays attached to the change.</figcaption>
+      </figure>
+
+      <p>
+        Back on <b>Transcript</b>, the tail of the run shows the loop closing:
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div class="sel">Transcript</div>
+              <div>Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
+                  <tbody>
+                    <tr><td>5</td><td>edit_file</td><td>continued</td><td class="num">2604</td><td class="num">1310 ms</td><td>edit_file:succeeded</td></tr>
+                    <tr><td>6</td><td>build</td><td>continued</td><td class="num">2158</td><td class="num">980 ms</td><td>build:succeeded</td></tr>
+                    <tr><td>7</td><td>run_tests</td><td>continued</td><td class="num">2977</td><td class="num">1120 ms</td><td>run_tests:succeeded</td></tr>
+                    <tr><td>8</td><td>-</td><td>Completed</td><td class="num">3411</td><td class="num">860 ms</td><td class="wrap">Fixed the truncating division in PageCount. All four checks now pass.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Step detail</div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 9 steps · 21860 tokens · tool-call validity 100 %</div>
+        </div>
+        <figcaption>edit → build → run_tests → answer. The ladder ran in that order on purpose.</figcaption>
+      </figure>
+
+      <p>
+        Verify it for yourself outside the app — the fixture is a real project, and the point of
+        using one is that you never have to take the agent's word for it:
+      </p>
+
+<pre><code>cd .debug\fixtures\suite-03-off-by-one
+dotnet run                          <span class="c"># Check.Exit() returns 0 when all four pass</span></code></pre>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="refused">
+      <div class="part-head"><span class="num">07</span><h2>When verification refuses</h2></div>
+
+      <p>
+        Refused changes are recorded exactly like successful ones. A view that only showed writes
+        that landed could not tell you what the agent tried to do — usually the more interesting
+        question.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead><tr><th>Time</th><th>Task</th><th>File</th><th>Lines</th><th>Status</th><th>Note</th></tr></thead>
+                  <tbody>
+                    <tr class="err sel"><td>14:41:52</td><td>desktop</td><td>Pager.cs</td><td>16-16</td><td>Rejected</td><td class="wrap">Verification refused the edit.</td></tr>
+                    <tr class="ok"><td>14:32:07</td><td>desktop</td><td>Pager.cs</td><td>16-16</td><td>Applied</td><td></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-label">Diff — Pager.cs</div>
+              <div class="ui-sub">Build of Pager.cs<br>1 error(s), 0 warning(s) across 1 file(s).<br>&nbsp;&nbsp;Pager.cs(16,58): error CS1002: ; expected</div>
+            </div>
+          </div>
+          <div class="ui-status">Completed after 12 steps · 28430 tokens · tool-call validity 100 %</div>
+        </div>
+        <figcaption>A pre-write compile check caught this before it reached disk. The file on disk never changed.</figcaption>
+      </figure>
+
+      <p>The Note column tells you <em>who</em> refused, and the wording is fixed:</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Note</th><th>Who refused</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Verification refused the edit.</td><td>A rung of the ladder — the edit would have broken something that was not already broken.</td></tr>
+            <tr><td class="m">A reviewer rejected this change.</td><td>You, via the <b>Reject</b> button.</td></tr>
+            <tr><td class="m">Nobody answered within 300 seconds…</td><td>The approval timeout. An unattended prompt never becomes a write.</td></tr>
+            <tr><td class="m">The run was cancelled while waiting for approval.</td><td>You pressed Cancel with the banner up.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Why the summariser matters</span>
+        <p>
+          One bad edit can produce hundreds of diagnostics that are all the same diagnostic. What
+          reaches the model — and this pane — is the first error per file, deduplicated, capped and
+          sorted earliest-first, with the true total always stated. The ratio between the true
+          total and what was shown is the <b>cascade ratio</b> on the Metrics surface.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="metrics">
+      <div class="part-head"><span class="num">08</span><h2>Comparing arms</h2></div>
+
+      <p>
+        One run tells you almost nothing. The question worth asking is which configuration is
+        better, and by how much — so generate several arms with the console host, then read them
+        in the app.
+      </p>
+
+      <div class="do">
+        <span class="tag">Do this</span>
+        <p class="typed">glasscoder ablate --work .\.debug\ablation</p>
+      </div>
+
+      <p>
+        That runs the five standard arms: <code>baseline</code> plus one single-lever variant each.
+        Then switch to <b>Metrics</b> in the app — selecting the surface reloads it from disk.
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div>Changes</div>
+              <div class="sel">Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-filters">
+                <span>Group by</span><span class="ui-combo on">Arm</span>
+                <span class="ui-btn">Reload</span>
+              </div>
+              <div class="ui-scroll">
+                <table class="ui-grid">
+                  <thead>
+                    <tr>
+                      <th>Arm / group</th><th>Runs</th><th>pass@1</th><th>Tool validity</th>
+                      <th>Tokens to solve</th><th>Wall-clock</th><th>Compile err/edit</th>
+                      <th>Recovery</th><th>Cascade</th><th>Fresh</th><th>Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>baseline</td><td class="num">8</td><td class="num">75 %</td><td class="num">97%</td>
+                      <td><span class="mbar-wrap"><span class="mbar" style="width:44%"></span><span>9406</span></span></td>
+                      <td class="num">24.8s</td><td class="num">0.22</td><td class="num">71%</td><td class="num">1.4</td><td class="num">8</td><td class="num">0.000</td>
+                    </tr>
+                    <tr>
+                      <td>no-constrained-decoding</td><td class="num">8</td><td class="num">38 %</td><td class="num">71%</td>
+                      <td><span class="mbar-wrap"><span class="mbar" style="width:69%"></span><span>14872</span></span></td>
+                      <td class="num">41.7s</td><td class="num">0.35</td><td class="num">44%</td><td class="num">2.6</td><td class="num">8</td><td class="num">0.000</td>
+                    </tr>
+                    <tr>
+                      <td>no-context</td><td class="num">8</td><td class="num">38 %</td><td class="num">95%</td>
+                      <td><span class="mbar-wrap"><span class="mbar" style="width:59%"></span><span>12610</span></span></td>
+                      <td class="num">33.4s</td><td class="num">0.29</td><td class="num">61%</td><td class="num">1.5</td><td class="num">8</td><td class="num">0.000</td>
+                    </tr>
+                    <tr>
+                      <td>no-prewrite-verification</td><td class="num">8</td><td class="num">63 %</td><td class="num">96%</td>
+                      <td><span class="mbar-wrap"><span class="mbar" style="width:51%"></span><span>11004</span></span></td>
+                      <td class="num">21.3s</td><td class="num">0.82</td><td class="num">58%</td><td class="num">1.9</td><td class="num">8</td><td class="num">0.000</td>
+                    </tr>
+                    <tr>
+                      <td>unsummarised-diagnostics</td><td class="num">8</td><td class="num">63 %</td><td class="num">94%</td>
+                      <td><span class="mbar-wrap"><span class="mbar" style="width:100%"></span><span>21455</span></span></td>
+                      <td class="num">52.1s</td><td class="num">0.31</td><td class="num">52%</td><td class="num">6.8</td><td class="num">8</td><td class="num">0.000</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="ui-sub" style="margin-top:0.5rem">40 runs across 5 groups, from C:\src\GlassCoder\metrics\metrics.jsonl.</div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Rows are groups, not runs. The bar is relative to the widest row in the current grouping.</figcaption>
+      </figure>
+
+      <h3>How to read this table</h3>
+
+      <p>Each row differs from <code>baseline</code> by exactly one lever, so each column tells a story:</p>
+
+      <ul class="prose">
+        <li><b>no-constrained-decoding</b> — validity collapses from 97% to 71%, and pass@1 halves.
+            The wasted steps show up as extra tokens. This is the arm that justifies the whole
+            constrained-decoding apparatus.</li>
+        <li><b>no-prewrite-verification</b> — the <em>fastest</em> arm, at 21.3s. It is also the one
+            with nearly four times the compile errors per edit. Speed bought by writing broken
+            code is not speed.</li>
+        <li><b>unsummarised-diagnostics</b> — cascade ratio jumps to 6.8 and tokens more than
+            double. The model is reading hundreds of consequences of one root cause.</li>
+        <li><b>no-context</b> — validity is fine, pass@1 is not. The harness is working; the model
+            simply does not know enough.</li>
+      </ul>
+
+      <div class="note refuse">
+        <span class="tag">Two traps in this table</span>
+        <p>
+          <b>pass@1 shows <code>-</code>, not 0 %,</b> when nothing in a group was graded against an
+          oracle — ad-hoc desktop goals are never graded, only suite tasks are. And <b>the bar is
+          relative</b>: it is scaled to the widest row in the current grouping, so it rescales when
+          you regroup by Task or Source. Read the number, not the bar.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="next">
+      <div class="part-head"><span class="num">09</span><h2>Exercises</h2></div>
+
+      <p>Each of these teaches something the happy path cannot.</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Try</th><th>What you should observe</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Press <b>Reject</b> on a good change</td>
+              <td>Row turns red with <code>A reviewer rejected this change.</code> The loop resumes
+                  and the agent is told the write was refused — watch how it reacts.</td>
+            </tr>
+            <tr>
+              <td>Raise the banner and walk away</td>
+              <td>Set <code>ApprovalTimeoutSeconds</code> to <code>20</code> first. The change
+                  rejects itself. Nothing is written.</td>
+            </tr>
+            <tr>
+              <td>Set <code>Agent:MaxSteps</code> to <code>3</code></td>
+              <td>The status bar reads <code>StepLimit</code> instead of <code>Completed</code>,
+                  mid-investigation. Budgets are hard stops, not suggestions.</td>
+            </tr>
+            <tr>
+              <td>Empty <code>WritablePaths</code> again, then ask for the fix</td>
+              <td>Every edit is refused. Read-only is enforced by the workspace, not by asking the
+                  model nicely.</td>
+            </tr>
+            <tr>
+              <td>Run the same goal twice and group Metrics by <b>Task</b></td>
+              <td>Both runs land under <code>desktop</code>. This is why the suite exists — ad-hoc
+                  goals cannot be compared.</td>
+            </tr>
+            <tr>
+              <td>Press <b>Cancel</b> mid-run</td>
+              <td><code>Cancelled.</code> in the status bar, and any pending change rejected with
+                  the cancellation note rather than left undecided.</td>
+            </tr>
+            <tr>
+              <td>Point <code>RepoRoot</code> at <code>suite-01-failing-test</code></td>
+              <td>A different bug, same nine lessons. Eight fixtures ship, increasing in
+                  difficulty from one file to three.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Where to go next</h3>
+
+      <ul class="prose">
+        <li><a href="wpf-app.html">Desktop app reference</a> — every column, filter and setting,
+            plus how the shell is wired and how to add a surface.</li>
+        <li><a href="index.html#measure">Operator's guide, §08</a> — the task suite and the full
+            set of ablation arms.</li>
+        <li><a href="index.html#phases">Operator's guide, §10</a> — the phase ladder. Do not
+            advance a phase until the current one is green on a couple of tasks.</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder tutorial · fixture suite-03-off-by-one · companion to the
+  <a href="wpf-app.html">desktop app reference</a> and the <a href="index.html">operator's guide</a>
+</footer>
+</body>
+</html>
