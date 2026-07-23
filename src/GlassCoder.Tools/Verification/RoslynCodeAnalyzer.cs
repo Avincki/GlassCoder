@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Xml;
+using System.Xml.Linq;
 using GlassCoder.Tools.Guardrails;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -27,6 +29,32 @@ namespace GlassCoder.Tools.Verification;
 /// </remarks>
 public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 {
+    /// <summary>
+    /// The global usings <c>Microsoft.NET.Sdk</c> generates when <c>ImplicitUsings</c> is on.
+    /// <para>
+    /// The SDK writes these into <c>obj/</c>, which the workspace deny list excludes from every
+    /// access - so without synthesising them here, this compilation sees a project whose files
+    /// have no <c>using System;</c> anywhere. Existing files are unaffected, because their
+    /// resulting errors are present before and after an edit alike and only <em>introduced</em>
+    /// errors gate. New code is not so lucky: a new file is the one place fresh
+    /// <c>System</c> references appear, so every well-formed new file was being refused.
+    /// </para>
+    /// <para>
+    /// Deliberately only the base SDK's set. The Web and Worker SDKs add namespaces that live in
+    /// packages this compilation does not reference, so emitting those would manufacture CS0246s
+    /// of our own making.
+    /// </para>
+    /// </summary>
+    private const string ImplicitUsingsSource = """
+        global using global::System;
+        global using global::System.Collections.Generic;
+        global using global::System.IO;
+        global using global::System.Linq;
+        global using global::System.Net.Http;
+        global using global::System.Threading;
+        global using global::System.Threading.Tasks;
+        """;
+
     private static readonly CSharpParseOptions ParseOptions =
         new(LanguageVersion.Preview, DocumentationMode.None);
 
@@ -163,6 +191,16 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 Stopwatch.GetElapsedTime(start).TotalMilliseconds);
         }
 
+        // Added after the emptiness check so it can never make an empty project look populated.
+        if (ImplicitUsingsEnabled(projectDirectory))
+        {
+            trees.Add(CSharpSyntaxTree.ParseText(
+                ImplicitUsingsSource,
+                ParseOptions,
+                path: Path.Combine(projectDirectory, "GlassCoder.ImplicitUsings.g.cs"),
+                cancellationToken: cancellationToken));
+        }
+
         CSharpCompilation compilation = CSharpCompilation.Create(
             $"glasscoder-{Path.GetFileName(projectDirectory)}",
             trees,
@@ -233,6 +271,41 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         SyntaxTree tree = CSharpSyntaxTree.ParseText(text, ParseOptions, path: file, cancellationToken: cancellationToken);
         _trees[file] = new CachedTree(tree, info.LastWriteTimeUtc, info.Length);
         return tree;
+    }
+
+    /// <summary>
+    /// Whether the project in this directory has <c>ImplicitUsings</c> switched on.
+    /// </summary>
+    /// <remarks>
+    /// Reads the project file directly rather than evaluating MSBuild, so a value inherited from
+    /// <c>Directory.Build.props</c> is not seen. That is the conservative direction to be wrong
+    /// in: the usings are simply not synthesised, which is exactly today's behaviour.
+    /// </remarks>
+    private static bool ImplicitUsingsEnabled(string projectDirectory)
+    {
+        try
+        {
+            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            {
+                string? value = XDocument.Load(project)
+                    .Descendants()
+                    .FirstOrDefault(e => e.Name.LocalName.Equals("ImplicitUsings", StringComparison.OrdinalIgnoreCase))
+                    ?.Value
+                    .Trim();
+
+                if (value is not null)
+                {
+                    return value.Equals("enable", StringComparison.OrdinalIgnoreCase) ||
+                           value.Equals("true", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            // A missing or malformed project file is not worth failing a compile over.
+        }
+
+        return false;
     }
 
     /// <summary>

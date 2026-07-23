@@ -10,6 +10,9 @@ namespace GlassCoder.Tools.Tests;
 /// </summary>
 public sealed class RoslynCodeAnalyzerTests : IDisposable
 {
+    private const string ImplicitUsingsProject =
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><ImplicitUsings>enable</ImplicitUsings></PropertyGroup></Project>";
+
     private readonly TempWorkspace _workspace = new();
 
     public void Dispose() => _workspace.Dispose();
@@ -92,6 +95,97 @@ public sealed class RoslynCodeAnalyzerTests : IDisposable
 
         report.FailureReason.ShouldNotBeNull();
         report.Diagnostics.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Rung_two_honours_implicit_usings()
+    {
+        // The SDK writes its global usings into obj/, which the deny list excludes - so without
+        // synthesising them, every new file touching System would be refused before it was written.
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            """
+            namespace Demo;
+
+            public sealed class Caller
+            {
+                public double[] Sorted(double[] values)
+                {
+                    ArgumentNullException.ThrowIfNull(values);
+                    double[] copy = [.. values];
+                    Array.Sort(copy);
+                    return copy;
+                }
+            }
+            """);
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    [Theory]
+    [InlineData("enable")]
+    [InlineData("true")]
+    [InlineData("ENABLE")]
+    public async Task Rung_two_accepts_every_spelling_that_switches_implicit_usings_on(string value)
+    {
+        _workspace.WriteFile(
+            "proj/Proj.csproj",
+            $"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><ImplicitUsings>{value}</ImplicitUsings></PropertyGroup></Project>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public int N => Array.Empty<int>().Length; }");
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    [Fact]
+    public async Task Rung_two_leaves_implicit_usings_off_when_the_project_does_not_ask_for_them()
+    {
+        // Switching them on unconditionally would hide a genuinely missing using directive.
+        _workspace.WriteFile(
+            "proj/Proj.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><ImplicitUsings>disable</ImplicitUsings></PropertyGroup></Project>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public int N => Array.Empty<int>().Length; }");
+
+        report.Ok.ShouldBeFalse();
+        report.Diagnostics.ShouldContain(d => d.Id == "CS0103");
+    }
+
+    [Fact]
+    public async Task Rung_two_still_catches_a_hallucinated_api_under_implicit_usings()
+    {
+        // The synthesised usings must not become a blanket amnesty: this is rung 2's whole job.
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public int N => Array.SortDescending([1, 2]); }");
+
+        report.Ok.ShouldBeFalse();
+        report.Diagnostics.ShouldContain(d => d.Id == "CS0117" || d.Id == "CS1061");
+    }
+
+    [Fact]
+    public async Task A_malformed_project_file_does_not_fail_the_compile()
+    {
+        _workspace.WriteFile("proj/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public int N => 2; }");
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
     }
 
     [Fact]
