@@ -812,9 +812,9 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr><td>0</td><td>glob</td><td>continued</td><td class="num">1188</td><td class="num">640 ms</td><td>glob:succeeded</td></tr>
-                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:succeeded</td></tr>
-                    <tr><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:succeeded</td></tr>
+                    <tr><td>0</td><td>glob</td><td>continued</td><td class="num">1188</td><td class="num">640 ms</td><td>glob:Succeeded</td></tr>
+                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:Succeeded</td></tr>
+                    <tr><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:Succeeded</td></tr>
                     <tr><td>3</td><td>-</td><td>Completed</td><td class="num">3204</td><td class="num">820 ms</td><td class="wrap">Pager.PageCount on line 16 of Pager.cs computes ItemCount / PageSize.</td></tr>
                   </tbody>
                 </table>
@@ -838,9 +838,13 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
 
       <p>
         The Summary column shows the response text for that final step, and the tool
-        <code>name:status</code> pairs for the others. <code>succeeded</code> is one of five
-        registry statuses; the other four are <code>failed</code>, <code>unknown_tool</code>,
-        <code>invalid_arguments</code> and <code>faulted</code>.
+        <code>name:status</code> pairs for the others. <code>Succeeded</code> is one of five
+        registry statuses; the other four are <code>Failed</code>, <code>UnknownTool</code>,
+        <code>InvalidArguments</code> and <code>Faulted</code>. They are the enum's own names, so
+        they arrive PascalCased. Do not confuse them with the snake_case <em>error codes</em>
+        carried inside a failed observation — <code>invalid_argument</code>,
+        <code>not_found</code>, <code>path_not_allowed</code> and the rest. The status describes
+        the call; the code describes what the tool objected to.
       </p>
 
       <div class="scroller">
@@ -888,8 +892,8 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:succeeded</td></tr>
-                    <tr class="sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:succeeded</td></tr>
+                    <tr><td>1</td><td>grep</td><td>continued</td><td class="num">1642</td><td class="num">700 ms</td><td>grep:Succeeded</td></tr>
+                    <tr class="sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">2960</td><td class="num">1180 ms</td><td>read_file:Succeeded</td></tr>
                     <tr><td>3</td><td>-</td><td>Completed</td><td class="num">3204</td><td class="num">820 ms</td><td>Pager.PageCount on line 16 …</td></tr>
                   </tbody>
                 </table>
@@ -903,7 +907,7 @@ which file and line it is on.
 
 <span class="role">[assistant]</span> I need the surrounding class to be certain.
 
-<span class="toolh">[tool read_file → succeeded]</span> Pager.cs (17 lines)
+<span class="toolh">[tool read_file → Succeeded]</span> Pager.cs (17 lines)
   1  namespace Fixture;
   3  public sealed class Pager
  15      /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;
@@ -965,12 +969,12 @@ which file and line it is on.
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr class="warn sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">1755</td><td class="num">690 ms</td><td>read_file:invalid_arguments</td></tr>
+                    <tr class="warn sel"><td>2</td><td>read_file</td><td>continued</td><td class="num">1755</td><td class="num">690 ms</td><td>read_file:InvalidArguments</td></tr>
                   </tbody>
                 </table>
               </div>
               <div class="ui-label">Step detail</div>
-              <div class="ui-detail"><span class="toolh">[tool read_file → invalid_arguments]</span> The 'path' argument is required.
+              <div class="ui-detail"><span class="toolh">[tool read_file → InvalidArguments]</span> The 'path' argument is required.
 Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
             </div>
           </div>
@@ -1052,10 +1056,10 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
                 <div class="hdr">Approval needed: Pager.cs</div>
                 <div class="sub">This change has passed verification and is waiting to be written.</div>
                 <div class="diffbox">
-                  <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">    /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
-                  <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">    public int PageCount =&gt; ItemCount / PageSize;</span></div>
-                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
-                  <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t">}</span></div>
+                  <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">     /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
+                  <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">-    public int PageCount =&gt; ItemCount / PageSize;</span></div>
+                  <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
+                  <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t"> }</span></div>
                 </div>
                 <div class="acts"><span class="ui-btn">Approve</span><span class="ui-btn">Reject</span></div>
               </div>
@@ -1068,7 +1072,7 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
                 </table>
               </div>
               <div class="ui-label">Diff — Pager.cs</div>
-              <div class="ui-sub">Build of Pager.cs<br>No diagnostics.</div>
+              <div class="ui-sub">&nbsp;</div>
             </div>
           </div>
           <div class="ui-status">Running…</div>
@@ -1084,9 +1088,11 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
         <li><b>Silence is refusal.</b> After <code>Approval:ApprovalTimeoutSeconds</code> — 300 by
             default — the change is rejected with
             <code>Nobody answered within 300 seconds, so the change was not written.</code></li>
-        <li><b>The change already passed verification.</b> The banner says so, and the summary
-            under the grid shows it: <code>Build of Pager.cs / No diagnostics.</code> Approval is
-            the last gate, not the only one.</li>
+        <li><b>The change already passed verification.</b> The banner says so in as many words,
+            and the verification line under the diff is <em>blank</em> — a clean pre-write check
+            has nothing to report, so it stores nothing. Blank there is good news, which takes
+            some getting used to; text there means a rung objected. Approval is the last gate, not
+            the only one.</li>
       </ul>
 
       <div class="note">
@@ -1131,18 +1137,18 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
                 </table>
               </div>
               <div class="ui-label">Diff — Pager.cs</div>
-              <div class="ui-sub">Build of Pager.cs<br>No diagnostics.</div>
+              <div class="ui-sub">&nbsp;</div>
               <div class="diffbox">
-                <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">    /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
-                <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">    public int PageCount =&gt; ItemCount / PageSize;</span></div>
-                <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
-                <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t">}</span></div>
+                <div class="dl ctx"><span class="n">15</span><span class="n">15</span><span class="t">     /// &lt;summary&gt;Number of pages needed to show every item.&lt;/summary&gt;</span></div>
+                <div class="dl del"><span class="n">16</span><span class="n"></span><span class="t">-    public int PageCount =&gt; ItemCount / PageSize;</span></div>
+                <div class="dl add"><span class="n"></span><span class="n">16</span><span class="t">+    public int PageCount =&gt; (ItemCount + PageSize - 1) / PageSize;</span></div>
+                <div class="dl ctx"><span class="n">17</span><span class="n">17</span><span class="t"> }</span></div>
               </div>
             </div>
           </div>
           <div class="ui-status">Completed after 9 steps · 21860 tokens · tool-call validity 100 %</div>
         </div>
-        <figcaption>Applied changes render green; the verification summary stays attached to the change.</figcaption>
+        <figcaption>Applied changes render green. The verification line stays blank because the pre-write check found nothing to say.</figcaption>
       </figure>
 
       <p>
@@ -1162,9 +1168,9 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
                 <table class="ui-grid">
                   <thead><tr><th>#</th><th>Tools</th><th>Outcome</th><th>Tokens</th><th>Latency</th><th>Summary</th></tr></thead>
                   <tbody>
-                    <tr><td>5</td><td>edit_file</td><td>continued</td><td class="num">2604</td><td class="num">1310 ms</td><td>edit_file:succeeded</td></tr>
-                    <tr><td>6</td><td>build</td><td>continued</td><td class="num">2158</td><td class="num">980 ms</td><td>build:succeeded</td></tr>
-                    <tr><td>7</td><td>run_tests</td><td>continued</td><td class="num">2977</td><td class="num">1120 ms</td><td>run_tests:succeeded</td></tr>
+                    <tr><td>5</td><td>edit_file</td><td>continued</td><td class="num">2604</td><td class="num">1310 ms</td><td>edit_file:Succeeded</td></tr>
+                    <tr><td>6</td><td>build</td><td>continued</td><td class="num">2158</td><td class="num">980 ms</td><td>build:Succeeded</td></tr>
+                    <tr><td>7</td><td>run_tests</td><td>continued</td><td class="num">2977</td><td class="num">1120 ms</td><td>run_tests:Succeeded</td></tr>
                     <tr><td>8</td><td>-</td><td>Completed</td><td class="num">3411</td><td class="num">860 ms</td><td class="wrap">Fixed the truncating division in PageCount. All four checks now pass.</td></tr>
                   </tbody>
                 </table>
@@ -1215,13 +1221,23 @@ dotnet run                          <span class="c"># Check.Exit() returns 0 whe
                 </table>
               </div>
               <div class="ui-label">Diff — Pager.cs</div>
-              <div class="ui-sub">Build of Pager.cs<br>1 error(s), 0 warning(s) across 1 file(s).<br>&nbsp;&nbsp;Pager.cs(16,58): error CS1002: ; expected</div>
+              <div class="ui-sub">Syntax check of the edited file failed.<br>1 error(s), 0 warning(s) across 1 file(s).<br>&nbsp;&nbsp;Pager.cs(16,58): error CS1002: ; expected</div>
             </div>
           </div>
           <div class="ui-status">Completed after 12 steps · 28430 tokens · tool-call validity 100 %</div>
         </div>
-        <figcaption>A pre-write compile check caught this before it reached disk. The file on disk never changed.</figcaption>
+        <figcaption>Rung 1 caught this before it reached disk — the title names the sub-check that objected. The file on disk never changed.</figcaption>
       </figure>
+
+      <p>
+        Now the verification line under the diff has something to say, and its first line names
+        the sub-check that objected. There are two, and they read differently:
+        <code>Syntax check of the edited file failed.</code> when the replacement text will not
+        parse — as here — and <code>This edit would introduce N new compile error(s).</code> when
+        it parses but does not compile. Neither is ever titled <code>Build of …</code>; that
+        wording belongs to the <code>build</code> tool, which is a separate rung and does not
+        write to the change log.
+      </p>
 
       <p>The Note column tells you <em>who</em> refused, and the wording is fixed:</p>
 

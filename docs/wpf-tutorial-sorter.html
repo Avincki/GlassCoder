@@ -1103,9 +1103,10 @@ Hint: Fix the problem in your replacement text and try again. Nothing has been w
         <li><b>Two errors, one shown.</b> The summariser keeps the first error per file, so a
             second error in the same file is counted in the total and not listed. That gap is the
             cascade ratio on the Metrics surface.</li>
-        <li><b>The path is absolute.</b> Pre-write diagnostics name the file by its full path;
-            <code>build</code> diagnostics are repo-relative. If you are grepping transcripts, the
-            two rungs do not look alike.</li>
+        <li><b>The path is absolute.</b> This one came from the compile sub-check, which is handed
+            the file's full path. The syntax sub-check is handed the repo-relative path, and
+            <code>build</code> maps everything back to repo-relative too — so the same file can
+            appear three ways across one transcript. Worth knowing before you grep one.</li>
         <li><b>It is <code>Failed</code>, not a warning.</b> The call parsed, bound and ran — the
             tool simply refused the job. So the row is <code>info</code> severity and it does not
             dent tool-call validity. Filtering Severity by <code>warning</code>, which is how
