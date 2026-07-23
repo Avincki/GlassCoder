@@ -51,6 +51,9 @@ public static class ToolErrorCodes
     /// <summary>The requested path does not exist.</summary>
     public const string NotFound = "not_found";
 
+    /// <summary>Something is already at the path (used by <c>create_file</c>).</summary>
+    public const string AlreadyExists = "already_exists";
+
     /// <summary>The path allow-list guardrail rejected the path (CLAUDE.md §7).</summary>
     public const string PathNotAllowed = "path_not_allowed";
 

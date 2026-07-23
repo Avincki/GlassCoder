@@ -126,7 +126,7 @@ public sealed class TranscriptViewModel : ViewModelBase
 
     /// <summary>Tool names to filter by, plus "All".</summary>
     public IReadOnlyList<string> ToolFilters { get; } =
-        ["All", "update_todos", "read_file", "grep", "glob", "edit_file", "build", "run_tests", "bash"];
+        ["All", "update_todos", "read_file", "grep", "glob", "create_file", "edit_file", "build", "run_tests", "bash"];
 
     /// <summary>Severities to filter by.</summary>
     public IReadOnlyList<string> SeverityFilters { get; } = ["All", "info", "warning", "error"];

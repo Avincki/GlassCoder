@@ -104,17 +104,19 @@ public static class ToolsServiceCollectionExtensions
     }
 
     /// <summary>
-    /// The tools that close the loop: edit, then the two oracles that check the edit -
+    /// The tools that close the loop: create and edit, then the two oracles that check them -
     /// <c>build</c> before <c>run_tests</c>, in that order.
     /// </summary>
     public static IServiceCollection AddPhase1Tools(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.TryAddSingleton<CreateFileTool>();
         services.TryAddSingleton<EditFileTool>();
         services.TryAddSingleton<BuildTool>();
         services.TryAddSingleton<RunTestsTool>();
 
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());

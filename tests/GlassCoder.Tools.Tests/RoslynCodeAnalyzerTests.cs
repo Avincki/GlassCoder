@@ -85,6 +85,23 @@ public sealed class RoslynCodeAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Rung_two_copes_with_a_file_whose_directory_does_not_exist_yet()
+    {
+        // create_file checks its content before anything reaches disk, so the walk up to the
+        // project has to step over directories that are not there. Enumerating one throws.
+        _workspace.WriteFile("proj/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("proj/Widget.cs", "namespace Demo; public sealed class Widget { public int Size => 1; }");
+        string unborn = Path.Combine(_workspace.Root, "proj", "deep", "nested", "Caller.cs");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            unborn,
+            "namespace Demo; public sealed class Caller { public int Use(Widget w) => w.Size; }");
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+        report.FailureReason.ShouldBeNull("the project is two levels up and should still be found");
+    }
+
+    [Fact]
     public async Task Rung_two_is_inconclusive_rather_than_wrong_when_there_is_no_project()
     {
         // Reporting "no project" as a compile failure would send the agent hunting a bug that

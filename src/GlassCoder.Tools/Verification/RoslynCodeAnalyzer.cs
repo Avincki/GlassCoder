@@ -317,7 +317,9 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         DirectoryInfo? directory = new FileInfo(filePath).Directory;
         while (directory is not null)
         {
-            if (directory.EnumerateFiles("*.csproj").Any())
+            // A file that is being created may not have its directory yet, and enumerating one
+            // that is not there throws. Walk past it: the project is further up regardless.
+            if (directory.Exists && directory.EnumerateFiles("*.csproj").Any())
             {
                 return directory.FullName;
             }
