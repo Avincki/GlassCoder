@@ -46,6 +46,15 @@ public sealed class FakeOpenAiServer : IDisposable
     /// <summary>Every request body the server received, in order.</summary>
     public List<string> Requests { get; } = [];
 
+    /// <summary>Every <c>Authorization</c> header the server received, in order. Null when absent.</summary>
+    public List<string?> AuthorizationHeaders { get; } = [];
+
+    /// <summary>Aliases <c>GET /v1/models</c> reports as served.</summary>
+    public List<string> ServedModels { get; } = ["worker"];
+
+    /// <summary>Status <c>GET /v1/models</c> answers with. Set it to 401 to fake a rejected key.</summary>
+    public int ModelsStatusCode { get; set; } = 200;
+
     /// <summary>Queues a plain assistant message.</summary>
     public FakeOpenAiServer EnqueueText(string text)
     {
@@ -166,16 +175,21 @@ public sealed class FakeOpenAiServer : IDisposable
             try
             {
                 using NetworkStream stream = client.GetStream();
-                string body = await ReadRequestAsync(stream).ConfigureAwait(false);
+                ReceivedRequest received = await ReadRequestAsync(stream).ConfigureAwait(false);
 
                 lock (_gate)
                 {
-                    Requests.Add(body);
+                    Requests.Add(received.Body);
+                    AuthorizationHeaders.Add(received.Authorization);
                 }
 
-                byte[] payload = Encoding.UTF8.GetBytes(Next());
+                // Routed by path so a connection check can ask what is served before it asks for
+                // a completion; everything else keeps answering chat completions as before.
+                bool modelList = received.Path.EndsWith("/models", StringComparison.Ordinal);
+                int status = modelList ? ModelsStatusCode : 200;
+                byte[] payload = Encoding.UTF8.GetBytes(modelList ? ModelList(status) : Next());
                 string headers =
-                    "HTTP/1.1 200 OK\r\n" +
+                    string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} {Reason(status)}\r\n") +
                     "Content-Type: application/json\r\n" +
                     string.Create(CultureInfo.InvariantCulture, $"Content-Length: {payload.Length}\r\n") +
                     "Connection: close\r\n\r\n";
@@ -191,12 +205,42 @@ public sealed class FakeOpenAiServer : IDisposable
         }
     }
 
-    private static async Task<string> ReadRequestAsync(NetworkStream stream)
+    private string ModelList(int status)
+    {
+        if (status != 200)
+        {
+            return JsonSerializer.Serialize(new { error = new { message = "invalid api key", code = status } });
+        }
+
+        List<object> data = [];
+        lock (_gate)
+        {
+            foreach (string id in ServedModels)
+            {
+                data.Add(new { id, @object = "model", created = 1, owned_by = "glasscoder-tests" });
+            }
+        }
+
+        return JsonSerializer.Serialize(new { @object = "list", data });
+    }
+
+    private static string Reason(int status) => status switch
+    {
+        200 => "OK",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        _ => "Error",
+    };
+
+    private static async Task<ReceivedRequest> ReadRequestAsync(NetworkStream stream)
     {
         byte[] buffer = new byte[16 * 1024];
         StringBuilder received = new();
         int contentLength = -1;
         int headerEnd = -1;
+        string path = string.Empty;
+        string? authorization = null;
 
         while (true)
         {
@@ -214,23 +258,41 @@ public sealed class FakeOpenAiServer : IDisposable
                 headerEnd = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
                 if (headerEnd >= 0)
                 {
-                    foreach (string line in text[..headerEnd].Split("\r\n"))
+                    string[] lines = text[..headerEnd].Split("\r\n");
+                    string[] requestLine = lines[0].Split(' ');
+                    if (requestLine.Length >= 2)
+                    {
+                        path = requestLine[1];
+                    }
+
+                    foreach (string line in lines)
                     {
                         if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
                         {
                             contentLength = int.Parse(line[15..].Trim(), CultureInfo.InvariantCulture);
                         }
+                        else if (line.StartsWith("Authorization:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            authorization = line[14..].Trim();
+                        }
+                    }
+
+                    // A GET carries no body, so there is nothing further to wait for.
+                    if (contentLength <= 0)
+                    {
+                        return new ReceivedRequest(path, authorization, string.Empty);
                     }
                 }
             }
 
             if (headerEnd >= 0 && text.Length - (headerEnd + 4) >= contentLength)
             {
-                return contentLength <= 0 ? string.Empty : text.Substring(headerEnd + 4, contentLength);
+                return new ReceivedRequest(path, authorization, text.Substring(headerEnd + 4, contentLength));
             }
         }
 
-        return string.Empty;
+        return new ReceivedRequest(path, authorization, string.Empty);
     }
 
+    private sealed record ReceivedRequest(string Path, string? Authorization, string Body);
 }

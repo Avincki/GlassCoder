@@ -40,6 +40,12 @@
     <PackageVersion Include="Microsoft.Extensions.Options.DataAnnotations" Version="$(MicrosoftExtensionsVersion)" />
   </ItemGroup>
 
+  <ItemGroup Label="Secret storage for user settings (CLAUDE.md §9)">
+    <!-- DPAPI, current-user scope. Windows-only at run time; the store degrades explicitly
+         rather than silently on any other OS. -->
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Structured logging and tracing (CLAUDE.md §9)">
     <PackageVersion Include="Serilog" Version="4.4.0" />
     <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />

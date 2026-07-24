@@ -24,6 +24,7 @@ public static class ModelsServiceCollectionExtensions
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ModelsOptions>, ModelsOptionsValidator>());
         services.TryAddSingleton<IChatClientFactory, ChatClientFactory>();
+        services.TryAddSingleton<IModelConnectionProbe, ModelConnectionProbe>();
 
         return services;
     }

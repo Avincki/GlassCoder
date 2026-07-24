@@ -664,7 +664,9 @@
           <span class="n">2</span>
           <dt>Run · Cancel</dt>
           <dd>Mutually exclusive: <b>Run</b> is enabled only when idle, <b>Cancel</b> only while a
-              run is in flight. Cancel trips the run's <code>CancellationToken</code>.</dd>
+              run is in flight. Cancel trips the run's <code>CancellationToken</code>.
+              <b>Settings…</b> sits to their right, disabled during a run because nothing it
+              changes can reach one; the screenshot predates it.</dd>
         </div>
         <div>
           <span class="n">3</span>
@@ -843,6 +845,95 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
 
 <pre><code>$env:GlassCoder__Approval__RequireApprovalForWrites = "true"
 $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
+
+      <h3>Or set them in the app</h3>
+
+      <p>
+        <b>Settings…</b> in the header opens a dialog over every section of the configuration: the
+        served roles with their endpoints, aliases, API keys, sampling and decoding properties,
+        then the workspace, budgets, context, verification, sandbox, approval, logging, metrics,
+        telemetry and provenance. What it shows is the <em>effective</em> configuration — every
+        layer the app actually bound — rather than the contents of any one file.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Saved to</th><th class="m">Path</th><th>What is in it</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Settings</td>
+              <td class="m">%APPDATA%\GlassCoder\settings.json</td>
+              <td>Every section, in the same shape as <code>appsettings.json</code> — readable and
+                  hand-editable on purpose. Not the copy next to the executable, which is build
+                  output and one rebuild away from discarding anything written into it.</td>
+            </tr>
+            <tr>
+              <td>API keys</td>
+              <td class="m">%APPDATA%\GlassCoder\secrets.json</td>
+              <td>One DPAPI blob per role, bound to your Windows account. A key never appears in
+                  the settings file, and the file decrypts to nothing on another machine or under
+                  another account.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Saved settings sit <em>above</em> <code>appsettings.json</code> and <em>below</em>
+        environment variables and any <code>--config</code> arm. That order is the whole point: a
+        preference saved on one machine must never quietly redefine what an ablation arm means on
+        another. Nothing reaches the running process either — every section is bound once at
+        startup through <code>IOptions&lt;T&gt;</code> — which is why the dialog offers
+        <b>Save and restart</b> next to <b>Save</b>, and why the status bar says so after a save.
+      </p>
+
+      <h3>Test connection</h3>
+
+      <p>
+        Every role has a <b>Test connection</b> button, and it reports four steps rather than one
+        verdict, because the four ways a seam fails have four different fixes:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Step</th><th>Answers</th><th>What its failure means</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Settings</td>
+              <td>Would the harness start on this at all?</td>
+              <td>An endpoint that is not an absolute http(s) URL, or a checkpoint path where a
+                  served alias belongs. Nothing touches the network.</td>
+            </tr>
+            <tr>
+              <td>Server</td>
+              <td>Is something listening, and does it accept the key?</td>
+              <td>Connection refused is the server; <code>401</code> is the key. A server that
+                  does not implement <code>/models</code> is a warning, not a failure.</td>
+            </tr>
+            <tr>
+              <td>Alias</td>
+              <td>Does it serve the alias this role addresses?</td>
+              <td>The server is up and serving <code>qwen3-coder-30b</code> while the role asks
+                  for <code>worker</code>.</td>
+            </tr>
+            <tr>
+              <td>Completion</td>
+              <td>Can it actually generate?</td>
+              <td>Everything is wired and generation still fails — a served alias whose weights
+                  failed to load, or a model still loading.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">A check that stops short of the seam is worse than no check</span>
+        <p>
+          The last step asks for a real completion over the real endpoint with the real key, and
+          reports the reply and what it cost in tokens. A check that stopped at a handshake would
+          pass in exactly the case you most need it to fail — and it would be believed.
+        </p>
+      </div>
 
       <h3>What pressing Run actually does</h3>
 

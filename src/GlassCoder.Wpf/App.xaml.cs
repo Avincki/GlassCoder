@@ -5,6 +5,7 @@ using GlassCoder.Core.Hosting;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Wpf.Services;
 using GlassCoder.Wpf.ViewModels;
+using GlassCoder.Wpf.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -38,6 +39,13 @@ public partial class App : Application
         builder.Services.AddSingleton<MainWindowViewModel>();
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.Replace(ServiceDescriptor.Singleton<IApprovalGate, WpfApprovalGate>());
+
+        // Settings: transient, so Cancel discards the edits rather than leaving a half-edited
+        // view model behind for the next time the dialog opens.
+        builder.Services.AddSingleton<IDesktopShell, DesktopShell>();
+        builder.Services.AddSingleton<ISettingsDialog, SettingsDialog>();
+        builder.Services.AddTransient<SettingsViewModel>();
+        builder.Services.AddTransient<SettingsWindow>();
 
         _host = builder.Build();
         _host.Start();

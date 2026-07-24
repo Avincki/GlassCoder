@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using GlassCoder.Core.Agent;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Wpf.Mvvm;
+using GlassCoder.Wpf.Services;
 
 namespace GlassCoder.Wpf.ViewModels;
 
@@ -22,6 +23,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly IAgentLoop _loop;
     private readonly IToolRegistry _tools;
+    private readonly ISettingsDialog _settings;
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
@@ -35,10 +37,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         IToolRegistry tools,
         TranscriptViewModel transcript,
         ChangesViewModel changes,
-        MetricsViewModel metrics)
+        MetricsViewModel metrics,
+        ISettingsDialog settings)
     {
         _loop = loop;
         _tools = tools;
+        _settings = settings;
 
         Transcript = transcript;
         Changes = changes;
@@ -47,6 +51,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
         RunCommand = new RelayCommand(async () => await RunAsync().ConfigureAwait(true), () => !IsRunning);
         CancelCommand = new RelayCommand(() => _cancellation?.Cancel(), () => IsRunning);
+        SettingsCommand = new RelayCommand(OpenSettings, () => !IsRunning);
 
         Status = string.Create(CultureInfo.InvariantCulture,
             $"Ready. {_tools.Functions.Count} tools: {string.Join(", ", ToolNames)}");
@@ -136,12 +141,28 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>Cancels the run in flight.</summary>
     public RelayCommand CancelCommand { get; }
 
+    /// <summary>Opens the settings dialog.</summary>
+    public RelayCommand SettingsCommand { get; }
+
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()
     {
         _cancellation?.Cancel();
         _cancellation?.Dispose();
         _cancellation = null;
+    }
+
+    /// <summary>
+    /// Opens the dialog, and says plainly what a save did and did not do: every section is bound
+    /// once at startup through <c>IOptions&lt;T&gt;</c>, so the run in this process keeps the
+    /// settings it started with.
+    /// </summary>
+    private void OpenSettings()
+    {
+        if (_settings.Show())
+        {
+            Status = "Settings saved. Restart GlassCoder for them to take effect.";
+        }
     }
 
     private async Task RunAsync()

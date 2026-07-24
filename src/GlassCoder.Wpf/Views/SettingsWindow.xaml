@@ -1,0 +1,831 @@
+<Window x:Class="GlassCoder.Wpf.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters"
+        Title="GlassCoder settings" Height="780" Width="1000"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+
+  <Window.Resources>
+    <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <conv:InverseBooleanToVisibilityConverter x:Key="NotBoolToVisibility" />
+    <conv:NotEmptyToVisibilityConverter x:Key="NotEmptyToVisibility" />
+    <conv:NullableNumberConverter x:Key="NullableNumber" />
+    <conv:ConnectionOutcomeToBrushConverter x:Key="OutcomeBrush" />
+
+    <Style TargetType="TextBox">
+      <Setter Property="Padding" Value="4,3" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Padding" Value="4,3" />
+    </Style>
+    <Style TargetType="CheckBox">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style TargetType="GroupBox">
+      <Setter Property="Margin" Value="0,0,0,14" />
+      <Setter Property="Padding" Value="10,8" />
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="12,4" />
+      <Setter Property="MinWidth" Value="70" />
+    </Style>
+
+    <!-- One setting: a fixed-width label on the left, the editor filling the rest. -->
+    <Style x:Key="Field" TargetType="DockPanel">
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+    <Style x:Key="Label" TargetType="TextBlock">
+      <Setter Property="Width" Value="215" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="#37474F" />
+    </Style>
+    <Style x:Key="Hint" TargetType="TextBlock">
+      <Setter Property="Margin" Value="219,0,0,10" />
+      <Setter Property="Foreground" Value="#78909C" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style x:Key="Multiline" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+      <Setter Property="AcceptsReturn" Value="True" />
+      <Setter Property="Height" Value="72" />
+      <Setter Property="VerticalScrollBarVisibility" Value="Auto" />
+      <Setter Property="VerticalContentAlignment" Value="Top" />
+      <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+
+    <!-- What is being edited, and where it lands. -->
+    <Border DockPanel.Dock="Top" Background="#1F2933" Padding="14,10">
+      <StackPanel>
+        <TextBlock Text="Settings" Foreground="White" FontSize="17" FontWeight="Bold" />
+        <TextBlock Text="{Binding StorageSummary}" Foreground="#B0BEC5" FontSize="11"
+                   TextWrapping="Wrap" Margin="0,3,0,0" />
+        <TextBlock Foreground="#90A4AE" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
+                   Text="These values are the configuration in force. Saved settings sit above appsettings.json and below environment variables and any --config arm, so an ablation arm still means the same thing on every machine." />
+      </StackPanel>
+    </Border>
+
+    <Border DockPanel.Dock="Bottom" Background="#ECEFF1" Padding="12,8">
+      <StackPanel>
+        <ItemsControl ItemsSource="{Binding ValidationFailures}" Margin="0,0,0,8"
+                      Visibility="{Binding ValidationFailures.Count, Converter={StaticResource NotEmptyToVisibility}}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <TextBlock Text="{Binding}" Foreground="#B00020" TextWrapping="Wrap" Margin="0,1" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <DockPanel>
+          <Button DockPanel.Dock="Left" Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,6,0" />
+          <Button DockPanel.Dock="Left" Content="Reset" Command="{Binding ResetCommand}"
+                  ToolTip="Delete the saved settings and fall back to appsettings.json." />
+          <!-- IsCancel, not a command: closing a modal dialog with Escape is the window's own
+               job, and routing it through a command as well would set DialogResult twice. -->
+          <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="6,0,0,0" />
+          <Button DockPanel.Dock="Right" Content="Save" Command="{Binding SaveCommand}" IsDefault="True" Margin="6,0,0,0" />
+          <Button DockPanel.Dock="Right" Content="Save and restart" Command="{Binding SaveAndRestartCommand}"
+                  ToolTip="Settings are bound once at startup, so a restart is what puts them in force." />
+          <TextBlock Text="{Binding Status}" Foreground="#37474F" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" Margin="12,0" />
+        </DockPanel>
+      </StackPanel>
+    </Border>
+
+    <TabControl Margin="8">
+
+      <!-- ============================ Models ============================ -->
+      <TabItem Header="Models">
+        <DockPanel Margin="10">
+          <GroupBox DockPanel.Dock="Top" Header="Seam">
+            <StackPanel>
+              <DockPanel Style="{StaticResource Field}">
+                <TextBlock Style="{StaticResource Label}" Text="Default role" />
+                <ComboBox IsEditable="True" ItemsSource="{Binding RoleNames}"
+                          Text="{Binding Settings.Models.DefaultRole}" />
+              </DockPanel>
+              <DockPanel Style="{StaticResource Field}">
+                <TextBlock Style="{StaticResource Label}" Text="Telemetry source name" />
+                <TextBox Text="{Binding Settings.Models.TelemetrySourceName}" />
+              </DockPanel>
+              <DockPanel Style="{StaticResource Field}">
+                <TextBlock Style="{StaticResource Label}" Text="Sensitive telemetry" />
+                <CheckBox Content="Attach prompts and responses to spans"
+                          IsChecked="{Binding Settings.Models.EnableSensitiveTelemetryData}" />
+              </DockPanel>
+              <TextBlock Style="{StaticResource Hint}"
+                         Text="Off by default: this is the redaction switch on the tracing side. Turning it on puts source content and anything the model was told into every span." />
+            </StackPanel>
+          </GroupBox>
+
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="250" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0" Margin="0,0,12,0">
+              <UniformGrid DockPanel.Dock="Bottom" Columns="3" Margin="0,8,0,0">
+                <Button Content="Add" Command="{Binding AddRoleCommand}" Margin="0,0,4,0" MinWidth="0" Padding="4,3" />
+                <Button Content="Remove" Command="{Binding RemoveRoleCommand}" Margin="0,0,4,0" MinWidth="0" Padding="4,3" />
+                <Button Content="Test all" Command="{Binding TestAllCommand}" MinWidth="0" Padding="4,3" />
+              </UniformGrid>
+              <!-- Horizontal scrolling disabled so a long endpoint or a long check result is
+                   trimmed to the column instead of stretching the list out of view. -->
+              <ListBox ItemsSource="{Binding Roles}" SelectedItem="{Binding SelectedRole}"
+                       HorizontalContentAlignment="Stretch"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="2,4">
+                      <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                      <TextBlock Text="{Binding Options.Endpoint}" FontSize="11" Foreground="#78909C"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding CheckSummary}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                 Foreground="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto"
+                          DataContext="{Binding SelectedRole}">
+              <StackPanel Margin="0,0,6,0">
+
+                <GroupBox Header="Endpoint">
+                  <StackPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Role name" />
+                      <TextBox Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Endpoint" />
+                      <TextBox Text="{Binding Options.Endpoint, UpdateSourceTrigger=PropertyChanged}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The OpenAI-compatible base URL, for example http://localhost:8001/v1. Which server answers it - local or hosted - is configuration, never architecture." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Served model alias" />
+                      <TextBox Text="{Binding Options.ModelAlias}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The alias the server serves, never a checkpoint path. Serving topology lives below the seam." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Timeout (seconds)" />
+                      <TextBox Text="{Binding Options.TimeoutSeconds}" />
+                    </DockPanel>
+                  </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Authentication">
+                  <StackPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="API key" />
+                      <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearKeyCommand}"
+                              Margin="6,0,0,0" MinWidth="56" />
+                      <Button DockPanel.Dock="Right" Command="{Binding ToggleKeyVisibilityCommand}"
+                              Margin="6,0,0,0" MinWidth="56">
+                        <Button.Style>
+                          <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                            <Setter Property="Content" Value="Show" />
+                            <Style.Triggers>
+                              <DataTrigger Binding="{Binding IsKeyVisible}" Value="True">
+                                <Setter Property="Content" Value="Hide" />
+                              </DataTrigger>
+                            </Style.Triggers>
+                          </Style>
+                        </Button.Style>
+                      </Button>
+                      <Grid>
+                        <TextBox Text="{Binding ApiKey, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.AutomationId="ApiKeyBox"
+                                 Visibility="{Binding IsKeyVisible, Converter={StaticResource BoolToVisibility}}" />
+                        <TextBox Text="{Binding MaskedApiKey, Mode=OneWay}" IsReadOnly="True" Focusable="False"
+                                 Background="#F5F5F5"
+                                 Visibility="{Binding IsKeyVisible, Converter={StaticResource NotBoolToVisibility}}" />
+                      </Grid>
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Key from environment variable" />
+                      <TextBox Text="{Binding Options.ApiKeyEnvironmentVariable, UpdateSourceTrigger=PropertyChanged}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}" Text="{Binding KeyStatus}" />
+                  </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Sampling and cost">
+                  <StackPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Max output tokens" />
+                      <TextBox Text="{Binding Options.MaxOutputTokens, Converter={StaticResource NullableNumber}}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Temperature" />
+                      <TextBox Text="{Binding Options.Temperature, Converter={StaticResource NullableNumber}}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Top-p" />
+                      <TextBox Text="{Binding Options.TopP, Converter={StaticResource NullableNumber}}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Seed" />
+                      <TextBox Text="{Binding Options.Seed, Converter={StaticResource NullableNumber}}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Empty means the server decides. Ablation arms want a pinned seed and a low temperature, so two arms differ by the thing being measured and not by sampling luck." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Input cost per M tokens" />
+                      <TextBox Text="{Binding Options.InputCostPerMillionTokens}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Output cost per M tokens" />
+                      <TextBox Text="{Binding Options.OutputCostPerMillionTokens}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Feeds cost per solved task. Leave both at zero for a local arm, where the cost is box-hours rather than tokens." />
+                  </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Constrained decoding">
+                  <StackPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Enabled" />
+                      <CheckBox Content="Constrain tool calls in the server's decoder"
+                                IsChecked="{Binding Options.ConstrainedDecoding.Enabled}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The highest-return reliability lever in the harness: it makes a malformed tool call structurally impossible rather than merely unlikely." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Strict tool schemas" />
+                      <CheckBox Content="Enforce the generated tool schema exactly"
+                                IsChecked="{Binding Options.ConstrainedDecoding.StrictToolSchemas}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Strict property name" />
+                      <TextBox Text="{Binding Options.ConstrainedDecoding.StrictToolSchemasPropertyName}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Require a tool call" />
+                      <CheckBox Content="Force a tool call on every step"
+                                IsChecked="{Binding Options.ConstrainedDecoding.RequireToolCall}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Leave this off until a terminal tool exists, or the agent can never produce a final answer." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="One tool call per step" />
+                      <CheckBox Content="Match the loop: one act at a time"
+                                IsChecked="{Binding Options.ConstrainedDecoding.SingleToolCallPerStep}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Guided decoding backend" />
+                      <TextBox Text="{Binding Options.ConstrainedDecoding.GuidedDecodingBackend}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Backend property name" />
+                      <TextBox Text="{Binding Options.ConstrainedDecoding.GuidedDecodingBackendPropertyName}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Guided JSON property name" />
+                      <TextBox Text="{Binding Options.ConstrainedDecoding.GuidedJsonSchemaPropertyName}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Also send response_format" />
+                      <CheckBox Content="Express the guided schema as response_format too"
+                                IsChecked="{Binding Options.ConstrainedDecoding.ApplyGuidedJsonAsResponseFormat}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="response_format schema name" />
+                      <TextBox Text="{Binding Options.ConstrainedDecoding.ResponseFormatSchemaName}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="Which property a server honours drifts between vLLM, SGLang and llama.cpp releases, so every name here is configuration rather than something baked into the client." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Guided JSON schema" />
+                      <TextBox Style="{StaticResource Multiline}"
+                               Text="{Binding Options.ConstrainedDecoding.GuidedJsonSchema}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Extra decoding properties" />
+                      <TextBox Style="{StaticResource Multiline}" Text="{Binding DecodingRequestProperties}" />
+                    </DockPanel>
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Extra request properties" />
+                      <TextBox Style="{StaticResource Multiline}" Text="{Binding AdditionalRequestProperties}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="One name=value per line. Values that parse as JSON are sent as JSON; everything else is sent as a string." />
+                  </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Does it work?">
+                  <StackPanel>
+                    <DockPanel Margin="0,0,0,8">
+                      <Button DockPanel.Dock="Left" Content="Test connection" Command="{Binding TestCommand}"
+                              MinWidth="120" />
+                      <TextBlock Text="{Binding CheckSummary}" TextWrapping="Wrap" Margin="10,0,0,0"
+                                 VerticalAlignment="Center"
+                                 Foreground="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding Steps}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <DockPanel Margin="0,2">
+                            <TextBlock DockPanel.Dock="Left" Width="86" Text="{Binding Name}" FontWeight="SemiBold"
+                                       Foreground="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
+                            <TextBlock DockPanel.Dock="Right" Width="70" TextAlignment="Right" Foreground="#78909C"
+                                       Text="{Binding ElapsedMs, StringFormat='{}{0:F0} ms'}" />
+                            <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
+                          </DockPanel>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
+                               Text="The check validates the settings offline, asks the server which aliases it serves, and then asks for a real completion - because a served alias whose weights failed to load answers everything cheaper perfectly well." />
+                  </StackPanel>
+                </GroupBox>
+
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </DockPanel>
+      </TabItem>
+
+      <!-- ======================= Workspace and tools ======================= -->
+      <TabItem Header="Workspace">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Workspace">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Repository root" />
+                  <TextBox Text="{Binding Settings.Workspace.RepoRoot}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Readable paths" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding ReadablePaths}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="One per line. Empty means the repository root itself." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Writable paths" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding WritablePaths}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="One per line, and empty means nothing is writable. A harness that cannot write is harmless; opting in is a deliberate act." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Denied globs" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding DeniedGlobs}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Symbolic links" />
+                  <CheckBox Content="Follow symbolic links and junctions"
+                            IsChecked="{Binding Settings.Workspace.FollowSymbolicLinks}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default: a link is the simplest way to walk a path allow-list straight out of the workspace." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Tool limits">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max file bytes" />
+                  <TextBox Text="{Binding Settings.Tools.MaxFileBytes}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max lines per read" />
+                  <TextBox Text="{Binding Settings.Tools.MaxLinesPerRead}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max line length" />
+                  <TextBox Text="{Binding Settings.Tools.MaxLineLength}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max grep matches" />
+                  <TextBox Text="{Binding Settings.Tools.MaxGrepMatches}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max glob results" />
+                  <TextBox Text="{Binding Settings.Tools.MaxGlobResults}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max files searched" />
+                  <TextBox Text="{Binding Settings.Tools.MaxFilesSearched}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Regex timeout (ms)" />
+                  <TextBox Text="{Binding Settings.Tools.RegexTimeoutMilliseconds}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="These are context-budget controls, not safety controls: a tool that hands back a 40k-line file costs wall-clock on every later step." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ======================== Agent and context ======================== -->
+      <TabItem Header="Agent">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Budgets">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Role" />
+                  <ComboBox IsEditable="True" ItemsSource="{Binding RoleNames}" Text="{Binding Settings.Agent.Role}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max steps" />
+                  <TextBox Text="{Binding Settings.Agent.MaxSteps}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max total tokens" />
+                  <TextBox Text="{Binding Settings.Agent.MaxTotalTokens}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max wall-clock (seconds)" />
+                  <TextBox Text="{Binding Settings.Agent.MaxWallClockSeconds}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max cost (USD)" />
+                  <TextBox Text="{Binding Settings.Agent.MaxCostUsd, Converter={StaticResource NullableNumber}}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max invalid tool calls" />
+                  <TextBox Text="{Binding Settings.Agent.MaxConsecutiveInvalidToolCalls}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Every limit has a graceful give-up path: the run stops, says which limit tripped, and hands back what it learned. A model that cannot produce a parseable call will not start doing so on the twentieth try." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="System prompt" />
+                  <TextBox Style="{StaticResource Multiline}" Height="150" Text="{Binding Settings.Agent.SystemPrompt}" />
+                </DockPanel>
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Context window">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max context tokens" />
+                  <TextBox Text="{Binding Settings.Context.MaxContextTokens}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Keep this below any served model's advertised window. Effective context lags advertised context, and dilution costs wall-clock on every step." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Compaction threshold" />
+                  <TextBox Text="{Binding Settings.Context.CompactionThreshold}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Compaction" />
+                  <CheckBox Content="Summarise older turns when the budget is exceeded"
+                            IsChecked="{Binding Settings.Context.EnableCompaction}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Recent turns kept verbatim" />
+                  <TextBox Text="{Binding Settings.Context.KeepRecentTurns}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max root context tokens" />
+                  <TextBox Text="{Binding Settings.Context.MaxRootContextTokens}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Characters per token" />
+                  <TextBox Text="{Binding Settings.Context.CharactersPerToken}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Root context files" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding RootContextFiles}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="One per line, and keep it to a couple of files. This is the lean always-loaded root, not a documentation index - everything else is retrieved on demand." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Orchestration">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Sub-agents" />
+                  <CheckBox Content="Allow parallel fan-out" IsChecked="{Binding Settings.Orchestration.Enabled}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max parallel sub-agents" />
+                  <TextBox Text="{Binding Settings.Orchestration.MaxDegreeOfParallelism}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Sub-agent max steps" />
+                  <TextBox Text="{Binding Settings.Orchestration.SubAgentMaxSteps}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default and built last on purpose: a layer over a working loop, never a substitute for one. Bounded because sub-agents share one GPU." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ========================== Verification ========================== -->
+      <TabItem Header="Verification">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Compiler feedback">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Verify edits before write" />
+                  <CheckBox Content="Compile the edit in memory before it reaches disk"
+                            IsChecked="{Binding Settings.Verification.VerifyEditsBeforeWrite}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Refuse breaking edits" />
+                  <CheckBox Content="Reject an edit that introduces a new compile error"
+                            IsChecked="{Binding Settings.Verification.RejectEditsThatBreakTheBuild}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Pre-existing errors never block an edit - the agent is usually editing precisely because the project is broken." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max summarised diagnostics" />
+                  <TextBox Text="{Binding Settings.Verification.MaxSummarisedDiagnostics}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="The summariser reports the first error per file, deduplicates by code, and always states the true total. Raw compiler output would eat the whole context window." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Include warnings" />
+                  <CheckBox Content="Report warnings once there are no errors left"
+                            IsChecked="{Binding Settings.Verification.IncludeWarningsInSummary}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max compile files" />
+                  <TextBox Text="{Binding Settings.Verification.MaxCompileFiles}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Extra reference directories" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding ExtraReferenceDirectories}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Analyzers (rung 3)" />
+                  <CheckBox Content="Run analyzers - they report, they never gate"
+                            IsChecked="{Binding Settings.VerificationLadder.RunAnalyzers}" />
+                </DockPanel>
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Critique">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Critique" />
+                  <CheckBox Content="Ask a panel to refute each change"
+                            IsChecked="{Binding Settings.Critique.Enabled}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Critic role" />
+                  <ComboBox IsEditable="True" ItemsSource="{Binding RoleNames}" Text="{Binding Settings.Critique.Role}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Ideally a different model family from the worker, so the critic's blind spots are not the worker's blind spots." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Critics" />
+                  <TextBox Text="{Binding Settings.Critique.CriticCount}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Refutation threshold" />
+                  <TextBox Text="{Binding Settings.Critique.RefutationThreshold}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="Zero means a simple majority. An even number of critics can tie." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="A refutation blocks" />
+                  <CheckBox Content="Block the change rather than only reporting it"
+                            IsChecked="{Binding Settings.VerificationLadder.CritiqueGates}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default: a model refuting a compiler-verified change is a claim worth reading rather than obeying." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ======================== Sandbox and approval ======================== -->
+      <TabItem Header="Sandbox">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Where commands run">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Mode" />
+                  <ComboBox ItemsSource="{Binding SandboxModes}" SelectedItem="{Binding Settings.Sandbox.Mode}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A build is arbitrary code execution: an MSBuild target, a source generator or a test's static constructor is code the agent just wrote. Running the build is exactly as privileged as running bash." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Allow running on the host" />
+                  <CheckBox Content="Permit unsandboxed execution"
+                            IsChecked="{Binding Settings.Sandbox.AllowUnsandboxedExecution}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default, so a machine without a Docker daemon gets a clear refusal instead of silently running a model's build script against your own filesystem." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Image" />
+                  <TextBox Text="{Binding Settings.Sandbox.Image}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Workspace mount point" />
+                  <TextBox Text="{Binding Settings.Sandbox.ContainerWorkspacePath}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Docker endpoint" />
+                  <TextBox Text="{Binding Settings.Sandbox.DockerEndpoint}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="Empty uses the platform default named pipe or unix socket." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Network" />
+                  <CheckBox Content="Give the container a network"
+                            IsChecked="{Binding Settings.Sandbox.AllowNetwork}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Network for restore" />
+                  <CheckBox Content="Allow it for a declared restore step only"
+                            IsChecked="{Binding Settings.Sandbox.AllowNetworkForRestore}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A build that needs the internet is a build that can exfiltrate the repository. The restore exception is the one legitimate case." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Harden the container" />
+                  <CheckBox Content="Read-only root, capabilities dropped, no privilege escalation"
+                            IsChecked="{Binding Settings.Sandbox.HardenContainer}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Memory (bytes)" />
+                  <TextBox Text="{Binding Settings.Sandbox.MemoryBytes}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Process limit" />
+                  <TextBox Text="{Binding Settings.Sandbox.ProcessLimit}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Command timeout (seconds)" />
+                  <TextBox Text="{Binding Settings.Sandbox.CommandTimeoutSeconds}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Container environment" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding SandboxEnvironment}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="One NAME=value per line." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Approval">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Approve every write" />
+                  <CheckBox Content="Ask before a change is written"
+                            IsChecked="{Binding Settings.Approval.RequireApprovalForWrites}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Approval timeout (seconds)" />
+                  <TextBox Text="{Binding Settings.Approval.ApprovalTimeoutSeconds}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Silence counts as refusal, not approval: an unattended prompt must never become a write. The console host cannot ask at all, and fails closed." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ======================== Logging and metrics ======================== -->
+      <TabItem Header="Logging">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Logs">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Directory" />
+                  <TextBox Text="{Binding Settings.Logging.Directory}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="JSONL file name" />
+                  <TextBox Text="{Binding Settings.Logging.JsonlFileName}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Text file name" />
+                  <TextBox Text="{Binding Settings.Logging.TextFileName}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Machine-readable and human-readable side by side. The trailing dash is where the rolling date goes." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Minimum level" />
+                  <ComboBox IsEditable="True" ItemsSource="{Binding LogLevels}"
+                            Text="{Binding Settings.Logging.MinimumLevel}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Console" />
+                  <CheckBox Content="Also write the human-readable view to the console"
+                            IsChecked="{Binding Settings.Logging.Console}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Retained files" />
+                  <TextBox Text="{Binding Settings.Logging.RetainedFileCountLimit}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Log source content" />
+                  <CheckBox Content="Write prompts, responses and tool results to the log store"
+                            IsChecked="{Binding Settings.Logging.LogSourceContent}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="The redaction switch. Turning it off keeps the step skeleton - indexes, tool names, statuses, tokens, latencies - and drops every piece of source content. Secrets are scrubbed either way." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Max logged text length" />
+                  <TextBox Text="{Binding Settings.Logging.MaxLoggedTextLength}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Redacted property names" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding RedactedPropertyNames}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Matched as whole names, case-insensitively. Substring matching would swallow legitimate properties such as TotalTokens." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Metrics">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Metrics" />
+                  <CheckBox Content="Record a JSONL line per run" IsChecked="{Binding Settings.Metrics.Enabled}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Directory" />
+                  <TextBox Text="{Binding Settings.Metrics.Directory}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="File name" />
+                  <TextBox Text="{Binding Settings.Metrics.FileName}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="One self-describing object per line, appendable from concurrent runs, readable by every dataframe library without a schema." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- ====================== Telemetry and provenance ====================== -->
+      <TabItem Header="Telemetry">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Tracing">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Tracing" />
+                  <CheckBox Content="Trace every model call" IsChecked="{Binding Settings.Telemetry.Enabled}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Service name" />
+                  <TextBox Text="{Binding Settings.Telemetry.ServiceName}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Console exporter" />
+                  <CheckBox Content="Write spans to the console"
+                            IsChecked="{Binding Settings.Telemetry.ConsoleExporter}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="OTLP endpoint" />
+                  <TextBox Text="{Binding Settings.Telemetry.OtlpEndpoint}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="For example http://localhost:4317. Empty disables the exporter." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Additional sources" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding AdditionalTelemetrySources}" />
+                </DockPanel>
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Provenance and freshness">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Stamp runs" />
+                  <CheckBox Content="Record what the working tree and configuration were"
+                            IsChecked="{Binding Settings.Provenance.Enabled}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Trigger exclusions" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding TriggerExclusions}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="The harness's own output. Counting it as a source change would make every run look stale straight after the previous run wrote its logs - a trigger loop that never settles." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Source extensions" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding SourceExtensions}" />
+                </DockPanel>
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+    </TabControl>
+  </DockPanel>
+</Window>

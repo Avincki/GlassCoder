@@ -1,4 +1,5 @@
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Configuration;
 using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Metrics;
@@ -64,6 +65,11 @@ public static class GlassCoderServiceCollectionExtensions
             .Bind(configuration.GetSection(ProvenanceOptions.SectionName));
 
         services.TryAddSingleton(TimeProvider.System);
+        // Defaults for a host that builds its own configuration rather than going through
+        // GlassCoderHost - the settings dialog needs a store either way.
+        services.TryAddSingleton<ISecretProtector, DpapiSecretProtector>();
+        services.TryAddSingleton<IUserSettingsStore>(provider =>
+            new UserSettingsStore(provider.GetRequiredService<ISecretProtector>()));
         // The bus wraps the durable logger so the UI can watch a run live without re-parsing
         // what was just written (workplan task 26).
         services.TryAddSingleton<StepLogger>();

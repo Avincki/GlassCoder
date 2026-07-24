@@ -1,5 +1,7 @@
+using GlassCoder.Core.Configuration;
 using GlassCoder.Core.DependencyInjection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace GlassCoder.Core.Hosting;
@@ -33,11 +35,20 @@ public static class GlassCoderHost
             ContentRootPath = AppContext.BaseDirectory,
         });
 
+        // What the settings dialog saved, layered over appsettings.json and under everything a
+        // run states explicitly. Both front ends get it from here, so the desktop app and the
+        // console host still resolve the same services from the same configuration.
+        DpapiSecretProtector protector = new();
+        UserSettingsStore userSettings = new(protector);
+        builder.Configuration.AddGlassCoderUserSettings(userSettings);
+
         if (!string.IsNullOrWhiteSpace(configPath))
         {
             builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
         }
 
+        builder.Services.AddSingleton<ISecretProtector>(protector);
+        builder.Services.AddSingleton<IUserSettingsStore>(userSettings);
         builder.Services.AddGlassCoderLogging(builder.Configuration);
         builder.Services.AddGlassCoder(builder.Configuration);
 
