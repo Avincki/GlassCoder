@@ -307,7 +307,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             return Task.CompletedTask;
         }
 
-        return RunAsync(RunReviewer.ComposeRetryGoal(_reviewedGoal, review), _reviewedAttempt + 1);
+        // Put the composed goal in the box before it runs, so the box shows what actually runs
+        // rather than the pre-retry text - with a five-line box that difference is now visible.
+        // It stays there, editable, after the run.
+        string composed = RunReviewer.ComposeRetryGoal(_reviewedGoal, review);
+        Goal = composed;
+        return RunAsync(composed, _reviewedAttempt + 1);
     }
 
     private async Task RunAsync(string goal, int attempt)

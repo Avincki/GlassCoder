@@ -642,15 +642,15 @@
       <figure>
         <div class="shot">
           <img src="../GlassCoder.png"
-               alt="The GlassCoder desktop window: a dark header with the goal text box and Run, Cancel and Settings buttons, a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 8 tools&quot;.">
-          <span class="mark" style="left:48.9%; top:7.2%;">1</span>
-          <span class="mark" style="left:85.5%; top:7.2%;">2</span>
-          <span class="mark" style="left:6.2%;  top:18.6%;">3</span>
-          <span class="mark" style="left:43%;   top:12.8%;">4</span>
-          <span class="mark" style="left:56%;   top:40%;">5</span>
-          <span class="mark" style="left:56%;   top:76%;">6</span>
-          <span class="mark" style="left:60%;   top:97.5%;">7</span>
-          <span class="mark" style="left:95.6%; top:7.2%;">8</span>
+               alt="The GlassCoder desktop window: a dark header with a five-line goal box on the left and a column of controls on the right - a Second opinion checkbox above Run, Cancel, Settings and About - a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 8 tools&quot;.">
+          <span class="mark" style="left:37%; top:9%;">1</span>
+          <span class="mark" style="left:92%; top:10%;">2</span>
+          <span class="mark" style="left:6%;  top:28%;">3</span>
+          <span class="mark" style="left:43%; top:27%;">4</span>
+          <span class="mark" style="left:52%; top:46%;">5</span>
+          <span class="mark" style="left:16%; top:66%;">6</span>
+          <span class="mark" style="left:40%; top:97%;">7</span>
+          <span class="mark" style="left:92%; top:18%;">8</span>
         </div>
         <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet.</figcaption>
       </figure>
@@ -659,22 +659,29 @@
         <div>
           <span class="n">1</span>
           <dt>Goal box</dt>
-          <dd>Free text, bound two-way on every keystroke. This is the entire task description —
-              there is no separate task form.</dd>
+          <dd>Free text, bound two-way on every keystroke, and the entire task description — there
+              is no separate task form. Five lines tall, wrapping, and scrolling past that, so a
+              real description fits rather than a one-line title. Because <kbd>Enter</kbd> now
+              inserts a newline, <b><kbd>Ctrl</kbd>+<kbd>Enter</kbd></b> runs — the same as pressing
+              <b>Run</b>.</dd>
         </div>
         <div>
           <span class="n">2</span>
-          <dt>Run · Cancel</dt>
-          <dd>Mutually exclusive: <b>Run</b> is enabled only when idle, <b>Cancel</b> only while a
-              run is in flight. Cancel trips the run's <code>CancellationToken</code>.</dd>
+          <dt>Run controls</dt>
+          <dd>A column to the right of the goal box: the <b>Second opinion</b> checkbox (2a) above
+              <b>Run</b>, <b>Cancel</b>, <b>Settings…</b> (8) and <b>About</b>. <b>Run</b> and
+              <b>Cancel</b> are mutually exclusive — <b>Run</b> is enabled only when idle,
+              <b>Cancel</b> only while a run is in flight, and Cancel trips the run's
+              <code>CancellationToken</code>.</dd>
         </div>
         <div>
           <span class="n">2a</span>
           <dt>Second opinion</dt>
-          <dd>Judges this run with the second-opinion critic instead of the local one. Read once,
-              when <b>Run</b> is pressed — a critic swapped mid-run would make one run two arms —
-              and recorded in the run record. Disabled, with a tooltip saying why, when critique is
-              switched off or the role has no key.
+          <dd>Sits directly above <b>Run</b>, because it changes what Run does: it judges this run
+              with the second-opinion critic instead of the local one. Read once, when <b>Run</b> is
+              pressed — a critic swapped mid-run would make one run two arms — and recorded in the
+              run record. Disabled, with a tooltip saying why, when critique is switched off or the
+              role has no key.
               <a href="NewFeatures/claude-second-opinion.html">Design note</a>.</dd>
         </div>
         <div>
@@ -712,9 +719,10 @@
           <dt>Review strip</dt>
           <dd>Appears above the status bar when a critic has judged the finished run, on whichever
               surface is selected — it is about the run, not about one change. <b>Retry with this</b>
-              starts a <em>new</em> run against the same task with the findings appended to the
-              goal, tagged as attempt 2 so <code>pass@1</code> stays the rate over first attempts.
-              Nothing but that button starts a retry.</dd>
+              puts the findings-appended goal into the goal box (1), where you can see and trim it,
+              and starts a <em>new</em> run against the same task, tagged as attempt 2 so
+              <code>pass@1</code> stays the rate over first attempts. Nothing but that button starts
+              a retry.</dd>
         </div>
         <div>
           <span class="n">8</span>

@@ -8,6 +8,8 @@ artifacts/
 *.suo
 *.userosscache
 *.sln.docstates
+## WPF markup-compile temp projects, left behind when a build is interrupted.
+*_wpftmp.csproj
 
 ## Rider / VS / VS Code
 .vs/

@@ -21,44 +21,60 @@
     </DataTemplate>
   </Window.Resources>
 
+  <!-- Ctrl+Enter runs, because the goal box now accepts a plain Enter as a newline: a
+       multi-line description would otherwise have no way to submit from the keyboard. -->
+  <Window.InputBindings>
+    <KeyBinding Modifiers="Control" Key="Return" Command="{Binding RunCommand}" />
+  </Window.InputBindings>
+
   <DockPanel>
     <Border DockPanel.Dock="Top" Background="#1F2933" Padding="12,10">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="Auto" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
+      <!-- DockPanel, not a Grid: a right-docked child reserves its full width before the filling
+           child measures, so the button column cannot be starved by the wrapping goal box. The
+           equivalent Grid ([Auto][*][Auto]) let the star column consume the buttons' width and
+           push them off the right edge. -->
+      <DockPanel LastChildFill="True">
+        <!-- Top-aligned: the header is now as tall as five lines of goal, so a vertically
+             centred brand would float in the middle of it. -->
+        <TextBlock DockPanel.Dock="Left" Text="GlassCoder" Foreground="White"
+                   FontSize="18" FontWeight="Bold"
+                   VerticalAlignment="Top" Margin="0,2,16,0" />
 
-        <TextBlock Grid.Column="0" Text="GlassCoder" Foreground="White" FontSize="18" FontWeight="Bold"
-                   VerticalAlignment="Center" Margin="0,0,16,0" />
+        <!-- The run controls, stacked in a column to the right of the goal box. The checkbox sits
+             above Run because it changes what Run does and is read the instant Run is pressed -
+             cause directly above effect. -->
+        <StackPanel DockPanel.Dock="Right" Margin="12,0,0,0">
+          <!-- Ticked before the run, never during it: the critic is part of what the run is, so
+               swapping it mid-flight would make one run two arms. -->
+          <CheckBox Content="Second opinion" Foreground="White" Margin="0,2,0,6"
+                    IsChecked="{Binding UseRemoteCritic}"
+                    IsEnabled="{Binding RemoteCriticAvailable}"
+                    ToolTip="{Binding RemoteCriticTooltip}" />
+          <Button Content="Run" Padding="18,4" Margin="0,0,0,4"
+                  Command="{Binding RunCommand}"
+                  ToolTip="Start the run. Ctrl+Enter does the same from the goal box." />
+          <Button Content="Cancel" Padding="18,4" Margin="0,0,0,4"
+                  Command="{Binding CancelCommand}" />
+          <Button Content="Settings…" Padding="18,4" Margin="0,0,0,4"
+                  Command="{Binding SettingsCommand}"
+                  ToolTip="Endpoints, API keys, budgets and guardrails - and a check that the seam works." />
+          <Button Content="About" Padding="18,4"
+                  Command="{Binding AboutCommand}"
+                  ToolTip="What this is, who built it, and which build you are running." />
+        </StackPanel>
 
-        <TextBox Grid.Column="1" VerticalAlignment="Center" Padding="6,4" FontSize="13"
+        <!-- Five lines visible, wrap, scroll past that: room for a real description rather than a
+             one-line title. The goal still reaches the model as a plain string - a rich-text box
+             would either strip its formatting on the way out or leak XAML into the prompt, so this
+             stays a TextBox and any structure a user wants is theirs to write as plain text.
+             Declared last so LastChildFill hands it the width the brand and buttons did not take. -->
+        <TextBox VerticalAlignment="Stretch" Padding="6,4" FontSize="13"
+                 AcceptsReturn="True" TextWrapping="Wrap"
+                 MinLines="5" MaxLines="5"
+                 VerticalScrollBarVisibility="Auto"
+                 SpellCheck.IsEnabled="True"
                  Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}" />
-
-        <!-- Ticked before the run, never during it: the critic is part of what the run is, so
-             swapping it mid-flight would make one run two arms. -->
-        <CheckBox Grid.Column="2" Content="Second opinion" Foreground="White" VerticalAlignment="Center"
-                  Margin="12,0,0,0"
-                  IsChecked="{Binding UseRemoteCritic}"
-                  IsEnabled="{Binding RemoteCriticAvailable}"
-                  ToolTip="{Binding RemoteCriticTooltip}" />
-
-        <Button Grid.Column="3" Content="Run" Padding="18,4" Margin="8,0,0,0"
-                Command="{Binding RunCommand}" />
-        <Button Grid.Column="4" Content="Cancel" Padding="14,4" Margin="8,0,0,0"
-                Command="{Binding CancelCommand}" />
-        <Button Grid.Column="5" Content="Settings…" Padding="14,4" Margin="16,0,0,0"
-                Command="{Binding SettingsCommand}"
-                ToolTip="Endpoints, API keys, budgets and guardrails - and a check that the seam works." />
-        <Button Grid.Column="6" Content="About" Padding="12,4" Margin="8,0,0,0"
-                Command="{Binding AboutCommand}"
-                ToolTip="What this is, who built it, and which build you are running." />
-      </Grid>
+      </DockPanel>
     </Border>
 
     <Border DockPanel.Dock="Bottom" Background="#ECEFF1" Padding="12,6">
