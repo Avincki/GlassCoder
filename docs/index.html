@@ -651,6 +651,10 @@ dotnet test        <span class="c"># optional: 195 tests, ~25s</span></code></pr
   <span class="k">"ModelAlias"</span>: "worker",
   <span class="k">"Temperature"</span>: 0.2
 }</code></pre>
+            <p>Or set it in the desktop app: <b>Settings…</b> edits the same values, stores API
+               keys encrypted, and has a <a href="settings.html">connection check</a> that tells
+               you whether the endpoint, the key and the alias actually work together — before a
+               run finds out for you.</p>
           </div>
         </li>
 
@@ -705,6 +709,14 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
         Everything lives in <code>config/appsettings.json</code>. No endpoint, alias, budget or
         limit is hardcoded anywhere. That is what makes an experiment reproducible: an
         <b>arm</b> is a config file, never a code change.
+      </p>
+
+      <p>
+        The desktop app can edit every section of it from <b>Settings…</b>, saving to a per-user
+        file that sits above <code>appsettings.json</code> and below environment variables and any
+        <code>--config</code> arm — so a saved preference never quietly redefines what an arm means.
+        API keys go to a separate DPAPI-protected file and never touch the settings file.
+        <a href="settings.html">The settings guide</a> covers the layering and every tab.
       </p>
 
       <h3>The sections</h3>
@@ -1160,6 +1172,12 @@ glasscoder suite --suite-task suite-03-off-by-one</code></pre>
           <a href="wpf-app.html">Working with GlassCoder.Wpf</a> is the reference: the annotated
           window, the working-directory trap, every column and filter, how the approval gate
           behaves, and how the shell is wired.
+        </p>
+        <p>
+          <a href="settings.html">Settings &amp; the connection check</a> covers the fourth surface:
+          every configuration section in a dialog, where API keys are stored and what protects them,
+          which layer wins when two of them disagree, and the four-step check that says whether the
+          seam works before a run has to discover it.
         </p>
       </div>
     </section>

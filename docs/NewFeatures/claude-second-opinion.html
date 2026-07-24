@@ -675,6 +675,12 @@
                 <td>Written — <code>with-critique</code>. Not in <code>Default</code>.</td></tr>
             <tr><td>Hosted-role configuration</td><td class="m">Models/Configuration/ModelRoleOptions.cs</td>
                 <td>Written: <code>ApiKey</code>, <code>ApiKeyEnvironmentVariable</code>, per-role cost.</td></tr>
+            <tr><td>Somewhere to put the key</td><td class="m">Core/Configuration/UserSettingsStore.cs</td>
+                <td>Written. The <a href="../settings.html">settings dialog</a> stores a per-role key
+                    under DPAPI and never writes it to a config file.</td></tr>
+            <tr><td>Proof the hosted endpoint answers</td><td class="m">Models/ModelConnectionProbe.cs</td>
+                <td>Written. The connection check would report a rejected key as a rejected key
+                    rather than as a failed critique.</td></tr>
             <tr><td>A non-OpenAI transport</td><td class="m">Models/ChatClientFactory.cs</td>
                 <td><b>Missing.</b> This is the whole gap.</td></tr>
           </tbody>
@@ -761,6 +767,13 @@
   "InputCostPerMillionTokens": 0.0,     <span class="c">// fill in from current pricing</span>
   "OutputCostPerMillionTokens": 0.0
 }</code></pre>
+
+      <p>
+        Every field above is already editable from <b>Settings…</b>, including the key itself — the
+        <a href="../settings.html">settings dialog</a> stores it encrypted per Windows account
+        rather than in this file, and the environment-variable name stays available for CI. Only
+        <code>Provider</code> is proposed rather than shipped.
+      </p>
 
       <p>
         The gap is that <code>ChatClientFactory</code> builds one shape of client:

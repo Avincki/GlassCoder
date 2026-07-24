@@ -1,0 +1,1469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="The GlassCoder settings dialog: where settings and API keys are stored, what overrides what, every tab annotated, and the four-step connection check that answers whether the seam actually works.">
+<title>GlassCoder — Settings &amp; the connection check</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+
+  .backlinks a {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail {
+    position: sticky;
+    top: 0;
+    padding: 2.5rem 0;
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol {
+    list-style: none;
+    margin: 0 0 1.9rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    letter-spacing: 0.08em;
+  }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-size: 1.24rem;
+    font-weight: 600;
+    margin: 2.4rem 0 0.7rem;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- annotated screenshot ---------- */
+
+  figure { margin: 0 0 1.6rem; }
+
+  .shot {
+    position: relative;
+    display: block;
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    background: var(--surface);
+    padding: 0.4rem;
+    line-height: 0;
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 2px;
+  }
+
+  .shot .mark {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    width: 1.55rem;
+    height: 1.55rem;
+    border-radius: 50%;
+    background: var(--signal);
+    color: #FFFFFF;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.55rem;
+    text-align: center;
+    font-weight: 600;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 1px 4px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+
+  figcaption {
+    font-size: 0.86rem;
+    color: var(--faint);
+    margin-top: 0.6rem;
+    font-family: var(--mono);
+  }
+
+  .legend {
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.4rem;
+  }
+
+  .legend > div {
+    display: grid;
+    grid-template-columns: 1.9rem 12rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .legend .n {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--signal);
+  }
+
+  .legend dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+  }
+
+  .legend dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- spec rows ---------- */
+
+  .spec {
+    border-top: 1px solid var(--rule);
+    margin: 0 0 1.4rem;
+  }
+
+  .spec > div {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+  }
+
+  .spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-size: 0.9rem;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- state pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  /* ---------- steps ---------- */
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.08rem; }
+
+  /* ---------- wiring diagram ---------- */
+
+  .wiring {
+    max-width: var(--measure);
+    margin: 0 0 1.4rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .wiring .row {
+    display: grid;
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.7rem 1.1rem;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  .wiring .row:last-child { border-bottom: none; }
+  .wiring .lbl { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); }
+  .wiring .row span { font-size: 0.92rem; color: var(--muted); }
+  .wiring .row b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    .legend > div { grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.15rem 0.8rem; }
+    .legend dd { grid-column: 2; }
+    .wiring .row { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+    .shot .mark { width: 1.25rem; height: 1.25rem; line-height: 1.25rem; font-size: 0.66rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Settings guide</div>
+    <h1>Settings, keys, and "does it work?"</h1>
+    <p class="standfirst">
+      Every endpoint, alias, budget, limit and guardrail the harness has, editable in one dialog and
+      stored per user — and the four-step check that answers the only question worth asking before a
+      first run, which is whether anything is actually listening on the other side of the seam.
+    </p>
+    <div class="specstrip">
+      <div><b>Opens from</b> Settings… in the header</div>
+      <div><b>Settings</b> %APPDATA%\GlassCoder\settings.json</div>
+      <div><b>Keys</b> secrets.json · DPAPI, current user</div>
+      <div><b>Applies</b> on restart</div>
+    </div>
+    <div class="backlinks">
+      <a href="index.html">← Operator's guide</a>
+      <a href="wpf-app.html">← Working with GlassCoder.Wpf</a>
+      <a href="dgx-spark-setup.html">Serving the model →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#where">Where settings live</a></li>
+      <li><a href="#precedence">What overrides what</a></li>
+      <li><a href="#models">Models &amp; keys</a></li>
+      <li><a href="#check">Does it work?</a></li>
+      <li><a href="#workspace">Workspace &amp; tools</a></li>
+      <li><a href="#agent">Agent &amp; context</a></li>
+      <li><a href="#verification">Verification &amp; critique</a></li>
+      <li><a href="#sandbox">Sandbox &amp; approval</a></li>
+      <li><a href="#logging">Logging &amp; metrics</a></li>
+      <li><a href="#telemetry">Telemetry &amp; provenance</a></li>
+      <li><a href="#wiring">How it is wired</a></li>
+      <li><a href="#stuck">When it looks wrong</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="where">
+      <div class="part-head"><span class="num">01</span><h2>Where settings live</h2></div>
+
+      <p>
+        Nothing about the harness is hardcoded — no endpoint, no alias, no budget, no limit. That
+        has always been true; what was missing was somewhere to put a change that is <em>yours</em>
+        rather than the repository's. <b>Settings…</b> in the header writes to two files under your
+        own application data directory:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>File</th><th class="m">Path</th><th>Contents</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Settings</td>
+              <td class="m">%APPDATA%\GlassCoder\settings.json</td>
+              <td>Every section, in the same shape as <code>appsettings.json</code> and in the
+                  clear. A configuration file you cannot read is one you cannot debug.</td>
+            </tr>
+            <tr>
+              <td>Keys</td>
+              <td class="m">%APPDATA%\GlassCoder\secrets.json</td>
+              <td>One DPAPI blob per role, at <code>CurrentUser</code> scope. Nothing else is ever
+                  written here.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Not the <code>appsettings.json</code> sitting next to the executable. That copy is build
+        output — the project links it in with <code>CopyToOutputDirectory</code> — so anything saved
+        into it is one rebuild away from being silently discarded. A per-user file also keeps one
+        operator's endpoints and keys out of another's, and out of the repository.
+      </p>
+
+      <h3>Why keys are a second file</h3>
+
+      <p>
+        Because an API key is not a setting. The store lifts every key out of the serialised
+        document before it is written, and <em>removes</em> the <code>ApiKey</code> property rather
+        than nulling it, so the settings file carries no trace of a key having been there. No caller
+        can accidentally persist one in the clear, because no caller is trusted with the decision.
+      </p>
+
+      <div class="note">
+        <span class="tag">DPAPI is bound to your account, not to the file</span>
+        <p>
+          <code>secrets.json</code> copied to another machine, or opened under another Windows
+          account, decrypts to nothing. That is the point — but it also means the dialog can say
+          <em>"stored keys could not be decrypted on this machine"</em> and mean it literally.
+          Re-enter the key; there is nothing to recover.
+        </p>
+        <p>
+          Off Windows there is no equivalent that needs no key management, so the protector says so
+          through the scheme name in the header: <code>plain</code> rather than <code>dpapi</code>
+          means base64 <em>encoding</em>, which is obscurity and not protection. Put the key in an
+          environment variable instead.
+        </p>
+      </div>
+
+      <p>
+        <b>Open folder</b> in the footer opens that directory, creating it if the dialog has never
+        saved. <b>Reset</b> deletes both files and drops you back to whatever
+        <code>appsettings.json</code> says — it is enabled only when there is something to delete.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="precedence">
+      <div class="part-head"><span class="num">02</span><h2>What overrides what</h2></div>
+
+      <p>
+        The dialog shows the <em>effective</em> configuration: every layer the app actually bound,
+        not the contents of any one file. So a value on screen may not have come from the file the
+        dialog saves to — and saving it will not necessarily make it stick.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Layer</th><th class="m">Where</th><th>Beats</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>1 · Shipped defaults</td>
+              <td class="m">appsettings.json</td>
+              <td>Nothing. This is the floor, and it travels with the repository.</td>
+            </tr>
+            <tr>
+              <td>2 · Saved settings</td>
+              <td class="m">%APPDATA%\GlassCoder\*.json</td>
+              <td>The shipped defaults. This is what the dialog writes.</td>
+            </tr>
+            <tr>
+              <td>3 · Environment</td>
+              <td class="m">GlassCoder__Agent__MaxSteps=50</td>
+              <td>Saved settings. Double underscore separates the levels.</td>
+            </tr>
+            <tr>
+              <td>4 · Command line</td>
+              <td class="m">--GlassCoder:Agent:MaxSteps=50</td>
+              <td>The environment.</td>
+            </tr>
+            <tr>
+              <td>5 · The arm</td>
+              <td class="m">--config config/phase1.json</td>
+              <td>Everything above it. An ablation arm is added last, on purpose.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Position is the load-bearing decision</span>
+        <p>
+          The two saved-settings sources are inserted <em>ahead of</em> the environment-variable
+          source rather than appended to the end. Appending them would have been one line shorter
+          and would have let a preference saved once, on one machine, redefine what
+          <code>config/phase1.json</code> means. Arms have to mean the same thing everywhere, or no
+          measurement taken in one applies to another.
+        </p>
+      </div>
+
+      <p>
+        The practical consequence: if a value refuses to change, something above layer 2 is setting
+        it. Check the environment first — an exported <code>GlassCoder__…</code> variable outlives
+        the shell that set it, and the dialog will keep showing its value no matter how many times
+        you save.
+      </p>
+
+      <h3>Saving does not apply</h3>
+
+      <p>
+        Every section binds once at startup through <code>IOptions&lt;T&gt;</code>. A save therefore
+        writes the files and changes nothing about the process you are looking at, which is why the
+        dialog offers <b>Save and restart</b> next to <b>Save</b>, and why the shell's status bar
+        reads <em>"Settings saved. Restart GlassCoder for them to take effect."</em> afterwards.
+        Claiming otherwise would be the same class of lie as a connection check that never connects.
+      </p>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="models">
+      <div class="part-head"><span class="num">03</span><h2>Models &amp; keys</h2></div>
+
+      <p>
+        The first tab is the seam: which servers are addressed, as what, with which credentials.
+        Everything else in the dialog is a policy decision; this tab decides whether anything
+        happens at all.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Model.png"
+               alt="The Models tab of the GlassCoder settings dialog: a Seam group with default role, telemetry source name and a sensitive-telemetry checkbox; a list of the critic, drafter and worker roles on the left, each showing its endpoint and &quot;Not checked yet.&quot;; and an editor on the right with Endpoint, Authentication and Sampling groups.">
+          <span class="mark" style="left:15%;   top:9.2%;">1</span>
+          <span class="mark" style="left:24%;   top:41%;">2</span>
+          <span class="mark" style="left:71.5%; top:43.7%;">3</span>
+          <span class="mark" style="left:66%;   top:66.8%;">4</span>
+          <span class="mark" style="left:14.3%; top:88.5%;">5</span>
+          <span class="mark" style="left:70%;   top:97.7%;">6</span>
+        </div>
+        <figcaption>The Models tab on the configuration GlassCoder ships with: three roles, no keys, nothing checked yet.</figcaption>
+      </figure>
+
+      <dl class="legend">
+        <div>
+          <span class="n">1</span>
+          <dt>Where this lands</dt>
+          <dd>Both paths, spelled out, and the protection scheme in force. The line under it states
+              the precedence chain, because that is the question the dialog raises the moment you
+              change something.</dd>
+        </div>
+        <div>
+          <span class="n">2</span>
+          <dt>Role list</dt>
+          <dd>One entry per served role, each showing its endpoint and the result of its last check
+              — green, amber or red. The whole seam at a glance.</dd>
+        </div>
+        <div>
+          <span class="n">3</span>
+          <dt>Endpoint &amp; alias</dt>
+          <dd>The OpenAI-compatible base URL, and the <em>served alias</em> to address. Never a
+              checkpoint path: serving topology lives below the seam, and a path here is rejected
+              before the dialog will save.</dd>
+        </div>
+        <div>
+          <span class="n">4</span>
+          <dt>API key</dt>
+          <dd>Masked once set, with <b>Show</b> / <b>Hide</b> and <b>Clear</b>. Empty and visible by
+              default, because the next thing that happens to an empty key box is a paste.</dd>
+        </div>
+        <div>
+          <span class="n">5</span>
+          <dt>Add · Remove · Test all</dt>
+          <dd>Roles are configuration too. <b>Test all</b> checks every role in turn and reports how
+              many answered.</dd>
+        </div>
+        <div>
+          <span class="n">6</span>
+          <dt>Save · Save and restart</dt>
+          <dd>Both validate first. Anything that would stop the harness from starting is listed in
+              red above these buttons, and nothing is written.</dd>
+        </div>
+      </dl>
+
+      <h3>The key, and where it really comes from</h3>
+
+      <p>
+        A role can take its key from either of two places, and the hint under the field always says
+        which one is winning:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>What the hint says</th><th>What that means</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Saved to secrets.json, protected with dpapi</td>
+              <td>The key you typed, encrypted for this Windows account. It is never written to
+                  <code>settings.json</code>.</td>
+            </tr>
+            <tr>
+              <td>The environment variable <code>…</code> currently supplies this key</td>
+              <td><b>Key from environment variable</b> is set and populated, and the harness reads it
+                  in preference to anything stored. The stored key is dead weight until you clear the
+                  variable name.</td>
+            </tr>
+            <tr>
+              <td>The environment variable <code>…</code> is named but not set</td>
+              <td>You named a variable that does not exist in this process. This is the failure that
+                  otherwise surfaces as a <code>401</code> ten minutes into a run.</td>
+            </tr>
+            <tr>
+              <td>No key. Local servers ignore it; hosted endpoints will refuse the call</td>
+              <td>Correct for vLLM, SGLang, llama.cpp and Ollama on your own box. Fatal for anything
+                  hosted.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Prefer the environment variable for a hosted arm you intend to run in CI, and the stored key
+        for a workstation. Both work; only one of them survives being copied to another machine, and
+        that is the point of each.
+      </p>
+
+      <h3>Sampling, cost and constrained decoding</h3>
+
+      <p>
+        Below authentication sit the knobs that decide what an arm actually measures. Max output
+        tokens, temperature, top-p and seed all mean <em>empty is the server's decision</em> — an
+        empty box is a real value here rather than a missing one, which is why they clear properly
+        instead of snapping back to zero.
+      </p>
+
+      <p>
+        The two cost fields feed cost-per-solved-task. Leave both at zero for a local arm, where the
+        cost is box-hours rather than tokens, and fill them in for a hosted one — otherwise the
+        metric quietly compares a real bill against nothing.
+      </p>
+
+      <p>
+        The constrained-decoding group is the highest-return reliability lever in the harness: it
+        makes a malformed tool call structurally impossible instead of merely unlikely. Note that
+        the property <em>names</em> are editable, not just their values —
+        <code>strictJsonSchema</code>, <code>guided_decoding_backend</code>,
+        <code>guided_json</code>. Which key a server honours drifts between vLLM, SGLang and
+        llama.cpp releases, so the harness must never bake one in, and neither may this dialog.
+      </p>
+
+      <div class="note">
+        <span class="tag">Require a tool call, carefully</span>
+        <p>
+          <b>Force a tool call on every step</b> is off for a reason. With a read-only tool set the
+          agent could never produce a final answer, and the run would burn its whole step budget
+          before giving up. Turn it on only once a terminal tool exists.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="check">
+      <div class="part-head"><span class="num">04</span><h2>Does it work?</h2></div>
+
+      <p>
+        <b>Test connection</b> reports four steps rather than one verdict. That is not thoroughness
+        for its own sake: the four ways a seam fails have four different fixes, and a single
+        "it did not work" hides which one you are looking at.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Step</th><th>Asks</th><th>A failure here means</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">Settings</td>
+              <td>Would the harness start on this at all?</td>
+              <td>An endpoint that is not an absolute http(s) URL, or a checkpoint path where a
+                  served alias belongs. Nothing touches the network, so a typo cannot masquerade as
+                  an unreachable server.</td>
+            </tr>
+            <tr>
+              <td class="m">Server</td>
+              <td>Is something listening, and does it accept the key?</td>
+              <td>Connection refused is the server. <code>401</code> or <code>403</code> is the key,
+                  and the check stops there rather than producing a second, vaguer failure. A server
+                  with no <code>/models</code> route is a warning, not a failure — plenty implement
+                  chat completions and nothing else.</td>
+            </tr>
+            <tr>
+              <td class="m">Alias</td>
+              <td>Does it serve the alias this role addresses?</td>
+              <td>The server is up and serving <code>qwen3-coder-30b</code> while the role asks for
+                  <code>worker</code>. A warning, because it still might work: the completion step
+                  decides.</td>
+            </tr>
+            <tr>
+              <td class="m">Completion</td>
+              <td>Can it actually generate?</td>
+              <td>Everything is wired and generation still fails — a served alias whose weights
+                  failed to load, or a model still loading into VRAM.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>A local worker, answering:</p>
+
+<pre><code>Works · 105 ms · The model answered "pong" (9 prompt + 1 completion tokens).
+
+Settings     Endpoint http://localhost:8001/v1, alias 'worker', API key supplied.     0 ms
+Server       Reachable, serving 1 alias(es): worker.                                62 ms
+Alias        'worker' is served.                                                     0 ms
+Completion   The model answered "pong" (9 prompt + 1 completion tokens).            43 ms</code></pre>
+
+      <p>The same role with nothing serving it:</p>
+
+<pre><code>Does not work · 4030 ms · Could not reach http://localhost:8003/v1/models: No connection
+could be made because the target machine actively refused it. (localhost:8003) Check that
+the model server is running and serving this endpoint.</code></pre>
+
+      <div class="note">
+        <span class="tag">The last step is the only one that proves anything</span>
+        <p>
+          It asks for a real completion over the real endpoint with the real key, and reports the
+          reply and what it cost in tokens. A served alias whose weights failed to load answers
+          <code>/models</code> perfectly well — so a check that stopped at a handshake would pass in
+          exactly the case you most need it to fail, and it would be believed.
+        </p>
+      </div>
+
+      <p>
+        Two details worth knowing. The check tests <em>what is on screen</em> rather than what the
+        harness started with, so you can paste a key and check it before saving. And it is capped at
+        thirty seconds whatever the role's own timeout says: a role configured for ten-minute
+        generations must not leave you watching a dialog for ten minutes to discover a port is
+        closed.
+      </p>
+
+      <p>
+        The bare transport is used deliberately — no constrained decoding, no telemetry stage. This
+        step answers "can this endpoint, key and alias produce a completion", and a server that
+        rejects a guided-decoding property is a different problem with a different fix.
+      </p>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="workspace">
+      <div class="part-head"><span class="num">05</span><h2>Workspace &amp; tools</h2></div>
+
+      <p>
+        What the agent may see, what it may change, and how much any one tool call is allowed to hand
+        back.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Workspace.png"
+               alt="The Workspace tab: repository root, empty readable and writable path boxes, a denied-globs list containing .git, bin, obj, .vs and node_modules, a follow-symbolic-links checkbox, and a tool-limits group with byte, line, match and timeout ceilings.">
+        </div>
+        <figcaption>Workspace and tool limits. Both path boxes are empty here — which means two very different things.</figcaption>
+      </figure>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Setting</th><th>Empty means</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Readable paths</td><td>The repository root itself. Permissive.</td></tr>
+            <tr><td class="m">Writable paths</td><td><b>Nothing is writable.</b> Not "everything" — nothing.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        That asymmetry is deliberate, and it is the first thing to change before you expect an edit
+        to land. A harness that cannot write is a harmless harness; a harness that writes wherever it
+        likes is not. Opting in is a deliberate configuration act, so <code>src</code> and
+        <code>tests</code> go into the box by hand.
+      </p>
+
+      <p>
+        Denied globs are subtracted from everything, readable and writable alike. They ship covering
+        <code>.git</code>, <code>bin</code>, <code>obj</code>, <code>.vs</code> and
+        <code>node_modules</code> — the directories where an agent can only do harm or waste context.
+        Entries you add are added to that set rather than replacing it.
+      </p>
+
+      <p>
+        <b>Follow symbolic links</b> stays off unless you have a specific reason: a link is the
+        simplest way to walk a path allow-list straight out of the workspace.
+      </p>
+
+      <div class="note">
+        <span class="tag">Tool limits are context budget, not safety</span>
+        <p>
+          Max file bytes, lines per read, grep matches, glob results. None of these stop the agent
+          doing anything; they stop it filling the window. A tool that hands back a 40k-line file
+          costs wall-clock on <em>every</em> later step of the run, not just the one that read it —
+          so each tool truncates and says so rather than letting the window fill silently.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="agent">
+      <div class="part-head"><span class="num">06</span><h2>Agent &amp; context</h2></div>
+
+      <p>Budgets, the system prompt, and how the window is assembled and compacted.</p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Agent.png"
+               alt="The Agent tab: a Budgets group with role, max steps, max total tokens, max wall-clock, max cost and max invalid tool calls, the system prompt in a monospaced box, and a Context window group with max context tokens, compaction threshold and settings, recent turns kept verbatim and characters per token.">
+        </div>
+        <figcaption>Budgets and context policy. Every limit here has a graceful give-up path behind it.</figcaption>
+      </figure>
+
+      <p>
+        The four budgets — steps, tokens, wall-clock, cost — are part of the loop rather than
+        something bolted to it. Each has a graceful give-up path: the run stops, says which limit
+        tripped, and hands back everything it learned. <b>Max cost</b> is the one that may be empty,
+        which disables the check; it is priced from the per-role token costs on the Models tab, so it
+        does nothing at all while those are still zero.
+      </p>
+
+      <p>
+        <b>Max invalid tool calls</b> is a different kind of limit. A model that cannot produce a
+        parseable call will not start doing so on the twentieth try, and five consecutive failures is
+        enough evidence to stop paying for the twenty-first.
+      </p>
+
+      <h3>Context</h3>
+
+      <p>
+        Keep <b>max context tokens</b> deliberately below any served model's advertised window. The
+        governing fact is that effective context lags advertised context, and dilution costs
+        wall-clock on <em>every</em> loop step rather than only the one that added the tokens. The
+        shipped 48 000 against a 128k-advertised model is not timidity; it is the setting that goes
+        fastest.
+      </p>
+
+      <p>
+        <b>Root context files</b> is the lean always-loaded root — a couple of files, not a
+        documentation index. Everything else is retrieved on demand with grep, glob and read_file. If
+        you find yourself adding a fourth file here, the thing you actually want is a better first
+        tool call.
+      </p>
+
+      <p>
+        Compaction summarises older turns once the budget is exceeded, keeping the most recent turns
+        verbatim: those are the ones the model is actually reasoning over. <b>Characters per
+        token</b> feeds the heuristic estimator — an estimate on purpose, since running a real
+        tokenizer every step would cost more than the accuracy is worth.
+      </p>
+
+      <p>
+        The orchestration group at the foot of the tab is off by default and built last on purpose.
+        Sub-agents are a layer <em>over</em> a working loop, never a substitute for one, and the
+        parallelism is bounded because they share one GPU.
+      </p>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="verification">
+      <div class="part-head"><span class="num">07</span><h2>Verification &amp; critique</h2></div>
+
+      <p>
+        The ladder runs cheapest oracle first — syntax, compile, analyzers, tests, full suite — and
+        this tab controls the rungs that have a choice to make.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Verification.png"
+               alt="The Verification tab: compiler-feedback checkboxes for verifying edits before write and refusing breaking edits, max summarised diagnostics, include warnings, max compile files, extra reference directories, an analyzers checkbox, and a Critique group with an enable checkbox, critic role, critic count, refutation threshold and a blocking checkbox.">
+        </div>
+        <figcaption>Verification and critique. The two checkboxes at the top are the ones that change what reaches disk.</figcaption>
+      </figure>
+
+      <p>
+        <b>Verify edits before write</b> compiles the edit in memory before it reaches disk, and
+        <b>refuse breaking edits</b> rejects one that introduces a <em>new</em> compile error.
+        Pre-existing errors never block an edit — the agent is usually editing precisely because the
+        project is broken, and a gate that could not tell the difference would deadlock it.
+      </p>
+
+      <p>
+        <b>Max summarised diagnostics</b> caps what the model is shown. The summariser reports the
+        first error per file, deduplicates by error code, sorts by file position and always states
+        the true total, so the agent knows the scale of the break without reading it. Raw compiler
+        output is never handed to a model: a cascade of hundreds of errors consumes the entire
+        context window and teaches it nothing the first three did not.
+      </p>
+
+      <p>
+        Analyzers are rung 3, and they report rather than gate whether they run or not. That is the
+        same rule the repository's own build follows.
+      </p>
+
+      <h3>Critique</h3>
+
+      <p>
+        Each critic is asked to <em>refute</em> the change rather than to review it. The asymmetry is
+        the point: "is this good?" invites agreement from a model that has just been shown a
+        plausible-looking diff, while "find what is wrong with this" gives it a job it can fail at
+        honestly. Critics vote independently and never see each other's verdicts.
+      </p>
+
+      <p>
+        Put the critic on a different model family from the worker if you can, so the critic's blind
+        spots are not the worker's blind spots. A refutation threshold of zero means a simple
+        majority; an even number of critics can tie.
+      </p>
+
+      <div class="note">
+        <span class="tag">A refutation is a claim, not a verdict</span>
+        <p>
+          <b>Block the change rather than only reporting it</b> is off by default. The critique
+          rung's value is the recovery rate it drives, and a model refuting a change the compiler has
+          already verified is worth reading rather than obeying.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="sandbox">
+      <div class="part-head"><span class="num">08</span><h2>Sandbox &amp; approval</h2></div>
+
+      <p>
+        Where code the agent just wrote is allowed to execute, and who gets asked before a file
+        changes.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Sandbox.png"
+               alt="The Sandbox tab: mode set to Docker, an unchecked permit-unsandboxed-execution box, the SDK image and workspace mount point, network off with network-for-restore on, container hardening on, memory, process and timeout limits, the container environment list, and an Approval group with an unchecked approve-every-write box and a 300-second timeout.">
+        </div>
+        <figcaption>Sandbox policy. The premise is that a build is arbitrary code execution — because it is.</figcaption>
+      </figure>
+
+      <p>
+        An MSBuild target, a source generator, a test's static constructor: each is code the agent
+        just wrote or fetched, running with the harness's privileges. "Run the build" is exactly as
+        dangerous as "run bash", and is treated the same way here — containerised, with the network
+        dropped except for a declared restore step, and no silent fallback to the host.
+      </p>
+
+      <p>
+        <b>Permit unsandboxed execution</b> is off so that a machine without a Docker daemon gets a
+        clear refusal instead of quietly running a model's build script against your own filesystem.
+        Setting mode to <code>Local</code> without also ticking it is caught by validation before the
+        dialog will save, because that combination can run nothing at all.
+      </p>
+
+      <p>
+        <b>Harden the container</b> gives it a read-only root filesystem, drops every Linux
+        capability, forbids privilege escalation and bounds the process count. The mounted workspace
+        stays writable — the agent has to be able to edit and build — so hardening constrains what a
+        build can do to the <em>container</em>, not to the repository it was handed. Scratch space
+        arrives as tmpfs rather than by unlocking the root filesystem, which is why the container
+        environment pins <code>NUGET_PACKAGES</code> and <code>HOME</code> at writable paths.
+      </p>
+
+      <h3>Approval</h3>
+
+      <p>
+        <b>Ask before a change is written</b> turns the Changes surface into a gate: each write
+        pauses with the diff and Approve / Reject next to it. It ships off, because the harness's
+        normal mode is headless measurement.
+      </p>
+
+      <div class="note">
+        <span class="tag">Silence is refusal</span>
+        <p>
+          Nobody answering within the approval timeout rejects the change, with that reason recorded.
+          Not approval — an unattended prompt must never become a write. The console host cannot ask
+          anyone at all, so it fails closed rather than approving silently.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="logging">
+      <div class="part-head"><span class="num">09</span><h2>Logging &amp; metrics</h2></div>
+
+      <p>
+        The transcript is the primary teaching artifact, and this tab decides how much of it survives
+        to disk.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Logging.png"
+               alt="The Logging tab: log directory and the JSONL and text file names, minimum level, console output, retained file count, a log-source-content checkbox, max logged text length, the redacted property names list, and a Metrics group with directory and file name.">
+        </div>
+        <figcaption>Two sinks, one redaction switch, and the JSONL a notebook reads.</figcaption>
+      </figure>
+
+      <p>
+        Two sinks, always: JSONL for machines and text for people. Every run must be fully
+        reconstructable as a transcript from the logs alone, which is why the step skeleton — index,
+        tool name, whether the call parsed, tokens, latency, outcome — is written regardless of what
+        else is switched off.
+      </p>
+
+      <p>
+        <b>Log source content</b> is the redaction switch. Turning it off keeps that skeleton and
+        drops every piece of source content: prompts, responses, tool results. Use it when the
+        repository is not yours to log.
+      </p>
+
+      <div class="note">
+        <span class="tag">Secrets are scrubbed either way</span>
+        <p>
+          Two independent layers guard the log store, and neither is sufficient alone. One redacts
+          secret-shaped <em>values</em> wherever they appear — a bearer token pasted into a prompt, a
+          key echoed by a tool. The other blanks secret-named <em>properties</em>, and that is the
+          list on this tab. Names are matched whole and case-insensitively: substring matching would
+          swallow legitimate properties such as <code>TotalTokens</code>.
+        </p>
+      </div>
+
+      <p>
+        The metrics group names the JSONL the Metrics surface reads. Both directories resolve against
+        the <em>working directory</em> rather than the executable's — which is the single most common
+        reason a dashboard comes up empty. The Metrics surface always names the exact path it looked
+        at; check that before checking anything else.
+      </p>
+    </section>
+
+    <!-- ============ 10 ============ -->
+    <section class="part" id="telemetry">
+      <div class="part-head"><span class="num">10</span><h2>Telemetry &amp; provenance</h2></div>
+
+      <p>
+        Tracing every model call, and stamping every run with what the code and context were when it
+        ran.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Telemetry.png"
+               alt="The Telemetry tab: tracing enabled, service name GlassCoder, console exporter off, an empty OTLP endpoint, additional sources, and a Provenance group with stamp-runs enabled, the trigger exclusions list showing logs, metrics, runs, bin and obj, and source extensions .cs, .csproj, .props and .targets.">
+        </div>
+        <figcaption>Tracing and freshness. The exclusions list is what stops the freshness check chasing its own tail.</figcaption>
+      </figure>
+
+      <p>
+        Tracing is attached inside the model-client pipeline itself, so every call is traced without
+        any call site having to remember to do it. Leave the OTLP endpoint empty and spans go
+        nowhere; point it at a collector and they go there. The console exporter is useful while
+        learning and noisy afterwards.
+      </p>
+
+      <p>
+        Whether prompts and responses ride along inside those spans is <em>not</em> set here — it is
+        <b>Sensitive telemetry</b> on the Models tab, and it is off by default. That is the redaction
+        switch on the tracing side, and it is deliberately separate from the logging one: exporting
+        spans to a collector is a different trust boundary from writing a file on your own disk.
+      </p>
+
+      <p>
+        Provenance stamps each run with the state of the working tree and configuration, and judges
+        whether the context was newer than the code. The trigger exclusions are the harness's own
+        output — logs, metrics, runs, bin, obj, .git. Counting those as source changes would make
+        every run look stale immediately after the previous run wrote its logs: a trigger loop that
+        never settles.
+      </p>
+    </section>
+
+    <!-- ============ 11 ============ -->
+    <section class="part" id="wiring">
+      <div class="part-head"><span class="num">11</span><h2>How it is wired</h2></div>
+
+      <p>
+        The dialog binds the <em>real</em> options classes rather than a parallel set of editable
+        copies. That is the one structural decision worth knowing about, because it is what stops the
+        dialog rotting: a second, hand-maintained model of the configuration drifts the moment
+        somebody adds a property, and then the UI quietly stops being able to set it. Here a new
+        option round-trips through the file the day it is added — only its editor has to be written.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Type</th><th class="m">Project</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">GlassCoderSettings</td>
+              <td class="m">Core/Configuration</td>
+              <td>Every section in one object, read from the effective <code>IConfiguration</code>
+                  and validated in the same words the startup validators use.</td>
+            </tr>
+            <tr>
+              <td class="m">UserSettingsStore</td>
+              <td class="m">Core/Configuration</td>
+              <td>Writes both files atomically, and lifts the keys out of the document on the way.</td>
+            </tr>
+            <tr>
+              <td class="m">DpapiSecretProtector</td>
+              <td class="m">Core/Configuration</td>
+              <td>Encrypts at rest, and reports honestly when it cannot.</td>
+            </tr>
+            <tr>
+              <td class="m">ModelConnectionProbe</td>
+              <td class="m">Models</td>
+              <td>The four-step check. UI-free, so the console host could use it too.</td>
+            </tr>
+            <tr>
+              <td class="m">SettingsViewModel</td>
+              <td class="m">Wpf/ViewModels</td>
+              <td>Binds the options objects, validates before saving, owns the commands.</td>
+            </tr>
+            <tr>
+              <td class="m">SettingsWindow</td>
+              <td class="m">Wpf/Views</td>
+              <td>Seven tabs. Its code-behind is twenty lines and sets a <code>DataContext</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The configuration sources are added in <code>GlassCoderHost</code>, the one bootstrap both
+        front ends share — so the console host reads the same saved settings and the same keys as the
+        desktop app. Two front ends binding different configuration would slowly become two different
+        agents, and no measurement taken in one would apply to the other.
+      </p>
+
+      <div class="note">
+        <span class="tag">One consequence to know about</span>
+        <p>
+          The configuration binder <em>appends</em> to a list that already holds defaults rather than
+          replacing it. Saving the effective configuration back to disk therefore writes out the
+          defaults, which the binder would append to the defaults again on the next load. The reader
+          deduplicates for exactly this reason — without it, the denied-globs list would double every
+          time you opened the dialog.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 12 ============ -->
+    <section class="part" id="stuck">
+      <div class="part-head"><span class="num">12</span><h2>When it looks wrong</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Symptom</th><th>Cause</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>A value snaps back after saving</td>
+              <td>Something above layer 2 is setting it — almost always a leftover
+                  <code>GlassCoder__…</code> environment variable, or the <code>--config</code> arm
+                  the app was launched with.</td>
+            </tr>
+            <tr>
+              <td>Save did nothing, and red text appeared</td>
+              <td>Validation failed. The list above the buttons names every problem, in the words the
+                  startup validators would use. Nothing was written.</td>
+            </tr>
+            <tr>
+              <td>"Stored keys could not be decrypted"</td>
+              <td><code>secrets.json</code> came from another machine or another Windows account.
+                  DPAPI is bound to the account; re-enter the key.</td>
+            </tr>
+            <tr>
+              <td>The check passes, a run still fails on auth</td>
+              <td>A named environment variable is supplying a different key from the stored one. The
+                  hint under the key field says which is winning.</td>
+            </tr>
+            <tr>
+              <td>Server step warns, completion passes</td>
+              <td>The server does not implement <code>/models</code>. Common, harmless, and the reason
+                  the alias step is skipped rather than failed.</td>
+            </tr>
+            <tr>
+              <td>Alias step warns</td>
+              <td>The server serves something else. Read the list it returned and address a served
+                  alias — serving topology lives below the seam.</td>
+            </tr>
+            <tr>
+              <td>Completion times out at thirty seconds</td>
+              <td>The check is capped there whatever the role timeout says. Usually a model still
+                  loading; try again once the server reports ready.</td>
+            </tr>
+            <tr>
+              <td>Saved settings changed nothing</td>
+              <td>Every section is bound once at startup. Use <b>Save and restart</b>, or restart
+                  yourself.</td>
+            </tr>
+            <tr>
+              <td>The agent still cannot write</td>
+              <td><b>Writable paths</b> is empty, and empty means nothing — not everything.</td>
+            </tr>
+            <tr>
+              <td>You want the shipped configuration back</td>
+              <td><b>Reset</b> deletes both files. The next start falls back to
+                  <code>appsettings.json</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder settings guide · src/GlassCoder.Wpf/Views/SettingsWindow.xaml · companion to the <a href="index.html">operator's guide</a> and the <a href="wpf-app.html">desktop app guide</a>
+</footer>
+</body>
+</html>

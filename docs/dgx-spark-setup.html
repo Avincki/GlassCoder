@@ -883,7 +883,9 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
 
       <p>
         In <code>config/appsettings.json</code>, the roles point at the ports you just opened.
-        Nothing else in the harness needs to know what hardware this is.
+        Nothing else in the harness needs to know what hardware this is. The desktop app's
+        <a href="settings.html">settings dialog</a> edits the same roles if you would rather not
+        hand-edit JSON — and can check each one against the box before you trust it.
       </p>
 
 <pre><code>"Models": {
@@ -955,6 +957,14 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
           <div class="step-body">
             <h3>The endpoint answers</h3>
 <pre><code>curl -s localhost:8001/v1/models | jq '.data[].id'   <span class="c"># → "worker"</span></code></pre>
+            <p>
+              From the desktop app, <b>Settings… → Test connection</b> does this and the completion
+              below it in one press, per role, against the endpoint and key the harness will
+              actually use — and reports which of the four stages failed rather than a single
+              verdict. See <a href="settings.html">the settings guide</a>. The
+              <code>curl</code> above stays the right tool when you are on the box itself and the
+              app is not.
+            </p>
           </div>
         </li>
 

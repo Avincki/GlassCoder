@@ -605,6 +605,7 @@
     </div>
     <div class="backlinks">
       <a href="index.html">← Operator's guide</a>
+      <a href="settings.html">Settings &amp; the connection check →</a>
       <a href="wpf-tutorial.html">Tutorial one: nine lessons against a fixture →</a>
       <a href="wpf-tutorial-sorter.html">Tutorial two: writing a class →</a>
     </div>
@@ -641,16 +642,17 @@
       <figure>
         <div class="shot">
           <img src="../GlassCoder.png"
-               alt="The GlassCoder desktop window: a dark header with the goal text box and Run and Cancel buttons, a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 7 tools&quot;.">
+               alt="The GlassCoder desktop window: a dark header with the goal text box and Run, Cancel and Settings buttons, a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 8 tools&quot;.">
           <span class="mark" style="left:48.9%; top:7.2%;">1</span>
-          <span class="mark" style="left:93.5%; top:7.2%;">2</span>
+          <span class="mark" style="left:85.5%; top:7.2%;">2</span>
           <span class="mark" style="left:6.2%;  top:18.6%;">3</span>
           <span class="mark" style="left:43%;   top:12.8%;">4</span>
           <span class="mark" style="left:56%;   top:40%;">5</span>
           <span class="mark" style="left:56%;   top:76%;">6</span>
           <span class="mark" style="left:60%;   top:97.5%;">7</span>
+          <span class="mark" style="left:95.6%; top:7.2%;">8</span>
         </div>
-        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet. The screenshot predates <code>create_file</code>, so its status bar still counts seven tools.</figcaption>
+        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet.</figcaption>
       </figure>
 
       <dl class="legend">
@@ -664,9 +666,7 @@
           <span class="n">2</span>
           <dt>Run · Cancel</dt>
           <dd>Mutually exclusive: <b>Run</b> is enabled only when idle, <b>Cancel</b> only while a
-              run is in flight. Cancel trips the run's <code>CancellationToken</code>.
-              <b>Settings…</b> sits to their right, disabled during a run because nothing it
-              changes can reach one; the screenshot predates it.</dd>
+              run is in flight. Cancel trips the run's <code>CancellationToken</code>.</dd>
         </div>
         <div>
           <span class="n">3</span>
@@ -697,6 +697,13 @@
           <dt>Status bar</dt>
           <dd>At rest, the registered tool count and their names. During a run, <code>Running…</code>.
               Afterwards, the stop reason, step count, tokens and tool-call validity.</dd>
+        </div>
+        <div>
+          <span class="n">8</span>
+          <dt>Settings…</dt>
+          <dd>Every endpoint, alias, key, budget and guardrail, plus a per-role connection check.
+              Disabled while a run is in flight, because nothing it changes could reach one.
+              <a href="settings.html">Its own guide is here</a>.</dd>
         </div>
       </dl>
 
@@ -849,89 +856,27 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
       <h3>Or set them in the app</h3>
 
       <p>
-        <b>Settings…</b> in the header opens a dialog over every section of the configuration: the
-        served roles with their endpoints, aliases, API keys, sampling and decoding properties,
-        then the workspace, budgets, context, verification, sandbox, approval, logging, metrics,
-        telemetry and provenance. What it shows is the <em>effective</em> configuration — every
-        layer the app actually bound — rather than the contents of any one file.
+        <b>Settings…</b> in the header opens a dialog over every one of those sections — roles,
+        endpoints, aliases, API keys, budgets, guardrails, sinks — and saves them per user, to
+        <code>%APPDATA%\GlassCoder\settings.json</code> with the keys held separately under DPAPI.
+        Saved settings sit above <code>appsettings.json</code> and below environment variables and
+        any <code>--config</code> arm, so an arm still means the same thing on every machine.
       </p>
-
-      <div class="scroller">
-        <table>
-          <thead><tr><th>Saved to</th><th class="m">Path</th><th>What is in it</th></tr></thead>
-          <tbody>
-            <tr>
-              <td>Settings</td>
-              <td class="m">%APPDATA%\GlassCoder\settings.json</td>
-              <td>Every section, in the same shape as <code>appsettings.json</code> — readable and
-                  hand-editable on purpose. Not the copy next to the executable, which is build
-                  output and one rebuild away from discarding anything written into it.</td>
-            </tr>
-            <tr>
-              <td>API keys</td>
-              <td class="m">%APPDATA%\GlassCoder\secrets.json</td>
-              <td>One DPAPI blob per role, bound to your Windows account. A key never appears in
-                  the settings file, and the file decrypts to nothing on another machine or under
-                  another account.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
 
       <p>
-        Saved settings sit <em>above</em> <code>appsettings.json</code> and <em>below</em>
-        environment variables and any <code>--config</code> arm. That order is the whole point: a
-        preference saved on one machine must never quietly redefine what an ablation arm means on
-        another. Nothing reaches the running process either — every section is bound once at
-        startup through <code>IOptions&lt;T&gt;</code> — which is why the dialog offers
-        <b>Save and restart</b> next to <b>Save</b>, and why the status bar says so after a save.
+        Each role also has a <b>Test connection</b> button, which is the fastest way to answer the
+        question this whole section is really about: is anything listening, does it accept the key,
+        does it serve this alias, and can it actually generate. Four steps, because those four
+        failures have four different fixes.
       </p>
-
-      <h3>Test connection</h3>
-
-      <p>
-        Every role has a <b>Test connection</b> button, and it reports four steps rather than one
-        verdict, because the four ways a seam fails have four different fixes:
-      </p>
-
-      <div class="scroller">
-        <table>
-          <thead><tr><th>Step</th><th>Answers</th><th>What its failure means</th></tr></thead>
-          <tbody>
-            <tr>
-              <td>Settings</td>
-              <td>Would the harness start on this at all?</td>
-              <td>An endpoint that is not an absolute http(s) URL, or a checkpoint path where a
-                  served alias belongs. Nothing touches the network.</td>
-            </tr>
-            <tr>
-              <td>Server</td>
-              <td>Is something listening, and does it accept the key?</td>
-              <td>Connection refused is the server; <code>401</code> is the key. A server that
-                  does not implement <code>/models</code> is a warning, not a failure.</td>
-            </tr>
-            <tr>
-              <td>Alias</td>
-              <td>Does it serve the alias this role addresses?</td>
-              <td>The server is up and serving <code>qwen3-coder-30b</code> while the role asks
-                  for <code>worker</code>.</td>
-            </tr>
-            <tr>
-              <td>Completion</td>
-              <td>Can it actually generate?</td>
-              <td>Everything is wired and generation still fails — a served alias whose weights
-                  failed to load, or a model still loading.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
 
       <div class="note">
-        <span class="tag">A check that stops short of the seam is worse than no check</span>
+        <span class="tag">Bound once at startup</span>
         <p>
-          The last step asks for a real completion over the real endpoint with the real key, and
-          reports the reply and what it cost in tokens. A check that stopped at a handshake would
-          pass in exactly the case you most need it to fail — and it would be believed.
+          Saving does not reach the running process — every section binds through
+          <code>IOptions&lt;T&gt;</code> when the host starts — so the dialog offers <b>Save and
+          restart</b>. <a href="settings.html">The settings guide</a> covers every tab, the
+          precedence chain, and what each step of the connection check is really asking.
         </p>
       </div>
 

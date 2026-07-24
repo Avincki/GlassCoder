@@ -619,6 +619,7 @@
     <div class="backlinks">
       <a href="index.html">← Operator's guide</a>
       <a href="wpf-app.html">← Desktop app reference</a>
+      <a href="settings.html">← Settings &amp; the connection check</a>
       <a href="wpf-tutorial-sorter.html">Tutorial two: writing a class →</a>
     </div>
   </div>
@@ -764,7 +765,9 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
         <p>
           Eight tools, Cancel greyed out, empty grid. If instead you see a
           <code>Failed:</code> message, the app started but could not reach your endpoint —
-          check <code>Models:Roles:worker:Endpoint</code>.
+          check <code>Models:Roles:worker:Endpoint</code>, or press <b>Settings… → Test
+          connection</b>, which says which of the four stages failed rather than making you
+          guess (<a href="settings.html">guide</a>).
         </p>
       </div>
     </section>
@@ -1031,6 +1034,16 @@ Arguments supplied: { "file": "Pager.cs", "start": 1 }</div>
         The first opts the fixture root into being writable — empty means nothing is. The second
         turns on the interactive gate; leave it <code>false</code> and writes land silently with
         no prompt at all.
+      </p>
+
+      <p>
+        Environment variables are used here because they are per-shell and vanish when you close
+        it, which is what you want for a tutorial. Both settings also live in
+        <b>Settings… → Workspace</b> and <b>Sandbox</b> if you want them to persist —
+        <a href="settings.html">see the settings guide</a>. Note the order if you set both: an
+        environment variable wins over anything the dialog saved, so an exported
+        <code>GlassCoder__…</code> left over from this lesson will keep overriding the dialog
+        until you clear it.
       </p>
 
       <div class="do">

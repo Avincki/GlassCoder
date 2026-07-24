@@ -899,7 +899,10 @@
 
       <ul class="prose">
         <li>Secrets — a GitHub token — resolve through the existing
-            <code>ApiKeyEnvironmentVariable</code> pattern rather than living in config files.</li>
+            <code>ApiKeyEnvironmentVariable</code> pattern rather than living in config files, or
+            through the DPAPI-protected store the <a href="../settings.html">settings dialog</a>
+            writes. Either way the token stays out of the repository and out of
+            <code>settings.json</code>.</li>
         <li>MCP responses land in transcripts, so they go through
             <code>SecretRedactor</code> like everything else. A token echoed in an error body is
             the obvious way to leak one.</li>

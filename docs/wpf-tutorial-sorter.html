@@ -619,6 +619,7 @@
     <div class="backlinks">
       <a href="index.html">← Operator's guide</a>
       <a href="wpf-app.html">← Desktop app reference</a>
+      <a href="settings.html">← Settings &amp; the connection check</a>
       <a href="wpf-tutorial.html">← Tutorial one: fixing a bug</a>
     </div>
   </div>
@@ -880,6 +881,14 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
           </tbody>
         </table>
       </div>
+
+      <p>
+        All three are also on the <b>Settings…</b> tabs, and saving them there makes them stick
+        across sessions rather than dying with the shell — <a href="settings.html">the settings
+        guide</a> has the details. Environment variables are used here precisely because they
+        <em>do</em> die with the shell, and because they outrank anything the dialog saved, which
+        keeps this lesson reproducible on a machine that has been configured for something else.
+      </p>
 
       <figure>
         <div class="ui">
