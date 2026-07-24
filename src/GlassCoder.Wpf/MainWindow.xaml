@@ -3,9 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:GlassCoder.Wpf.ViewModels"
         xmlns:views="clr-namespace:GlassCoder.Wpf.Views"
+        xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters"
         Title="GlassCoder" Height="760" Width="1240">
 
   <Window.Resources>
+    <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <!-- Navigation is data-templated: selecting a surface swaps the view model, and WPF picks
          the view. No code-behind, no navigation service to keep in sync (CLAUDE.md §14). -->
     <DataTemplate DataType="{x:Type vm:TranscriptViewModel}">
@@ -29,6 +31,7 @@
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Column="0" Text="GlassCoder" Foreground="White" FontSize="18" FontWeight="Bold"
@@ -37,14 +40,22 @@
         <TextBox Grid.Column="1" VerticalAlignment="Center" Padding="6,4" FontSize="13"
                  Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}" />
 
-        <Button Grid.Column="2" Content="Run" Padding="18,4" Margin="8,0,0,0"
+        <!-- Ticked before the run, never during it: the critic is part of what the run is, so
+             swapping it mid-flight would make one run two arms. -->
+        <CheckBox Grid.Column="2" Content="Second opinion" Foreground="White" VerticalAlignment="Center"
+                  Margin="12,0,0,0"
+                  IsChecked="{Binding UseRemoteCritic}"
+                  IsEnabled="{Binding RemoteCriticAvailable}"
+                  ToolTip="{Binding RemoteCriticTooltip}" />
+
+        <Button Grid.Column="3" Content="Run" Padding="18,4" Margin="8,0,0,0"
                 Command="{Binding RunCommand}" />
-        <Button Grid.Column="3" Content="Cancel" Padding="14,4" Margin="8,0,0,0"
+        <Button Grid.Column="4" Content="Cancel" Padding="14,4" Margin="8,0,0,0"
                 Command="{Binding CancelCommand}" />
-        <Button Grid.Column="4" Content="Settings…" Padding="14,4" Margin="16,0,0,0"
+        <Button Grid.Column="5" Content="Settings…" Padding="14,4" Margin="16,0,0,0"
                 Command="{Binding SettingsCommand}"
                 ToolTip="Endpoints, API keys, budgets and guardrails - and a check that the seam works." />
-        <Button Grid.Column="5" Content="About" Padding="12,4" Margin="8,0,0,0"
+        <Button Grid.Column="6" Content="About" Padding="12,4" Margin="8,0,0,0"
                 Command="{Binding AboutCommand}"
                 ToolTip="What this is, who built it, and which build you are running." />
       </Grid>
@@ -52,6 +63,31 @@
 
     <Border DockPanel.Dock="Bottom" Background="#ECEFF1" Padding="12,6">
       <TextBlock Text="{Binding Status}" Foreground="#263238" TextWrapping="Wrap" />
+    </Border>
+
+    <!-- The second opinion on the finished run. It advises you rather than the agent, so it sits
+         on the shell above the status bar and stays put whichever surface is selected. Retry is
+         a button and only a button: a critic that could re-run the agent by itself would be
+         deciding when the worker gets another attempt (CLAUDE.md §11). -->
+    <Border DockPanel.Dock="Bottom" Background="#FFF8E1" BorderBrush="#E0B200" BorderThickness="0,1,0,1"
+            Padding="12,8" Visibility="{Binding HasReview, Converter={StaticResource BoolToVisibility}}">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="0">
+          <TextBlock Text="{Binding ReviewHeadline}" FontWeight="Bold" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ReviewSummary}" Margin="0,4,0,0" TextWrapping="Wrap" Foreground="#5D4C00" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
+          <Button Content="Retry with this" Padding="12,4" Command="{Binding RetryCommand}"
+                  ToolTip="Runs the task again as a new attempt, with these findings added to the goal." />
+          <Button Content="Dismiss" Padding="12,4" Margin="8,0,0,0" Command="{Binding DismissReviewCommand}" />
+        </StackPanel>
+      </Grid>
     </Border>
 
     <ListBox DockPanel.Dock="Left" Width="150" Margin="0" BorderThickness="0,0,1,0"

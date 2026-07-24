@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace GlassCoder.Models.Configuration;
 
@@ -32,6 +33,13 @@ public sealed class ModelRoleOptions
     /// <summary>Environment variable to read the API key from. Takes precedence over <see cref="ApiKey"/>.</summary>
     public string? ApiKeyEnvironmentVariable { get; set; }
 
+    /// <summary>
+    /// Whether this role is unusable without a key. Declared rather than guessed: a local server
+    /// ignores the credential entirely, a hosted one rejects the request, and the difference is
+    /// not something the harness can infer from an endpoint string.
+    /// </summary>
+    public bool RequiresApiKey { get; set; }
+
     /// <summary>Per-request network timeout. Local generation can be slow; default is generous.</summary>
     [Range(1, 3600)]
     public int TimeoutSeconds { get; set; } = 600;
@@ -63,6 +71,15 @@ public sealed class ModelRoleOptions
     /// </summary>
     public IDictionary<string, string> AdditionalRequestProperties { get; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether the role has everything it needs to be addressed at all. A configured role is not
+    /// the same as a reachable one: a hosted role whose key never arrived is present in the
+    /// dictionary and answers nothing, and a caller that offers it a button will fail on press.
+    /// </summary>
+    /// <remarks>Derived, so the settings file records the declaration and not today's answer.</remarks>
+    [JsonIgnore]
+    public bool IsUsable => !RequiresApiKey || !string.IsNullOrWhiteSpace(ResolveApiKey());
 
     /// <summary>Resolves the effective API key, preferring the environment variable.</summary>
     public string? ResolveApiKey()

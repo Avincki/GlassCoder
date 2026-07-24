@@ -9,6 +9,82 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-24 — The second-opinion critic
+
+**Shipped.** A critic role chosen per run rather than per process, a post-run
+review of a finished run, and a retry only a human can press. Quorum handling so
+an unreachable critic is no longer an approving vote. A `critic-remote` role
+alongside `critic`, and a `RequiresApiKey` declaration so a control that offers a
+critic can be greyed out instead of failing on press. A **Second opinion**
+checkbox in the shell header and a review strip above the status bar. 252 tests
+green, build clean. `docs/NewFeatures/claude-second-opinion.html` rewritten from
+proposal to design note, with three corrections to what it previously claimed.
+
+**Decided**
+
+- **The critic is chosen before the run, not during it.** The first sketch was a
+  three-state dropdown switchable mid-session. It was dropped because a run whose
+  critic changed at change 7 of 20 is two arms, and no number taken from it
+  belongs to either. Reading a checkbox when **Run** is pressed makes the run one
+  arm by construction and costs nothing — the choice rides on `AgentRunRequest`
+  next to the model role and the budget, and lands in the run record.
+- **No critic ever starts a run.** The post-run reviewer composes a retry goal
+  and stops; pressing the button is the human's job. An automatic retry would be
+  a second attempt granted by a model, and a store that cannot tell a first
+  attempt from a granted one reports `pass@2` under the name `pass@1`. Hence
+  `Attempt` on the request, result, run record and `RunMetrics`.
+- **Two critic roles, not one repointed role.** The roles dictionary was already
+  open-ended; the only thing in the way was `CritiqueOptions.Role` being the
+  single answer. `Role` is now the default and `RemoteRole` is what the checkbox
+  asks for, with the role passed per call.
+- **An unconfigured critic role is reported, never silently swapped for the
+  default.** Falling back would answer a question the caller did not ask and put
+  the wrong oracle in the transcript.
+- **`RequiresApiKey` is declared, not inferred.** Guessing from the endpoint —
+  `localhost` free, everything else paid — is wrong about reverse proxies, LAN
+  servers and gateways alike.
+- **An empty completion is a failure to judge, not an acceptance.** It joins the
+  unreachable critics outside the quorum.
+- **The `RunBudget` overload for billing a second role was written and then
+  removed.** Nothing in a run bills a second role today, so it would have been
+  untestable dead code. The real fix landed as `CritiqueResult.EstimatedCostUsd`,
+  priced at the critic role and shown in the review; `RunBudget.EstimatedCostUsd`
+  carries a comment naming the debt for whoever wires rung 6 into the loop.
+
+**Corrected in the proposal document**
+
+- It claimed `ICriticPanel.Enabled` "already models exactly this" for the
+  no-API-key case. It did not: `ContainsRole` is a dictionary lookup, so a hosted
+  critic with no key reported `Enabled == true` and the button would have failed
+  on press — the exact thing that section said must not happen.
+- It claimed a paid critic "slots into both without new plumbing", so a runaway
+  critique loop "trips a budget rather than a credit card". `RunBudget` prices a
+  whole run from one role's rates, so it does not.
+- Its A/B framing (rung 6 versus a button on the approval banner) was replaced by
+  during-the-run versus after-the-run, because the banner button was not what got
+  built and the post-run review is not a variant of it.
+
+**Open**
+
+- **Nothing calls `VerificationLadder.VerifyAsync`.** Rung 6 is written, tested,
+  and now takes a critic role — and no code path in `src` climbs the ladder. The
+  in-run half of the feature is a capability the harness has and never uses, and
+  the recovery-rate argument cannot be run at all until it is wired. Bigger and
+  less visible than the transport gap, because everything around it compiles.
+- **The transport is still missing.** `ChatClientFactory` builds one shape of
+  client, so `critic-remote` can address an OpenAI-compatible gateway or a second
+  local model of a different family — not Anthropic's `/v1/messages`. The shipped
+  config points at `localhost:8004` rather than pretending otherwise. A critic
+  needs no tools and no streaming, so the client this wants is small.
+- **The review text is not persisted.** `CriticRole` and `Attempt` reach the run
+  record; the critique itself lives in the view model until dismissed. An opinion
+  that shaped a decision and left no trace is the one thing on that surface you
+  cannot reconstruct.
+- Critique is still off by default, so all of this is dormant until
+  `Critique:Enabled` is set.
+
+---
+
 ## 2026-07-24 — Settings dialog and the connection check
 
 **Shipped.** A settings dialog over every configuration section, reached from

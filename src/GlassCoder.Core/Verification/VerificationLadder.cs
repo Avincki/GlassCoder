@@ -76,6 +76,10 @@ public sealed record VerificationReport(
 /// <param name="RunFullSuite">Whether to finish with the whole suite.</param>
 /// <param name="Goal">What the change was meant to achieve, for the critique rung.</param>
 /// <param name="ChangeDescription">The change itself, for the critique rung.</param>
+/// <param name="CriticRole">
+/// Which critic judges rung 6. Null takes the configured default. Chosen by the caller before
+/// the run rather than by the process, so a run is one arm from start to finish.
+/// </param>
 public sealed record VerificationRequest(
     string? FilePath = null,
     string? FileText = null,
@@ -83,7 +87,8 @@ public sealed record VerificationRequest(
     string? TestFilter = null,
     bool RunFullSuite = false,
     string? Goal = null,
-    string? ChangeDescription = null);
+    string? ChangeDescription = null,
+    string? CriticRole = null);
 
 /// <summary>
 /// Climbs the verification ladder, cheapest oracle first, and stops at the first failure
@@ -280,7 +285,7 @@ public sealed class VerificationLadder : IVerificationLadder
 
             case VerificationRung.Critique:
             {
-                if (!_critics.Enabled || request.ChangeDescription is null)
+                if (!_critics.CanCritique(request.CriticRole) || request.ChangeDescription is null)
                 {
                     return Skip(rung, "Critique is not enabled for this run.", start);
                 }
@@ -289,6 +294,7 @@ public sealed class VerificationLadder : IVerificationLadder
                     request.Goal ?? "(no goal recorded)",
                     request.ChangeDescription,
                     string.Join(Environment.NewLine, results.Where(r => !r.Skipped).Select(r => r.Summary)),
+                    request.CriticRole,
                     cancellationToken).ConfigureAwait(false);
 
                 // Whether a refutation blocks or merely warns is configuration: a critic is a

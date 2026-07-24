@@ -22,6 +22,16 @@ public sealed record RunRecord
     /// <summary>Served role that drove the run.</summary>
     public required string Role { get; init; }
 
+    /// <summary>
+    /// The critic role the run was submitted with, when one was named. Recorded because it is
+    /// part of what the run <em>was</em>: two runs of the same goal judged by different oracles
+    /// are two arms, and a transcript that omits which one ran cannot say so.
+    /// </summary>
+    public string? CriticRole { get; init; }
+
+    /// <summary>Which attempt at the task this run was. 1 unless something re-ran it.</summary>
+    public int Attempt { get; init; } = 1;
+
     /// <summary>The goal the agent was given.</summary>
     public string? Goal { get; init; }
 

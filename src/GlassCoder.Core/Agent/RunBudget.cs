@@ -41,6 +41,17 @@ internal sealed class RunBudget
 
     public TimeSpan Elapsed => _time.GetElapsedTime(_startTimestamp);
 
+    /// <summary>
+    /// Spend on the run, at the driving role's prices.
+    /// <para>
+    /// This prices every token at one role's rate, which is correct only while a run addresses
+    /// one role - true today, and not true the moment the critique rung runs inside the loop on a
+    /// paid critic. Charging that critic at a local worker's rate of zero would make
+    /// <see cref="AgentOptions.MaxCostUsd"/> a budget that cannot trip. Whoever wires rung 6 into
+    /// the loop owes this method a second price table; <see cref="Verification.CritiqueResult"/>
+    /// already carries the panel's own cost, computed from the critic role's prices.
+    /// </para>
+    /// </summary>
     public decimal EstimatedCostUsd =>
         ((decimal)InputTokens / 1_000_000m * _role.InputCostPerMillionTokens) +
         ((decimal)OutputTokens / 1_000_000m * _role.OutputCostPerMillionTokens);

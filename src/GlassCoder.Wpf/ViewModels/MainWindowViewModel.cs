@@ -4,9 +4,11 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Wpf.ViewModels;
 
@@ -25,11 +27,18 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IToolRegistry _tools;
     private readonly ISettingsDialog _settings;
     private readonly IAboutDialog _about;
+    private readonly ICriticPanel _critics;
+    private readonly IRunReviewer _reviewer;
+    private readonly CritiqueOptions _critique;
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
     private string _status = "Ready.";
     private bool _isRunning;
+    private bool _useRemoteCritic;
+    private RunReview? _review;
+    private string? _reviewedGoal;
+    private int _reviewedAttempt;
     private CancellationTokenSource? _cancellation;
 
     /// <summary>Creates the shell.</summary>
@@ -40,12 +49,20 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ChangesViewModel changes,
         MetricsViewModel metrics,
         ISettingsDialog settings,
-        IAboutDialog about)
+        IAboutDialog about,
+        ICriticPanel critics,
+        IRunReviewer reviewer,
+        IOptions<CritiqueOptions> critique)
     {
+        ArgumentNullException.ThrowIfNull(critique);
+
         _loop = loop;
         _tools = tools;
         _settings = settings;
         _about = about;
+        _critics = critics;
+        _reviewer = reviewer;
+        _critique = critique.Value;
 
         Transcript = transcript;
         Changes = changes;
@@ -56,6 +73,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         CancelCommand = new RelayCommand(() => _cancellation?.Cancel(), () => IsRunning);
         SettingsCommand = new RelayCommand(OpenSettings, () => !IsRunning);
         AboutCommand = new RelayCommand(() => _about.Show());
+        RetryCommand = new RelayCommand(async () => await RetryAsync().ConfigureAwait(true), () => CanRetry);
+        DismissReviewCommand = new RelayCommand(() => Review = null, () => Review is not null);
 
         Status = string.Create(CultureInfo.InvariantCulture,
             $"Ready. {_tools.Functions.Count} tools: {string.Join(", ", ToolNames)}");
@@ -136,8 +155,101 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool IsRunning
     {
         get => _isRunning;
-        private set => SetProperty(ref _isRunning, value);
+        private set
+        {
+            if (SetProperty(ref _isRunning, value))
+            {
+                OnPropertyChanged(nameof(CanRetry));
+            }
+        }
     }
+
+    /// <summary>
+    /// Whether this run is judged by the second-opinion critic rather than the local one.
+    /// <para>
+    /// Read once, when Run is pressed. A critic that could be swapped mid-run would make the run
+    /// two arms and its metrics unattributable, so the choice belongs to the request.
+    /// </para>
+    /// </summary>
+    public bool UseRemoteCritic
+    {
+        get => _useRemoteCritic;
+        set => SetProperty(ref _useRemoteCritic, value);
+    }
+
+    /// <summary>Whether the second-opinion critic can be offered at all.</summary>
+    public bool RemoteCriticAvailable =>
+        !string.IsNullOrWhiteSpace(_critique.RemoteRole) && _critics.CanCritique(_critique.RemoteRole);
+
+    /// <summary>
+    /// Why the checkbox is on or off. A disabled control that does not say why is a bug report
+    /// waiting to happen, and "no API key" and "critique is switched off" are different fixes.
+    /// </summary>
+    public string RemoteCriticTooltip =>
+        string.IsNullOrWhiteSpace(_critique.RemoteRole)
+            ? "No second-opinion critic is configured. Set Critique:RemoteRole to a served role."
+            : RemoteCriticAvailable
+                ? $"Judge this run with the '{_critique.RemoteRole}' critic instead of '{_critique.Role}'. " +
+                  "Chosen before the run and recorded in the transcript."
+                : $"The '{_critique.RemoteRole}' critic cannot be reached: critique is switched off, " +
+                  "or the role is missing its API key. Both are fixed in Settings.";
+
+    /// <summary>The second opinion on the last run, when there is one.</summary>
+    public RunReview? Review
+    {
+        get => _review;
+        private set
+        {
+            if (SetProperty(ref _review, value))
+            {
+                OnPropertyChanged(nameof(HasReview));
+                OnPropertyChanged(nameof(ReviewHeadline));
+                OnPropertyChanged(nameof(ReviewSummary));
+                OnPropertyChanged(nameof(CanRetry));
+            }
+        }
+    }
+
+    /// <summary>Whether a review is on screen.</summary>
+    public bool HasReview => Review is not null;
+
+    /// <summary>The one-line verdict, with what the second opinion cost to get.</summary>
+    public string ReviewHeadline
+    {
+        get
+        {
+            if (Review is not { } review)
+            {
+                return string.Empty;
+            }
+
+            // "The panel could not be reached" and "the panel had nothing to say" are different
+            // facts, and only one of them is about the code.
+            string verdict = review.Inconclusive ? "The critics could not be reached"
+                : !review.Reviewed ? "Not reviewed"
+                : review.Refuted ? "The critic refutes this run"
+                : "The critic accepts this run";
+
+            // A review that never called a model has no role, latency or cost to report.
+            if (!review.Reviewed && !review.Inconclusive)
+            {
+                return verdict;
+            }
+
+            return string.Create(CultureInfo.InvariantCulture,
+                $"{verdict} — {review.Role} · {review.DurationMs:F0} ms · ${review.EstimatedCostUsd:F4}");
+        }
+    }
+
+    /// <summary>What the critic said.</summary>
+    public string ReviewSummary => Review?.Summary ?? string.Empty;
+
+    /// <summary>
+    /// Whether there is a refutation worth acting on. The button is the only thing that starts a
+    /// retry: a critic that could re-run the agent itself would be choosing when the worker gets
+    /// another attempt, and pass@1 measured over attempts a model granted is not pass@1.
+    /// </summary>
+    public bool CanRetry => !IsRunning && (Review?.SuggestsRetry ?? false);
 
     /// <summary>Starts a run.</summary>
     public RelayCommand RunCommand { get; }
@@ -150,6 +262,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     /// <summary>Opens the About box. Available during a run - it changes nothing.</summary>
     public RelayCommand AboutCommand { get; }
+
+    /// <summary>Runs the task again, carrying the critic's findings into the new attempt.</summary>
+    public RelayCommand RetryCommand { get; }
+
+    /// <summary>Clears the review from the screen without acting on it.</summary>
+    public RelayCommand DismissReviewCommand { get; }
 
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()
@@ -172,27 +290,59 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
-    private async Task RunAsync()
+    private Task RunAsync() => RunAsync(Goal, attempt: 1);
+
+    /// <summary>
+    /// Runs the task again with the critic's findings appended to the goal.
+    /// <para>
+    /// This is a new run against the same task, not a continuation of the last one - a fresh run
+    /// id, and an attempt number the metrics store can filter on. That is what keeps pass@1
+    /// meaning "solved on the first attempt" once retries exist (CLAUDE.md §11).
+    /// </para>
+    /// </summary>
+    private Task RetryAsync()
     {
-        if (string.IsNullOrWhiteSpace(Goal) || IsRunning)
+        if (Review is not { } review || _reviewedGoal is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(RunReviewer.ComposeRetryGoal(_reviewedGoal, review), _reviewedAttempt + 1);
+    }
+
+    private async Task RunAsync(string goal, int attempt)
+    {
+        if (string.IsNullOrWhiteSpace(goal) || IsRunning)
         {
             return;
         }
 
         IsRunning = true;
-        Status = "Running…";
+        Review = null;
+        Status = attempt > 1 ? $"Running attempt {attempt}…" : "Running…";
         SelectedSurface = "Transcript";
+
+        // Read once, here: from this point the run is one arm, whatever the checkbox does next.
+        string? criticRole = UseRemoteCritic ? _critique.RemoteRole : null;
 
         _cancellation = new CancellationTokenSource();
         try
         {
             AgentRunResult result = await _loop.RunAsync(
-                new AgentRunRequest { TaskId = "desktop", Goal = Goal },
+                new AgentRunRequest
+                {
+                    TaskId = "desktop",
+                    Goal = goal,
+                    CriticRole = criticRole,
+                    Attempt = attempt,
+                },
                 _cancellation.Token).ConfigureAwait(true);
 
             Status = string.Create(CultureInfo.InvariantCulture,
                 $"{result.StopReason} after {result.Steps} steps · {result.TotalTokens} tokens · " +
                 $"tool-call validity {result.ToolCallValidityRate:P0}");
+
+            await ReviewAsync(result, goal, attempt).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -207,6 +357,33 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             _cancellation?.Dispose();
             _cancellation = null;
             IsRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Asks the critic what it makes of the finished run. A review that fails is reported and
+    /// nothing more: the run already happened, and a second opinion that could not be obtained
+    /// must not read as a run that failed.
+    /// </summary>
+    private async Task ReviewAsync(AgentRunResult result, string goal, int attempt)
+    {
+        if (!_reviewer.CanReview(result.CriticRole))
+        {
+            return;
+        }
+
+        Status += " · asking for a second opinion…";
+
+        try
+        {
+            RunReview review = await _reviewer.ReviewAsync(result, CancellationToken.None).ConfigureAwait(true);
+            _reviewedGoal = goal;
+            _reviewedAttempt = attempt;
+            Review = review;
+        }
+        catch (Exception ex)
+        {
+            Status += $" · the review failed: {ex.Message}";
         }
     }
 }

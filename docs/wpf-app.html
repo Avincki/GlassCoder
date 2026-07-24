@@ -669,6 +669,15 @@
               run is in flight. Cancel trips the run's <code>CancellationToken</code>.</dd>
         </div>
         <div>
+          <span class="n">2a</span>
+          <dt>Second opinion</dt>
+          <dd>Judges this run with the second-opinion critic instead of the local one. Read once,
+              when <b>Run</b> is pressed — a critic swapped mid-run would make one run two arms —
+              and recorded in the run record. Disabled, with a tooltip saying why, when critique is
+              switched off or the role has no key.
+              <a href="NewFeatures/claude-second-opinion.html">Design note</a>.</dd>
+        </div>
+        <div>
           <span class="n">3</span>
           <dt>Surface list</dt>
           <dd>Transcript, Changes, Metrics. Selecting one swaps the view model; WPF picks the view
@@ -697,6 +706,15 @@
           <dt>Status bar</dt>
           <dd>At rest, the registered tool count and their names. During a run, <code>Running…</code>.
               Afterwards, the stop reason, step count, tokens and tool-call validity.</dd>
+        </div>
+        <div>
+          <span class="n">7a</span>
+          <dt>Review strip</dt>
+          <dd>Appears above the status bar when a critic has judged the finished run, on whichever
+              surface is selected — it is about the run, not about one change. <b>Retry with this</b>
+              starts a <em>new</em> run against the same task with the findings appended to the
+              goal, tagged as attempt 2 so <code>pass@1</code> stays the rate over first attempts.
+              Nothing but that button starts a retry.</dd>
         </div>
         <div>
           <span class="n">8</span>

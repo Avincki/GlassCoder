@@ -46,11 +46,32 @@ public sealed record AgentRunRequest
     /// <summary>Served role to drive. Falls back to the configured role.</summary>
     public string? Role { get; init; }
 
+    /// <summary>
+    /// Which critic judges this run - rung 6 during it, and the review after it. Null takes the
+    /// configured default.
+    /// <para>
+    /// Fixed before the first step on purpose. A critic that could be swapped mid-run would make
+    /// the run two arms and its metrics unattributable, so the choice is part of the request and
+    /// is recorded in the transcript alongside everything else the run was.
+    /// </para>
+    /// </summary>
+    public string? CriticRole { get; init; }
+
     /// <summary>System prompt override. Falls back to the configured prompt.</summary>
     public string? SystemPrompt { get; init; }
 
     /// <summary>Per-run limit overrides. Falls back to the configured limits.</summary>
     public AgentOptions? Limits { get; init; }
+
+    /// <summary>
+    /// Which attempt at this task this run is. 1 unless something re-ran the task.
+    /// <para>
+    /// Recorded because pass@1 is defined over first attempts (CLAUDE.md §11). A retry prompted
+    /// by a critic's review is a second attempt, and a metrics store that cannot tell the two
+    /// apart reports pass@2 under the name pass@1.
+    /// </para>
+    /// </summary>
+    public int Attempt { get; init; } = 1;
 }
 
 /// <summary>Everything one run produced.</summary>
@@ -61,6 +82,15 @@ public sealed record AgentRunResult
 
     /// <summary>Task identifier.</summary>
     public required string TaskId { get; init; }
+
+    /// <summary>The goal the run was given, so a reviewer can judge the result against the ask.</summary>
+    public string? Goal { get; init; }
+
+    /// <summary>The critic this run asked for, carried so the review uses the same oracle.</summary>
+    public string? CriticRole { get; init; }
+
+    /// <summary>Which attempt at the task this was. 1 unless something re-ran it.</summary>
+    public int Attempt { get; init; } = 1;
 
     /// <summary>Why the loop stopped.</summary>
     public required AgentStopReason StopReason { get; init; }

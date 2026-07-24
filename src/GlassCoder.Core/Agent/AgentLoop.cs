@@ -179,6 +179,9 @@ public sealed class AgentLoop : IAgentLoop
         {
             RunId = request.RunId,
             TaskId = request.TaskId,
+            Goal = request.Goal,
+            CriticRole = request.CriticRole,
+            Attempt = request.Attempt,
             StopReason = stopReason,
             Steps = budget.Steps,
             FinalText = finalText,
@@ -200,6 +203,8 @@ public sealed class AgentLoop : IAgentLoop
             RunId = request.RunId,
             TaskId = request.TaskId,
             Role = role,
+            CriticRole = request.CriticRole,
+            Attempt = request.Attempt,
             Goal = request.Goal,
             SystemPrompt = request.SystemPrompt ?? limits.SystemPrompt,
             StartedAt = startedAt,

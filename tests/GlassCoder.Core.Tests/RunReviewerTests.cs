@@ -1,0 +1,213 @@
+using GlassCoder.Core.Agent;
+using GlassCoder.Core.Verification;
+using GlassCoder.Tools.Changes;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
+
+namespace GlassCoder.Core.Tests;
+
+/// <summary>
+/// The post-run review: the same critic as rung 6, asked after the run instead of during it, and
+/// answering to you rather than to the agent.
+/// <para>
+/// The property worth defending is what it does <em>not</em> do. It never starts a run. A retry
+/// the reviewer triggered would be a second attempt granted by a model, and pass@1 measured over
+/// attempts a critic decided to allow is not pass@1 (CLAUDE.md §11).
+/// </para>
+/// </summary>
+public sealed class RunReviewerTests
+{
+    [Fact]
+    public async Task A_run_that_hit_a_limit_is_not_reviewed()
+    {
+        // StepLimit already says why the run stopped; paying a critic to paraphrase it is spend
+        // for nothing.
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.StepLimit));
+
+        review.Reviewed.ShouldBeFalse();
+        review.Summary.ShouldContain("StepLimit");
+        critics.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_run_that_changed_nothing_is_not_reviewed()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out _);
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        review.Reviewed.ShouldBeFalse();
+        review.Summary.ShouldContain("changed no files");
+        critics.Calls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_completed_run_with_changes_is_reviewed_by_the_critic_the_run_asked_for()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(
+            Result("run-1", AgentStopReason.Completed, criticRole: "critic-remote"));
+
+        review.Reviewed.ShouldBeTrue();
+        critics.Calls.ShouldBe(1);
+        critics.LastRole.ShouldBe("critic-remote");
+        critics.LastChange.ShouldContain("+    return values;", Case.Sensitive);
+        critics.LastEvidence.ShouldContain("Completed");
+    }
+
+    [Fact]
+    public async Task A_refuted_review_offers_a_retry_and_the_retry_carries_the_findings()
+    {
+        StubCriticPanel critics = new()
+        {
+            Verdict = new CritiqueResult(
+                true,
+                [new CritiqueVerdict(true, 0.9, "The input array is sorted in place.")],
+                1,
+                "1/1 critics refuted the change")
+            { RespondingVotes = 1 },
+        };
+
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        review.Refuted.ShouldBeTrue();
+        review.SuggestsRetry.ShouldBeTrue();
+
+        string retry = RunReviewer.ComposeRetryGoal("Sort the values ascending.", review);
+        retry.ShouldStartWith("Sort the values ascending.");
+        retry.ShouldContain("The input array is sorted in place.");
+        retry.ShouldContain("refuted");
+    }
+
+    [Fact]
+    public async Task An_accepted_review_offers_no_retry_and_leaves_the_goal_alone()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        review.Refuted.ShouldBeFalse();
+        review.SuggestsRetry.ShouldBeFalse();
+        RunReviewer.ComposeRetryGoal("Sort the values ascending.", review)
+            .ShouldBe("Sort the values ascending.");
+    }
+
+    [Fact]
+    public async Task An_inconclusive_panel_is_not_a_review_and_offers_no_retry()
+    {
+        // "The critics could not be reached" must not read as "the critics had nothing to say".
+        StubCriticPanel critics = new()
+        {
+            Verdict = new CritiqueResult(false, [], 0, "Critique inconclusive: only 0 of 3 critics could be reached")
+            { Inconclusive = true },
+        };
+
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        review.Reviewed.ShouldBeFalse();
+        review.Inconclusive.ShouldBeTrue();
+        review.SuggestsRetry.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Changes_from_another_run_are_not_reviewed_as_this_ones()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+        Change(changes, "run-other");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        review.Reviewed.ShouldBeFalse();
+        review.Summary.ShouldContain("changed no files");
+    }
+
+    private static RunReviewer Reviewer(StubCriticPanel critics, out ChangeLog changes)
+    {
+        changes = new ChangeLog();
+        return new RunReviewer(critics, changes, Options.Create(new RunReviewOptions()));
+    }
+
+    private static void Change(ChangeLog changes, string runId)
+    {
+        RunContext.Set(new RunContext(runId, "task-1"));
+        CodeChange change = changes.Propose(
+            "src/DoubleSorter.cs",
+            "edit_file",
+            "public static double[] Ascending(double[] values)\n{\n}\n",
+            "public static double[] Ascending(double[] values)\n{\n    Array.Sort(values);\n    return values;\n}\n");
+
+        changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: "3 tests passed.");
+    }
+
+    private static AgentRunResult Result(
+        string runId,
+        AgentStopReason stopReason,
+        string? criticRole = null) =>
+        new()
+        {
+            RunId = runId,
+            TaskId = "task-1",
+            Goal = "Sort the values ascending.",
+            CriticRole = criticRole,
+            StopReason = stopReason,
+            Steps = 4,
+            FinalText = "Done - the sorter now returns ascending values.",
+            Elapsed = TimeSpan.FromSeconds(12),
+            ToolCallsTotal = 6,
+            ToolCallsValid = 6,
+            Messages = [new ChatMessage(ChatRole.Assistant, "done")],
+        };
+
+    /// <summary>A panel that records what it was asked and returns whatever the test wants.</summary>
+    private sealed class StubCriticPanel : ICriticPanel
+    {
+        public int Calls { get; private set; }
+
+        public string? LastRole { get; private set; }
+
+        public string? LastChange { get; private set; }
+
+        public string? LastEvidence { get; private set; }
+
+        public CritiqueResult Verdict { get; set; } =
+            new(false, [new CritiqueVerdict(false, 0.8, "Looks right.")], 0, "1/1 critics accepted the change.")
+            { RespondingVotes = 1 };
+
+        public bool Enabled => true;
+
+        public bool CanCritique(string? role) => true;
+
+        public string ResolveRole(string? role) => role ?? "critic";
+
+        public Task<CritiqueResult> CritiqueAsync(
+            string goal,
+            string change,
+            string evidence,
+            string? role = null,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            LastRole = role;
+            LastChange = change;
+            LastEvidence = evidence;
+            return Task.FromResult(Verdict with { Role = ResolveRole(role) });
+        }
+    }
+}

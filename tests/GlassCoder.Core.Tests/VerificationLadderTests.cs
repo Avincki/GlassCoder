@@ -137,7 +137,16 @@ public sealed class VerificationLadderTests : IDisposable
     {
         public bool Enabled => false;
 
-        public Task<CritiqueResult> CritiqueAsync(string goal, string change, string evidence, CancellationToken cancellationToken = default) =>
+        public bool CanCritique(string? role) => false;
+
+        public string ResolveRole(string? role) => role ?? "critic";
+
+        public Task<CritiqueResult> CritiqueAsync(
+            string goal,
+            string change,
+            string evidence,
+            string? role = null,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(new CritiqueResult(false, [], 0, "disabled"));
     }
 

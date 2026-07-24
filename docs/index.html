@@ -765,8 +765,16 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
             </tr>
             <tr>
               <td class="m">Critique</td>
-              <td>Multi-critic refutation: role, critic count, whether it gates.</td>
+              <td>Multi-critic refutation: the default and second-opinion roles, critic count,
+                  quorum, whether it gates.</td>
               <td>Phase 2 — watching recovery rate.</td>
+            </tr>
+            <tr>
+              <td class="m">RunReview</td>
+              <td>The second opinion on a finished run: whether to ask, and only for runs the
+                  model ended itself.</td>
+              <td>Gated by <code>Critique:Enabled</code>; see the
+                  <a href="NewFeatures/claude-second-opinion.html">design note</a>.</td>
             </tr>
             <tr>
               <td class="m">Orchestration</td>
@@ -897,7 +905,7 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
       <div class="ladder">
         <div class="rung">
           <span class="n">06</span>
-          <span class="what"><b>Critique</b><span>Multi-critic refutation. Off by default; reports rather than gates.</span></span>
+          <span class="what"><b>Critique</b><span>Multi-critic refutation. Off by default; reports rather than gates. Written and unwired — nothing calls the ladder yet.</span></span>
           <span class="pill warn">optional</span>
         </div>
         <div class="rung">
@@ -1212,10 +1220,10 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
       <h3>Beyond the ladder</h3>
 
       <p>
-        Three design notes for features that do not exist yet live under
-        <code>docs/NewFeatures</code>. They are written against the current code, so the names,
-        configuration keys and estimates are real — but nothing in them is implemented, and none of
-        them is a prerequisite for any phase above.
+        Three design notes live under <code>docs/NewFeatures</code>, written against the current
+        code so the names, configuration keys and estimates are real. Two are still unimplemented
+        and neither is a prerequisite for any phase above. The first has since been built in part —
+        its own page says which parts.
       </p>
 
       <div class="scroller">
@@ -1223,10 +1231,11 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
           <thead><tr><th>Proposal</th><th>Idea</th><th>State</th></tr></thead>
           <tbody>
             <tr>
-              <td><a href="NewFeatures/claude-second-opinion.html">A second opinion from Claude</a></td>
-              <td>A different model family judging a proposed change — as the critic role on rung 6,
-                  and as an advisory button beside <b>Approve</b> and <b>Reject</b>.</td>
-              <td>Mostly written already: <code>CriticPanel</code> exists, the transport does not.</td>
+              <td><a href="NewFeatures/claude-second-opinion.html">A second opinion</a></td>
+              <td>A different model family judging the local worker's work — chosen before the run,
+                  asked again after it, and never allowed to start one.</td>
+              <td>Built, minus the transport and the rung-6 wiring. Critique is still off by
+                  default.</td>
             </tr>
             <tr>
               <td><a href="NewFeatures/mcp-retrieval.html">Retrieval over MCP</a></td>

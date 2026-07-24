@@ -881,6 +881,19 @@
         that is the point of each.
       </p>
 
+      <div class="note">
+        <span class="tag">A role can declare that it needs a key</span>
+        <p>
+          <code>RequiresApiKey</code> in <code>appsettings.json</code> says a role is unusable
+          without one. It is not a validation rule and will not stop you saving — it is what lets
+          the rest of the app tell <em>configured</em> from <em>reachable</em>, and offer a control
+          only when the role behind it can actually answer. The <b>Second opinion</b> checkbox in
+          the shell header is the first thing to use it: greyed out with a tooltip rather than
+          failing on press. There is no field for it in this dialog; set it in the file, next to
+          the endpoint.
+        </p>
+      </div>
+
       <h3>Sampling, cost and constrained decoding</h3>
 
       <p>

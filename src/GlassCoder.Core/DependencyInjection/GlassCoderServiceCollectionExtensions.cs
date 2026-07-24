@@ -58,6 +58,9 @@ public static class GlassCoderServiceCollectionExtensions
         services.AddOptions<CritiqueOptions>()
             .Bind(configuration.GetSection(CritiqueOptions.SectionName));
 
+        services.AddOptions<RunReviewOptions>()
+            .Bind(configuration.GetSection(RunReviewOptions.SectionName));
+
         services.AddOptions<OrchestrationOptions>()
             .Bind(configuration.GetSection(OrchestrationOptions.SectionName));
 
@@ -82,6 +85,7 @@ public static class GlassCoderServiceCollectionExtensions
         services.TryAddSingleton<IMetricsRecorder, JsonlMetricsRecorder>();
         services.TryAddSingleton<IVerificationLadder, VerificationLadder>();
         services.TryAddSingleton<ICriticPanel, CriticPanel>();
+        services.TryAddSingleton<IRunReviewer, RunReviewer>();
         services.TryAddSingleton<IProvenanceStamper, ProvenanceStamper>();
         services.TryAddSingleton<Func<IAgentLoop>>(provider => provider.GetRequiredService<IAgentLoop>);
         services.TryAddSingleton<IOrchestrator, Orchestrator>();
