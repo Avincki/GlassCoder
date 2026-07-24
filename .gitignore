@@ -22,10 +22,13 @@ artifacts/
 coverage*.json
 coverage*.xml
 
-## GlassCoder run artifacts - transcripts, metrics and logs are generated data
-logs/
-runs/
-metrics/
+## GlassCoder run artifacts - transcripts, metrics and logs are generated data.
+## Anchored to the repository root: an unanchored "metrics/" matches a directory
+## of that name at any depth, and silently swallowed src/GlassCoder.Core/Metrics
+## - three source files the library cannot compile without.
+/logs/
+/runs/
+/metrics/
 *.jsonl.tmp
 
 ## Local secrets / machine-specific overrides
