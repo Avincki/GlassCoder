@@ -24,6 +24,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly IAgentLoop _loop;
     private readonly IToolRegistry _tools;
     private readonly ISettingsDialog _settings;
+    private readonly IAboutDialog _about;
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
@@ -38,11 +39,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         TranscriptViewModel transcript,
         ChangesViewModel changes,
         MetricsViewModel metrics,
-        ISettingsDialog settings)
+        ISettingsDialog settings,
+        IAboutDialog about)
     {
         _loop = loop;
         _tools = tools;
         _settings = settings;
+        _about = about;
 
         Transcript = transcript;
         Changes = changes;
@@ -52,6 +55,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         RunCommand = new RelayCommand(async () => await RunAsync().ConfigureAwait(true), () => !IsRunning);
         CancelCommand = new RelayCommand(() => _cancellation?.Cancel(), () => IsRunning);
         SettingsCommand = new RelayCommand(OpenSettings, () => !IsRunning);
+        AboutCommand = new RelayCommand(() => _about.Show());
 
         Status = string.Create(CultureInfo.InvariantCulture,
             $"Ready. {_tools.Functions.Count} tools: {string.Join(", ", ToolNames)}");
@@ -143,6 +147,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     /// <summary>Opens the settings dialog.</summary>
     public RelayCommand SettingsCommand { get; }
+
+    /// <summary>Opens the About box. Available during a run - it changes nothing.</summary>
+    public RelayCommand AboutCommand { get; }
 
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()

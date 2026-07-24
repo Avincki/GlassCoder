@@ -24,4 +24,10 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Compiled into the assembly rather than copied beside it, so the About box cannot end up
+         looking for a file somebody deleted from the output directory. -->
+    <Resource Include="Assets\kintsunai-logo.png" />
+  </ItemGroup>
+
 </Project>

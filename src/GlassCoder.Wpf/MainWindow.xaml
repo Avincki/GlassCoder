@@ -28,6 +28,7 @@
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
         <TextBlock Grid.Column="0" Text="GlassCoder" Foreground="White" FontSize="18" FontWeight="Bold"
@@ -43,6 +44,9 @@
         <Button Grid.Column="4" Content="Settings…" Padding="14,4" Margin="16,0,0,0"
                 Command="{Binding SettingsCommand}"
                 ToolTip="Endpoints, API keys, budgets and guardrails - and a check that the seam works." />
+        <Button Grid.Column="5" Content="About" Padding="12,4" Margin="8,0,0,0"
+                Command="{Binding AboutCommand}"
+                ToolTip="What this is, who built it, and which build you are running." />
       </Grid>
     </Border>
 

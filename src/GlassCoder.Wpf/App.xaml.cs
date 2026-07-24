@@ -47,6 +47,10 @@ public partial class App : Application
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddTransient<SettingsWindow>();
 
+        builder.Services.AddSingleton<IAboutDialog, AboutDialog>();
+        builder.Services.AddTransient<AboutViewModel>();
+        builder.Services.AddTransient<AboutWindow>();
+
         _host = builder.Build();
         _host.Start();
 
