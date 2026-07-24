@@ -1251,16 +1251,16 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
             <tr><td class="m">39</td><td>Post-run review, the pre-submit checkbox, and a
                 human-pressed retry carrying <code>Attempt</code>.</td><td class="m">1d</td>
                 <td><span class="pill pass">done</span></td></tr>
-            <tr><td class="m">40</td><td>Wire <code>VerificationLadder.VerifyAsync</code> into the
+            <tr><td class="m">52</td><td>Wire <code>VerificationLadder.VerifyAsync</code> into the
                 loop so rung 6 runs at all, billing the critic at its own role's prices.</td><td class="m">1d</td>
                 <td><span class="pill fail">not started</span></td></tr>
-            <tr><td class="m">41</td><td>Persist the review text beside the run record, so an
+            <tr><td class="m">53</td><td>Persist the review text beside the run record, so an
                 opinion that shaped a decision leaves a trace.</td><td class="m">0.5d</td>
                 <td><span class="pill fail">not started</span></td></tr>
-            <tr><td class="m">42</td><td>Enable critique against a second-opinion critic; add
+            <tr><td class="m">54</td><td>Enable critique against a second-opinion critic; add
                 <code>with-critique</code> to a named comparison and read recovery rate.</td><td class="m">0.5d</td>
-                <td><span class="pill warn">blocked on 37, 40</span></td></tr>
-            <tr><td class="m">43</td><td><b>Ask Claude</b> command on <code>ChangesViewModel</code>,
+                <td><span class="pill warn">blocked on 37, 52</span></td></tr>
+            <tr><td class="m">55</td><td><b>Ask Claude</b> command on <code>ChangesViewModel</code>,
                 timeout suspension in <code>WpfApprovalGate</code>, opinion pane in
                 <code>ChangesView</code>.</td><td class="m">1.5d</td>
                 <td><span class="pill fail">not started</span></td></tr>
@@ -1269,7 +1269,7 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
       </div>
 
       <div class="note">
-        <span class="tag">Task 40 is the one that matters most</span>
+        <span class="tag">Task 52 is the one that matters most</span>
         <p>
           Rung 6 is written, tested and now takes a role — and nothing calls it. Until
           <code>VerifyAsync</code> is wired into the loop, the in-run half of this page is a
@@ -1295,7 +1295,7 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
             to a hosted one is a configuration change with no code change — true for any
             OpenAI-compatible endpoint, unverified for anything else until task 37.</li>
         <li><span class="pill warn">unmeasurable</span> <code>pass@1</code> is unchanged by enabling
-            critique. Still the right criterion, and it cannot be checked until task 40 makes rung
+            critique. Still the right criterion, and it cannot be checked until task 52 makes rung
             6 run.</li>
       </ul>
 

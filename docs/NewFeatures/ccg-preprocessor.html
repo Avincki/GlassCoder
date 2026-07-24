@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Analysis: ClaudeContextGenerator3 as a preprocessor for GlassCoder — CLAUDE.md into the root context, WORKPLAN.md as a run queue, and the measurement loop the two applications close together.">
+<title>GlassCoder — Analysis: the context generator as a preprocessor</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Analysis · two applications, one pipeline</div>
+    <h1>The context generator as a preprocessor</h1>
+    <p class="standfirst">
+      ClaudeContextGenerator3 writes <code>CLAUDE.md</code> and <code>WORKPLAN.md</code> for a
+      repository; GlassCoder drives a local model against one. This analysis maps the outputs of
+      the first onto the intakes of the second, judges how much that is worth as things stand,
+      and lists the changes — on both sides — that would make it worth more.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> analysis — nothing here is built</div>
+      <div><b>Producer</b> ClaudeContextGenerator3 (.NET&nbsp;8, WPF + UI-free Core)</div>
+      <div><b>Consumer</b> GlassCoder (.NET&nbsp;10, WPF + console host)</div>
+      <div><b>Artifacts</b> CLAUDE.md · WORKPLAN.md · docs/llms/** · tutorial workplans</div>
+      <div><b>Sources</b> both codebases · CCG value-proposition v3 · context-strategy working paper · the learning guide</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="mcp-retrieval.html">Proposal: retrieval over MCP →</a>
+      <a href="harness-advisor.html">Proposal: the harness advisor →</a>
+      <a href="claude-second-opinion.html">Design note: a second opinion →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#ranonce">0 · This pipeline has already run once</a></li>
+      <li><a href="#interface">1 · Producer and consumer</a></li>
+      <li><a href="#today">2 · What works today, with zero code</a></li>
+      <li><a href="#profile">3 · The profile mismatch</a></li>
+      <li><a href="#workplan">4 · The workplan as a run queue</a></li>
+      <li><a href="#verdict">5 · How useful is this?</a></li>
+      <li><a href="#glasscoder">6 · Changes on the GlassCoder side</a></li>
+      <li><a href="#ccg">7 · Changes on the CCG side</a></li>
+      <li><a href="#limits">8 · Limits worth respecting</a></li>
+      <li><a href="#work">9 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="ranonce">
+      <div class="part-head"><span class="num">00</span><h2>This pipeline has already run once</h2></div>
+
+      <p>
+        The strongest evidence that the integration works is sitting in GlassCoder's own
+        repository root. <code>GlassCoder.ccgproj</code> is a ClaudeContextGenerator3 project
+        file; <code>WORKPLAN.md</code> holds the 35 tasks that built the harness;
+        <code>CLAUDE.alex-vinckier.md</code> and <code>HISTORY.md</code> follow CCG's personal-context
+        and history-entry conventions. <b>GlassCoder was itself constructed through this exact
+        pipeline</b> — CCG generated the context and the workplan, and Claude Code executed the
+        tasks.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Evidence</th><th>Where</th><th>What it shows</th></tr></thead>
+          <tbody>
+            <tr><td><code>GlassCoder.ccgproj</code></td><td class="m">GlassCoder/</td>
+                <td>A CCG project pointed at <code>repoRoot: "."</code>, with the full build brief
+                    embedded as <code>projectDescription</code> and CCG's own repo configured as an
+                    examples folder.</td></tr>
+            <tr><td>35 executed tasks</td><td class="m">GlassCoder/WORKPLAN.md</td>
+                <td>The workplan format driving real construction: numbered tasks, checkboxes,
+                    estimates, dependency order.</td></tr>
+            <tr><td>17-task C++ workplan</td><td class="m">CCG3/hsbGeoLibExt.ccgproj</td>
+                <td>The same pipeline on CCG's flagship target: a C++/.lsp geometry library,
+                    15 of 17 tasks ticked.</td></tr>
+            <tr><td>History convention</td><td class="m">GlassCoder/HISTORY.md</td>
+                <td>Dated entries in CCG's §6 shape: shipped / decided / open.</td></tr>
+            <tr><td>The shared founding document</td><td class="m">both repos</td>
+                <td><code>LocalAICodingAgent-LearningGuide</code> sits in both repositories, and
+                    its full text is what CCG carried as this project's
+                    <code>projectDescription</code>. The pairing was the plan from the start.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The last row deserves emphasis. The learning guide — <em>“an evaluation of
+        ClaudeContextGenerator, the case for pairing it with a local LLM”</em> — is the document
+        GlassCoder was built <em>from</em>, and it was written as a CCG companion before a line of
+        GlassCoder existed. This analysis is not proposing a new pairing; it is checking, against
+        both codebases as they now stand, how much of the founding pairing survives contact with
+        a 7B worker.
+      </p>
+
+      <p>
+        So the question this analysis answers is not <em>“could CCG's output drive an agent?”</em>
+        — it demonstrably has. The question is what changes when the agent stops being Claude Code
+        and becomes GlassCoder's local worker: a smaller model, a tighter context budget, a
+        harness that measures everything, and a verification ladder that demands a testable
+        outcome per change.
+      </p>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="interface">
+      <div class="part-head"><span class="num">01</span><h2>Producer and consumer</h2></div>
+
+      <p>
+        The fit is unusually good, because both applications were designed against the same
+        equation — <code>capability ≈ model × harness × context</code> — with CCG building the
+        third factor and GlassCoder building the second. Almost every CCG output has a named
+        GlassCoder intake waiting for it:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>CCG produces</th><th>GlassCoder consumes with</th><th>State</th></tr></thead>
+          <tbody>
+            <tr><td><code>CLAUDE.md</code> (FILE 1, always regenerated)</td>
+                <td><code>Context:RootContextFiles</code> — “the lean always-loaded root”,
+                    injected by <code>ContextAssembler.CreateInitialMessages</code> as a second
+                    system message, budgeted at <code>MaxRootContextTokens</code> (6,000)</td>
+                <td><span class="pill pass">config only</span></td></tr>
+            <tr><td><code>WORKPLAN.md</code> (FILE 7: numbered, self-contained, dependency-ordered tasks)</td>
+                <td><code>AgentRunRequest</code> — <code>TaskId</code> + <code>Goal</code> per task;
+                    today only by pasting one task into the goal box</td>
+                <td><span class="pill warn">manual</span></td></tr>
+            <tr><td><code>docs/llms/**</code> (per-file markdown, path-mirrored:
+                    <code>src/foo/Bar.h → docs/llms/foo/Bar.md</code>)</td>
+                <td><code>grep</code> / <code>glob</code> / <code>read_file</code> — retrieval on
+                    demand, exactly as CLAUDE.md §12 prescribes</td>
+                <td><span class="pill pass">works today</span></td></tr>
+            <tr><td>Regeneration on demand (Module B, or headless P4)</td>
+                <td><code>ProvenanceStamper.JudgeFreshness</code> — compares the newest
+                    <code>RootContextFiles</code> mtime against the newest source file, and stamps
+                    <code>ContextFresh</code> on every run</td>
+                <td><span class="pill warn">detects, cannot yet act</span></td></tr>
+            <tr><td>Reviewer scores (o3/Grok rubric, composite 0–10)</td>
+                <td>Nothing — but see §5: GlassCoder's <code>pass@1</code> is the ground truth this
+                    proxy is standing in for</td>
+                <td><span class="pill fail">no link</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">The intent is already written down, on both sides</span>
+        <p>
+          GlassCoder's CLAUDE.md §12: <em>“If integrating a context generator, reference its
+          UI-free core library in-process rather than shelling out.”</em> Phase 3 of its roadmap:
+          <em>“Plug in the context provider in-process; A/B against no-context. Watch: pass@1,
+          tokens-to-solve.”</em> And CCG has grown the mirror-image seam — its
+          <code>.ccgproj</code> now carries <code>agentEnabled</code>, <code>agentCliPath</code>,
+          <code>agentMaxTurns</code> and <code>agentMaxBudgetUsd</code> fields, and
+          <code>IIntentAgentRunner</code> already launches a headless agent as a subprocess,
+          restricted to read-only tools, with CCG keeping every write. Each application has
+          half-built the bridge toward the other.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">They even share a doctrine, in the same words</span>
+        <p>
+          CCG's value proposition names the <em>“Self-Review Blind Spot”</em> as a problem it
+          exists to solve — <em>“when the same AI drafts and evaluates its own output, it
+          reinforces its own blind spots”</em> — and answers it with an independent reviewer from
+          a different provider. GlassCoder's <code>CritiqueOptions.Role</code> is documented as
+          <em>“ideally a different model family from the worker, so the critic's blind spots are
+          not the worker's blind spots.”</em> Two codebases, written apart, converged on the same
+          rule in nearly the same sentence: never let a model grade itself. An integration that
+          respected everything else but broke this — say, by letting the drafting model verify
+          workplan completion — would be violating both designs at once.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="today">
+      <div class="part-head"><span class="num">02</span><h2>What works today, with zero code</h2></div>
+
+      <p>
+        Two configuration edits connect the applications this afternoon:
+      </p>
+
+<pre><code><span class="c">// config/appsettings.json — GlassCoder, running against a CCG-managed repo</span>
+"Context": {
+  "RootContextFiles": [ "CLAUDE.md" ],
+  "MaxRootContextTokens": 6000
+}</code></pre>
+
+      <p>
+        …and a workplan task pasted into the goal box. Both function. The root context loads under
+        its token budget, the provenance stamp starts judging freshness against the file's mtime
+        (with no root files it returns fresh-by-default and measures nothing), and the ablation
+        harness can immediately answer whether the context helps: <code>StandardArms.NoContext</code>
+        — <em>“does the always-loaded root earn its tokens? Watch pass@1 and tokens-to-solve”</em> —
+        is already in the default comparison. The A/B instrument for exactly this question shipped
+        before the question was asked.
+      </p>
+
+      <p>
+        Three frictions appear immediately, and they are the subject of the rest of this
+        document:
+      </p>
+
+      <ul class="prose">
+        <li><b>The CLAUDE.md is written for the wrong reader</b> (§3). Its conventions assume a
+            frontier model with session rituals; a 7B worker under a 6,000-token root budget gets
+            dilution, and instructions it cannot follow.</li>
+        <li><b>The workplan has no runner</b> (§4). Tasks are executed by a human pasting them one
+            at a time, and nothing ticks the checkbox when a run's verification passes.</li>
+        <li><b>Neither side learns from the other's result</b> (§5). CCG scores its context with a
+            reviewer; GlassCoder measures its runs with an oracle; the two numbers never meet.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="profile">
+      <div class="part-head"><span class="num">03</span><h2>The profile mismatch</h2></div>
+
+      <p>
+        CCG's FILE 1 is calibrated for Claude Code, and it shows. The standing instruction it
+        emits into every generated CLAUDE.md reads:
+      </p>
+
+<pre><code><span class="c">// FILE 1 §4 — the personal-context standing instruction (abridged)</span>
+"At session start, read CLAUDE.&lt;username&gt;.md from this repo root …
+ Also read CLAUDE.&lt;username&gt;.history.md from the repo root and from the
+ current working folder … At session end, append a dated entry to the
+ history file … Also read WORKPLAN.md from this repo root if it exists."</code></pre>
+
+      <p>
+        That is a set of <em>meta-instructions</em>: read further files, maintain a journal,
+        track your own progress. A frontier model follows them; they are cheap relative to its
+        context and its instruction-following. For GlassCoder's worker they are exactly wrong,
+        three times over:
+      </p>
+
+      <ul class="prose">
+        <li><b>They spend steps.</b> Every “at session start, read X” costs a
+            <code>read_file</code> round-trip inside a <code>MaxSteps: 30</code> budget before any
+            real work happens. What a strong model does by convention, GlassCoder's harness should
+            do by construction — resolve the files <em>statically</em> and put the right content in
+            the root context to begin with.</li>
+        <li><b>They spend tokens on the wrong audience.</b> Team conventions, YouTrack ticket
+            formats, personal-file naming rules: none of it changes what a local worker should do
+            with the next edit. At ~4 characters per token, the 6,000-token budget is roughly 24KB
+            — GlassCoder's own CLAUDE.md alone overruns it, and everything past the budget is
+            silently left out.</li>
+        <li><b>They assume capabilities the worker lacks.</b> “Append a dated history entry at
+            session end” presumes the model reliably remembers an obligation across a whole
+            session. GlassCoder's design principle is the opposite: put intelligence in the tools
+            and the verifier, not in prompt rituals (CLAUDE.md §18).</li>
+      </ul>
+
+      <h3>What survives the translation untouched</h3>
+
+      <p>
+        One part of FILE 1 is a perfect fit for a weak model precisely because it is mechanical:
+        the <b>path-resolution rule</b> — <code>src/foo/Bar.h → docs/llms/foo/Bar.md</code>. It is
+        a single deterministic mapping that turns CCG's entire generated documentation tree into
+        retrievable content for <code>read_file</code>, without loading any of it eagerly. This is
+        the CCG output whose value is <em>highest</em> for a local worker: intent-enriched per-file
+        docs (Path 2 enrichment: purpose, gotchas, test-mined examples) that the agent pulls only
+        when it touches the file in question. Lean root plus retrieval on demand is GlassCoder's
+        §12 in one rule.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">The root cause is a missing reader profile, not a bad generator</span>
+        <p>
+          Nothing above is a defect in CCG. It generates for its one consumer, and generates
+          well — the reviewer loop even scores drafts for conciseness. The gap is that “context
+          for Claude Code” and “context for a 7B worker in a measuring harness” are different
+          documents drawn from the same facts: same repos table, same build commands, same path
+          rule, different ceremony and different budget. That is an <em>emitter profile</em>,
+          not a rewrite — see §7.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="workplan">
+      <div class="part-head"><span class="num">04</span><h2>The workplan as a run queue</h2></div>
+
+      <p>
+        CCG's workplan format is closer to an agent-run queue than it looks. Its generation rules
+        demand imperative titles, self-contained 2–5 sentence descriptions a developer can start
+        from, dependency ordering, and a checkbox per task. Map that onto GlassCoder's run
+        request and the correspondence is almost one-to-one:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>WORKPLAN.md element</th><th>AgentRunRequest field</th><th>Fit</th></tr></thead>
+          <tbody>
+            <tr><td>Task number (<code>## 7. …</code>)</td><td class="m">TaskId</td>
+                <td><span class="pill pass">clean</span> — stable across runs, so
+                    <code>metrics.jsonl</code> can compare attempts per task</td></tr>
+            <tr><td>Title + description</td><td class="m">Goal</td>
+                <td><span class="pill pass">clean</span> — “self-contained for a developer to
+                    start working” is precisely the property a goal needs</td></tr>
+            <tr><td>Dependency order</td><td>run order</td>
+                <td><span class="pill pass">clean</span> — execute top to bottom, stop at the
+                    first failure</td></tr>
+            <tr><td>Checkbox <code>- [ ] → - [x]</code></td><td>completion signal</td>
+                <td><span class="pill warn">semantics change</span> — see below</td></tr>
+            <tr><td>Time estimate (“1d”)</td><td>—</td>
+                <td><span class="pill fail">meaningless to an agent</span> — but usable as a
+                    proxy for task size when deciding what to decompose</td></tr>
+            <tr><td>Acceptance criteria (prose, inside the description)</td>
+                <td class="m">VerificationRequest</td>
+                <td><span class="pill fail">the real gap</span> — prose is not an oracle</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Who ticks the checkbox</h3>
+
+      <p>
+        In CCG's convention, the agent updates <code>- [ ]</code> to <code>- [x]</code> when it
+        considers a task done — a self-assessment. GlassCoder exists because self-assessment is
+        not evidence: its ladder runs syntax → compile → tests before believing anything, and its
+        second-opinion note spent a whole section keeping a model from granting itself a second
+        attempt. The correct integration is that <b>the harness ticks the checkbox, and only when
+        verification passed</b> — the checkbox becomes a record of oracle outcomes, not of the
+        model's opinion. That single change makes the workplan trustworthy as a progress ledger
+        across sessions.
+      </p>
+
+      <h3>Granularity, and the missing oracle</h3>
+
+      <p>
+        Two real mismatches remain. First, CCG sizes tasks for humans — one hour to two days.
+        GlassCoder budgets runs at <code>MaxSteps: 30</code>; a two-day human task is several runs
+        at least. Second, and more fundamentally: a GlassCoder task suite entry is defined by its
+        oracle — <em>“each with a passing test as ground truth; no human grading”</em> (CLAUDE.md
+        §16) — while a workplan task carries only prose acceptance criteria. The 17-task
+        hsbGeoLibExt workplan says “validate outputs against legacy LISP system results”; nothing
+        executable says whether that happened. Until a task carries a machine-checkable oracle
+        (a test filter, a command, an expected exit code), a workplan run can only end in
+        <em>“the model believes it is done and the ladder found nothing broken”</em> — which is
+        weaker than what GlassCoder's own suite demands of itself. §7 proposes carrying the
+        oracle in the workplan; it is the single highest-value CCG-side change.
+      </p>
+
+      <h3>The tutorial workplan — the reproducible special case</h3>
+
+      <p>
+        CCG has a second workplan producer besides Module D: the Tutorial Generator (Module F)
+        mines a finished project's history files into a phased, from-scratch rebuild plan —
+        pitched, in CCG's value proposition, at <em>“a junior developer [who] can follow the
+        generated CLAUDE workplan to recreate a similar project from scratch.”</em> Read that with
+        GlassCoder's eyes and the phrase lands differently: <b>a local 7B worker is the ultimate
+        junior developer.</b> And because a tutorial workplan starts from an empty repository, it
+        escapes the reproducibility problem that ordinary workplans have (§8): every arm starts
+        byte-identical, exactly like a suite fixture. A tutorial workplan with per-task oracles is
+        a <em>project-scale benchmark</em> — the natural successor to suite-01 through suite-08,
+        generated from a real project's history instead of hand-written. That is a use CCG's own
+        documentation never anticipates, and it may be the most valuable artifact in the whole
+        exchange.
+      </p>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="verdict">
+      <div class="part-head"><span class="num">05</span><h2>How useful is this?</h2></div>
+
+      <p>
+        Judged in tiers, honestly:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Tier</th><th>What it takes</th><th>What it is worth</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>As-is</td>
+              <td>Two config lines and manual pasting</td>
+              <td><b>Modest but real.</b> The docs/llms tree plus the path rule genuinely helps a
+                  retrieval-on-demand agent; the root CLAUDE.md helps <em>despite</em> its profile,
+                  and the <code>no-context</code> arm can prove by how much. The workplan saves
+                  typing, nothing more.</td>
+            </tr>
+            <tr>
+              <td>With the §6/§7 changes</td>
+              <td>An agent-profile emitter, a workplan runner, per-task oracles — roughly a week
+                  across both applications</td>
+              <td><b>High.</b> GlassCoder stops being a one-goal-at-a-time tool and becomes a
+                  workplan executor with verified, resumable progress; CCG stops emitting prose
+                  plans and starts emitting task suites. This is the tier where “preprocessor”
+                  is the accurate word.</td>
+            </tr>
+            <tr>
+              <td>The closed loop</td>
+              <td>Feeding GlassCoder's per-task metrics back into CCG</td>
+              <td><b>The strategic value, and it runs in both directions.</b> Below.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The measurement loop neither application has alone</h3>
+
+      <p>
+        Read CCG's own value-proposition document closely and notice what kind of evidence it
+        offers. Its core claim is right — <em>“output quality is directly proportional to the
+        quality of context”</em> — but its support is a plausibility argument (<em>“spending 20
+        minutes iterating on context … is orders of magnitude cheaper than hitting a critical
+        misunderstanding 3 hours into a coding session; if the reviewer catches even one such
+        issue, the loop has paid for itself”</em>) and a proxy metric (<em>“measurable improvement
+        — composite scores track quality across iterations”</em>). Its comparison table against
+        manual approaches is a column of checkmarks, every one of them unmeasured. None of this
+        is wrong; all of it is unproven, because CCG has no way to run the counterfactual.
+      </p>
+
+      <p>
+        GlassCoder is the counterfactual machine. Run the same task suite with and without the
+        artifact and read <code>pass@1</code> and tokens-to-solve. <b>A reviewer score of 7.2 is
+        an opinion about context; a pass@1 delta is a fact about it.</b> GlassCoder can tell CCG
+        which sections of a generated CLAUDE.md earn their tokens, whether Path 2 intent
+        enrichment moves outcomes or only reads well, and whether a workplan's decomposition was
+        executable — converting the value proposition's claims, one by one, from asserted to
+        measured. And where CCG's own working paper concedes a gap — <em>“the reviewer scores
+        draft quality; skipExisting compares timestamps; neither detects semantic drift of docs
+        vs. source”</em> — GlassCoder's fresh-versus-stale comparison is the outcome-level answer:
+        drift matters exactly when it moves pass@1, and now that is checkable.
+      </p>
+
+      <p>
+        The reverse direction is just as clean. GlassCoder's Phase 3 needs a context provider to
+        plug in and A/B; CCG is that provider, already built, with a UI-free Core library exactly
+        as §12 requests. GlassCoder's Phase 6 measures <em>“pass@1 fresh vs stale context”</em> and
+        its provenance stamper already detects staleness — CCG is the only thing that can act on
+        the detection, by regenerating. Each application supplies precisely the half the other
+        left open. That symmetry, more than any single feature, is the argument for doing this.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="glasscoder">
+      <div class="part-head"><span class="num">06</span><h2>Changes on the GlassCoder side</h2></div>
+
+      <ul class="prose">
+        <li><b>Point the root context at the artifact</b> <span class="pill pass">config only</span> —
+            <code>RootContextFiles: ["CLAUDE.md"]</code> in the target repo's arm config. No code.
+            Do it first, because it arms both the freshness judge and the <code>no-context</code>
+            comparison.</li>
+        <li><b>A workplan runner in the console host</b> <span class="pill info">the core feature</span> —
+            parse WORKPLAN.md into tasks (the format is regular: <code>## N. Title</code>, checkbox
+            line, description); for each unchecked task, issue an <code>AgentRunRequest</code> with
+            <code>TaskId = "workplan-N"</code> and the task text as <code>Goal</code>; run the
+            ladder; tick the checkbox only on a passing verification, writing the file the same
+            way any other change lands. Stop at the first failure — the tasks are
+            dependency-ordered, so running past a failed prerequisite measures nothing. The retry
+            machinery from the second-opinion work carries over unchanged:
+            <code>Attempt</code> already rides the request, result, run record and metrics.</li>
+        <li><b>Stamp the context version, not just its mtime</b> <span class="pill info">small</span> —
+            <code>JudgeFreshness</code> compares timestamps; a content hash of each root context
+            file in the provenance stamp would let two runs be compared <em>by the context they
+            actually saw</em>, which is what the fresh-vs-stale ablation needs to be trustworthy.</li>
+        <li><b>Reference <code>ClaudeContextGenerator3.Core</code> in-process for regeneration</b>
+            <span class="pill warn">later</span> — a net8.0 library loads in a net10 host, and
+            CCG's Core is UI-free by design. A <code>--regenerate-context</code> flag on the
+            console host could call <code>DocGenService</code> / the deterministic
+            <code>RootClaudeEmitter</code> before a suite run, closing the Phase 6 loop
+            (stale detected → regenerate → measure). Two frictions to respect: CCG's
+            <code>PathGuard</code> is static global state and must be configured before any write,
+            and — pleasingly — <em>both Core libraries define an <code>AgentRunRequest</code></em>,
+            so one side gets an alias. Do this only after the runner exists; shelling out to a
+            future CCG CLI is an acceptable interim, though it is exactly what §12 says to avoid
+            long-term.</li>
+        <li><b>Nothing at all for docs/llms</b> — grep, glob and read_file already reach it. The
+            only requirement is that the path-resolution rule survives into whatever root context
+            profile CCG emits (§7).</li>
+      </ul>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="ccg">
+      <div class="part-head"><span class="num">07</span><h2>Changes on the CCG side</h2></div>
+
+      <ul class="prose">
+        <li><b>An agent-profile emitter for FILE 1</b> <span class="pill info">the biggest value-per-effort</span> —
+            a second output target alongside the Claude Code profile: budgeted to ~6,000 tokens,
+            front-loading what a worker acts on every step (build and test commands, the
+            path-resolution rule, the repos table, the eight universal rules) and dropping what it
+            cannot act on (personal-context rituals, history obligations, ticket formats). Same
+            facts, different reader. CCG's reviewer rubric even has the right criteria to score
+            it — conciseness and actionability are two of its six. Emit it as a separate file
+            (say <code>CLAUDE.agent.md</code>) so the two profiles never fight over FILE 1's
+            always-regenerate rule.</li>
+        <li><b>Per-task oracles in the workplan</b> <span class="pill info">turns prose into a suite</span> —
+            one added line per task, machine-readable:
+            <code>**Oracle:** dotnet test --filter RoofRingTests</code>. GlassCoder's
+            <code>VerificationRequest</code> already takes a <code>TestFilter</code>; with an
+            oracle line the runner can gate the checkbox on ground truth, and the workplan
+            becomes exactly the task-suite format GlassCoder's §16 defines. Claude generates the
+            workplan from context anyway — asking it to also name the test that proves each task
+            is a prompt change, not an architecture change.</li>
+        <li><b>Stable task IDs</b> <span class="pill pass">trivial</span> — renumbering on edit
+            breaks cross-run metrics; a slug or GUID per task
+            (<code>&lt;!-- task:valley-hip-lines --&gt;</code>) keeps
+            <code>pass@1</code>-per-task comparable after the plan is reordered.</li>
+        <li><b>GlassCoder as a second runner behind the agent seam</b> <span class="pill warn">later</span> —
+            CCG already probes and launches a headless CLI (<code>claude -p</code> via
+            <code>IIntentAgentRunner</code>; <code>agentCliPath</code> is configurable). GlassCoder's
+            console host is the same shape: a process that takes a config and a goal and returns
+            meaningful exit codes. A second <code>IIntentAgentRunner</code> implementation pointed
+            at GlassCoder would let CCG's own agentic features (P4 drafting, intent enrichment)
+            run against the local box instead of metered API — with GlassCoder's transcript as a
+            free byproduct. Worth doing only once the local worker demonstrably handles the
+            enrichment prompt; the seam makes trying it cheap.</li>
+        <li><b>Read the metrics back</b> <span class="pill warn">the loop-closer</span> — a small
+            importer that joins <code>metrics.jsonl</code> per-task outcomes onto workplan tasks:
+            tasks that repeatedly fail or exhaust budgets are flagged for decomposition in the
+            Workplan editor; a <code>no-context</code>-vs-baseline delta per suite becomes the
+            number CCG's value proposition has been missing. This is deliberately CCG-side — CCG
+            owns the plan, so CCG should own learning from its execution.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="limits">
+      <div class="part-head"><span class="num">08</span><h2>Limits worth respecting</h2></div>
+
+      <ul class="prose">
+        <li><b>The C++ gap is the big one.</b> CCG's flagship targets are C++/hybrid repositories
+            (hsbGeoLib, headers, legacy LISP); GlassCoder's ladder verifies with Roslyn and
+            <code>dotnet</code> — C# only, today. Its CLAUDE.md §8.3 sketches the C++ path
+            (syntax-only checks via <code>/Zs</code> / <code>-fsyntax-only</code> with flags from
+            <code>compile_commands.json</code>), but until that rung exists, the overlap where
+            this whole analysis applies end-to-end is <em>C# repositories</em>. For the C++
+            targets, CCG's consumer remains Claude Code.</li>
+        <li><b>Do not let the root context creep.</b> The temptation once CLAUDE.md is wired in is
+            to raise <code>MaxRootContextTokens</code> until the whole document fits. GlassCoder's
+            own §12 says why not: effective context lags advertised context, and dilution costs
+            wall-clock on every step. The fix for an oversized profile is §7's leaner emitter,
+            not a bigger budget — and the <code>no-context</code> arm exists to referee the
+            disagreement.</li>
+        <li><b>An ordinary workplan is not a benchmark.</b> Suite fixtures are byte-identical per
+            arm and their oracles are exit codes; a Module D workplan executes against a live,
+            moving repo. Those runs measure <em>progress</em>, not comparable capability — keep
+            them out of ablation comparisons unless the starting commit is pinned per arm. The
+            exception is §4's tutorial workplan: a from-scratch rebuild starts byte-identical by
+            construction, which is what makes it benchmark-grade.</li>
+        <li><b>Scale-fit is bounded, by CCG's own admission.</b> Its context-strategy working
+            paper judges the generated documentation mirror <em>“defensible for library-sized
+            repos, weak for a 1.6M-LOC monolith”</em> — regeneration cost and freshness both
+            degrade with size. The pairing analysed here inherits that scope: library-sized C#
+            repositories are the sweet spot, and GlassCoder's lean-context discipline makes the
+            monolith case no easier.</li>
+        <li><b>Two humans-in-the-loop stay in the loop.</b> CCG's iteration loop is deliberately
+            human-gated, and GlassCoder's approval gate and retry button exist for the same
+            reason. Chaining the applications must not quietly produce an unattended
+            generate-plan-execute-plan pipeline; the natural gate is “a human accepts the
+            workplan in CCG before GlassCoder ever sees it.”</li>
+        <li><b>Versioning across two repos.</b> An in-process reference from GlassCoder to CCG's
+            Core couples release cycles (net8 lib in a net10 host works, but PathGuard's static
+            configuration and the duplicated <code>AgentRunRequest</code> name both need care).
+            The file-based contract — CLAUDE.md, WORKPLAN.md, docs/llms — is the loose coupling;
+            prefer it wherever it suffices.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 9 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">09</span><h2>Shape of the work</h2></div>
+
+      <p>
+        GlassCoder tasks continue the shared workplan numbering — the sibling proposals hold
+        36–39 (second opinion, built), 40–45 (MCP retrieval) and 46–51 (harness advisor), and the
+        second-opinion follow-ups hold 52–55 — so this analysis starts at 56. CCG tasks are
+        numbered on its own plan. Order matters: the profile and the oracle (56, C1, C2) are what
+        make everything downstream worth building.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr><td class="m">56</td><td>Point <code>RootContextFiles</code> at a CCG-managed repo's
+                <code>CLAUDE.md</code>; run the suite baseline vs <code>no-context</code>; record
+                the first real pass@1 delta for generated context.</td>
+                <td class="m">0.5d</td><td class="m">—</td></tr>
+            <tr><td class="m">57</td><td>Workplan runner in the console host: parse, run unchecked
+                tasks in order, tick checkboxes on verified completion, stop at first failure,
+                resume on re-invocation.</td>
+                <td class="m">1.5d</td><td class="m">56</td></tr>
+            <tr><td class="m">58</td><td>Content hash of each root context file in the provenance
+                stamp, so fresh-vs-stale comparisons key on what the run actually saw.</td>
+                <td class="m">0.5d</td><td class="m">56</td></tr>
+            <tr><td class="m">59</td><td>Honour a per-task <code>**Oracle:**</code> line as the
+                run's <code>TestFilter</code>; checkbox gates on it.</td>
+                <td class="m">0.5d</td><td class="m">57, C2</td></tr>
+            <tr><td class="m">60</td><td>Run one Module F tutorial workplan from an empty
+                directory as a project-scale benchmark arm; compare against the same plan under
+                <code>no-context</code>.</td>
+                <td class="m">1d</td><td class="m">57, 59</td></tr>
+            <tr><td class="m">C1</td><td>CCG: agent-profile emitter — <code>CLAUDE.agent.md</code>,
+                ~6k-token budget, build/test commands and path rule first, no session rituals;
+                reviewer loop reused to score it.</td>
+                <td class="m">1d</td><td class="m">—</td></tr>
+            <tr><td class="m">C2</td><td>CCG: workplan format v2 — stable task IDs and an optional
+                oracle line per task; Module D and Module F prompts updated to request both.</td>
+                <td class="m">0.5d</td><td class="m">—</td></tr>
+            <tr><td class="m">C3</td><td>CCG: metrics importer — join <code>metrics.jsonl</code>
+                per-task outcomes onto the workplan view; flag repeat failures for
+                decomposition.</td>
+                <td class="m">1d</td><td class="m">57</td></tr>
+            <tr><td class="m">C4</td><td>CCG: <code>IIntentAgentRunner</code> implementation that
+                launches GlassCoder's console host as the enrichment/drafting agent.</td>
+                <td class="m">1d</td><td class="m">57, C1</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance, in the style of the existing plans</h3>
+
+      <ul class="prose">
+        <li>Running the suite with a CCG-generated <code>CLAUDE.agent.md</code> as root context
+            produces a measured pass@1 and tokens-to-solve delta against
+            <code>no-context</code> — a number, not an opinion.</li>
+        <li>A workplan checkbox is ticked by the harness only after the task's verification
+            passed; a run the model merely believed finished leaves the box unticked.</li>
+        <li>Re-invoking the workplan runner after an interruption resumes at the first unchecked
+            task, with attempt numbers intact in the metrics.</li>
+        <li>A task carrying an oracle line fails its run when the named tests fail, whatever the
+            ladder's other rungs said.</li>
+        <li>Regenerating context in CCG and re-running the suite flips
+            <code>ContextFresh</code> from stale to fresh without touching GlassCoder config.</li>
+        <li>A tutorial workplan executed from an empty directory yields per-arm comparable
+            metrics — same starting bytes, oracle-gated checkboxes — and so counts as a
+            project-scale entry in the task suite, not just a demo.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="mcp-retrieval.html">Retrieval over MCP</a> covers the knowledge GlassCoder
+          pulls from <em>outside</em> the repo; this analysis covers the knowledge CCG distils
+          from <em>inside</em> it — the two halves of the context factor.
+          <a href="harness-advisor.html">The harness advisor</a> reads GlassCoder's transcripts to
+          improve the harness; §7's metrics importer is the same idea pointed at CCG's plans.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder analysis · the context generator as a preprocessor · nothing implemented ·
+  companion to the <a href="../index.html">operator's guide</a> and the
+  <a href="claude-second-opinion.html">second-opinion design note</a>
+</footer>
+</body>
+</html>

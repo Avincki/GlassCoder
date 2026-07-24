@@ -1220,10 +1220,9 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
       <h3>Beyond the ladder</h3>
 
       <p>
-        Three design notes live under <code>docs/NewFeatures</code>, written against the current
-        code so the names, configuration keys and estimates are real. Two are still unimplemented
-        and neither is a prerequisite for any phase above. The first has since been built in part —
-        its own page says which parts.
+        Four documents live under <code>docs/NewFeatures</code>, written against the current
+        code so the names, configuration keys and estimates are real. None is a prerequisite for
+        any phase above; the first has since been built in part — its own page says which parts.
       </p>
 
       <div class="scroller">
@@ -1249,6 +1248,14 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
                   cannot do — missing tools, misleading contracts, absent oracles — and emitting
                   proposed workplan tasks with cited evidence.</td>
               <td>Reads JSONL that is already written; needs a backtest before anything else.</td>
+            </tr>
+            <tr>
+              <td><a href="NewFeatures/ccg-preprocessor.html">The context generator as a preprocessor</a></td>
+              <td>ClaudeContextGenerator3's CLAUDE.md and WORKPLAN.md as GlassCoder's inputs —
+                  root context, run queue, and the pass@1 measurement loop the two applications
+                  close together.</td>
+              <td>Analysis. Two config lines work today; the profile, the runner and the per-task
+                  oracle are what the value hinges on.</td>
             </tr>
           </tbody>
         </table>
