@@ -9,6 +9,53 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — Git tools, step 1: status and commit (workplan task 40)
+
+**Shipped.** The agent can now see and record its work in version control:
+`git_status` (branch, ahead/behind, staged/unstaged/untracked/conflicted, capped
+file list from `--porcelain=v2`) and `git_commit` (stage-all filtered through
+the writable allow-list, then commit). Opt-in via `GlassCoder:Git:Enabled`, off
+by default like bash. 296 tests green, build clean. Tasks 41 (sync/push behind
+approval) and 42 (PRs, UI buttons) hold the rest of the researched plan.
+
+**Decided**
+
+- **Git runs on the host through `IProcessRunner`, not in the sandbox and not
+  via LibGit2Sharp.** The container has no network and no credentials — both
+  are the point of the later push step — and LibGit2Sharp's authentication
+  story would make GlassCoder hold tokens the credential manager already
+  holds. What makes host execution defensible: every invocation is a fixed
+  argument list (no shell), and nothing here executes repository code.
+- **Hooks are off by default** (`-c core.hooksPath=/dev/null`, understood by
+  git for Windows too). A pre-commit hook is arbitrary code the agent may just
+  have written, running on the host outside the sandbox — the one way a "safe"
+  git tool becomes as privileged as `build`. `AllowHooks` turns them back on.
+- **The writable set is the staging boundary.** `stageAll` resolves every
+  candidate through the path guard's write check and reports how many were
+  left out; the deny globs (bin, obj, .git) fall out of the same check.
+- **Conflicted paths are never auto-staged** — staging one marks the conflict
+  resolved, and that is a judgement the agent must make explicitly. A commit
+  attempted mid-conflict fails with git's own error as the observation.
+- **Prompts are disabled** (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`),
+  so a missing credential or identity is a fast, typed failure instead of a
+  hung loop step. New stable error code: `git_unavailable` (git missing, or
+  not a repository).
+- **Provenance trailer on by default:** every agent commit carries a
+  `Co-Authored-By: GlassCoder` paragraph (configurable, empty disables) — the
+  phase-6 stamping idea applied where it is cheapest.
+
+**Open**
+
+- Step 2 (task 41): `git_sync` and `git_push` need the approval seam
+  generalised first — `IApprovalGate` is shaped around a `CodeChange` diff and
+  a push approval is an action, not a diff.
+- Step 3 (task 42): `create_pull_request` and manual Commit/Push buttons over
+  the same code path.
+- The commit SHA is logged but not yet tied into `IChangeLog` or the run
+  record; worth doing when the change log meets task 41.
+
+---
+
 ## 2026-07-27 — The workspace pane (workplan task 39)
 
 **Shipped.** A right-hand pane on the shell: the project folder on top, the file

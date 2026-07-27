@@ -78,6 +78,9 @@ public static class ToolErrorCodes
     /// <summary>A human declined to approve the change.</summary>
     public const string ApprovalRefused = "approval_refused";
 
+    /// <summary>The git executable was missing, or the workspace is not a git repository.</summary>
+    public const string GitUnavailable = "git_unavailable";
+
     /// <summary>An unexpected failure. The loop turns escaped exceptions into this.</summary>
     public const string Unexpected = "unexpected";
 }

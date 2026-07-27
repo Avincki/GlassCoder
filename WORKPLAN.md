@@ -268,3 +268,44 @@ The window has no view of the workspace itself: which folder the agent works on 
 - [x] Tests for the rollup arithmetic in `GlassCoder.Tools.Tests`.
 
 Acceptance: the pane shows the active workspace tree; an agent edit turns its file green with correct net counts; picking a folder persists it and offers a restart. Depends on tasks 25, 27.
+
+## 40. Git tools, step 1: git_status and git_commit through the LLM
+
+- [x] **Estimated time:** 1d
+
+The agent can edit and verify but cannot record its work: nothing in the harness touches version control (researched 2026-07-27). Add a `GitTool` tool set in `GlassCoder.Tools` that shells out to the host's `git` through `IProcessRunner` — not the sandbox, which has no network and no credentials, and not LibGit2Sharp, whose authentication story would make GlassCoder hold tokens the credential manager already holds. Step 1 is deliberately the local, reversible half: `git_status` (read-only) and `git_commit` (stages only paths inside the writable allow-list, hooks disabled by default because a pre-commit hook is arbitrary code execution on the host).
+
+- [x] `GitOptions` (`GlassCoder:Git`): enabled flag (off by default, like bash), executable path, timeout, hooks switch, provenance trailer, list cap.
+- [x] `git_status`: branch, upstream, ahead/behind, staged/unstaged/untracked/conflicted counts and a capped file list, parsed from `--porcelain=v2`.
+- [x] `git_commit(message, stageAll)`: stage-all filtered through the path guard's writable set, refuse when the workspace is read-only, commit with prompts disabled so a missing credential fails fast as an observation.
+- [x] Errors are observations: git missing, not a repository, timeout, and nothing-to-commit all return typed failure codes, never exceptions.
+- [x] Unit tests over `FakeProcessRunner`: argument shapes, guard filtering, porcelain parsing, every failure code.
+
+Acceptance: with `GlassCoder:Git:Enabled` true the agent can inspect the tree and record a commit whose staged set never leaves the writable allow-list; with it false the tools are absent. Depends on tasks 7, 8.
+
+## 41. Git tools, step 2: git_sync and git_push behind approval
+
+- [ ] **Estimated time:** 1d
+
+The outward-facing half. Push is the first agent action that leaves the machine and cannot be unwound, so it goes behind the same human gate as writes — which first needs generalising, because `IApprovalGate` is shaped around a `CodeChange` diff and a push approval is an action description plus an ahead-count, not a file diff.
+
+- [ ] Generalise the approval seam (an action-shaped request alongside the diff-shaped one) and add `RequireApprovalForPush` to `ApprovalOptions`, default true, surfaced through the WPF changes pane with the same timeout-is-refusal contract.
+- [ ] `git_sync`: `pull --rebase` against the configured remote, conflicts reported as an observation for the model to reason about.
+- [ ] `git_push`: current branch to the configured remote only; no `--force` in the schema at all; optional branch allow-list / never-push-default-branch switch in `GitOptions`.
+- [ ] Credentials stay the host's problem: `GIT_TERMINAL_PROMPT=0` and non-interactive credential-manager settings so a missing login is a clean failure, never a hang.
+- [ ] Tests: approval refused blocks the push, sync conflict surfaces as an observation, branch policy is enforced.
+
+Acceptance: a push requires a human yes while sync/commit do not, and no schema the model sees can express a force-push. Depends on tasks 28, 40.
+
+## 42. Git tools, step 3: pull requests and manual UI actions
+
+- [ ] **Estimated time:** 1d
+
+Optional conveniences over the same service: a `create_pull_request` tool (via the `gh` CLI or Octokit — decide when it lands) and manual Commit/Push buttons in the changes pane for runs where the human wants to drive. The buttons call the same underlying code as the tools, so behaviour and guardrails cannot diverge; button-initiated actions still land in the transcript so the measurement story stays whole.
+
+- [ ] Extract the shared git service seam if step 2 has not already forced it.
+- [ ] `create_pull_request` gated by the same approval flow as push.
+- [ ] Commit/Push commands in the WPF changes pane, disabled when `GlassCoder:Git:Enabled` is false.
+- [ ] Log button-initiated git actions into the run record like tool calls.
+
+Acceptance: a PR can be opened from the loop with approval, and the UI buttons produce the same logged, guarded behaviour as the tools. Depends on task 41.

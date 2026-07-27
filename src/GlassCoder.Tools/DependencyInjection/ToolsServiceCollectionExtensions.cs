@@ -3,6 +3,7 @@ using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Planning;
 using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.FileSystem;
+using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
@@ -46,6 +47,9 @@ public static class ToolsServiceCollectionExtensions
         services.AddOptions<ApprovalOptions>()
             .Bind(configuration.GetSection(ApprovalOptions.SectionName));
 
+        services.AddOptions<GitOptions>()
+            .Bind(configuration.GetSection(GitOptions.SectionName));
+
         services.TryAddSingleton<IPathGuard, PathGuard>();
         services.TryAddSingleton<IProcessRunner, ProcessRunner>();
         services.TryAddSingleton<ITodoList, TodoList>();
@@ -72,6 +76,13 @@ public static class ToolsServiceCollectionExtensions
         if (configuration.GetValue(SandboxOptions.SectionName + ":EnableBashTool", false))
         {
             AddBashTool(services);
+        }
+
+        // Version control is opt-in like bash, but runs on the host: the sandbox has neither
+        // the credentials nor the network that the later push step is for (workplan task 40).
+        if (configuration.GetValue(GitOptions.SectionName + ":Enabled", false))
+        {
+            AddGitTools(services);
         }
 
         services.TryAddSingleton<IToolRegistry>(provider => new ToolRegistry(
@@ -133,6 +144,19 @@ public static class ToolsServiceCollectionExtensions
 
         services.TryAddSingleton<BashTool>();
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BashTool>());
+        return services;
+    }
+
+    /// <summary>
+    /// The git tools, step 1: <c>git_status</c> and <c>git_commit</c> - the local, reversible
+    /// half of version control (workplan task 40). Push waits for the approval seam (task 41).
+    /// </summary>
+    public static IServiceCollection AddGitTools(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<GitTool>();
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GitTool>());
         return services;
     }
 }
