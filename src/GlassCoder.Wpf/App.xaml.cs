@@ -34,7 +34,16 @@ public partial class App : Application
         // headless one (workplan task 28).
         builder.Services.AddSingleton(Dispatcher);
         builder.Services.AddSingleton<TranscriptViewModel>();
-        builder.Services.AddSingleton<ChangesViewModel>();
+
+        // Built by hand because the git tools are optional: GetService returns null when
+        // GlassCoder:Git:Enabled is false, and the pane then hides its git controls rather than
+        // offering buttons that cannot work (workplan task 42).
+        builder.Services.AddSingleton(sp => new ChangesViewModel(
+            sp.GetRequiredService<IChangeLog>(),
+            sp.GetRequiredService<Dispatcher>(),
+            sp.GetService<GlassCoder.Tools.Git.GitTool>(),
+            sp.GetService<GlassCoder.Core.Diagnostics.IStepLogger>()));
+
         builder.Services.AddSingleton<MetricsViewModel>();
         builder.Services.AddSingleton<WorkspaceViewModel>();
         builder.Services.AddSingleton<MainWindowViewModel>();

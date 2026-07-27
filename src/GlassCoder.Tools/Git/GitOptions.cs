@@ -60,4 +60,14 @@ public sealed class GitOptions
 
     /// <summary>Hard cap on outgoing commits listed in a push approval or observation.</summary>
     public int MaxListedCommits { get; set; } = 20;
+
+    /// <summary>
+    /// GitHub CLI used by <c>create_pull_request</c>. The CLI rather than a REST client on
+    /// purpose: <c>gh auth</c> already holds the credentials, so GlassCoder holds no token of
+    /// its own - the same bargain the credential manager gets for git itself.
+    /// </summary>
+    public string GitHubExecutable { get; set; } = "gh";
+
+    /// <summary>Branch pull requests target. Null uses the repository's default branch.</summary>
+    public string? PullRequestBaseBranch { get; set; }
 }

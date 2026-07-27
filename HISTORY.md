@@ -9,6 +9,63 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — Git tools, step 3: pull requests and the manual path (workplan task 42)
+
+**Shipped.** `create_pull_request` opens a GitHub PR for the current branch
+through the `gh` CLI, behind the same approval gate as push. The changes pane
+grew a git strip — commit message box, Commit and Push — that calls the very
+same tool methods the model calls, and every button press lands in the
+transcript as its own step. 323 tests green, build clean, app verified to
+launch with git both disabled and enabled. Tasks 40–42 are closed; only 38
+remains open.
+
+**Decided**
+
+- **`gh`, not Octokit.** The CLI already holds the credentials via `gh auth`,
+  so GlassCoder still holds no token of its own — the same bargain step 1
+  struck with the credential manager. Octokit would have meant a PAT this
+  application stores, plus a new dependency, to reimplement what `gh pr
+  create` already does. The cost is a second host prerequisite, which the
+  failure path names explicitly rather than leaving as a mystery exit code.
+- **No `IGitService` was extracted.** `GitTool` *is* the service: its methods
+  already return `ToolObservation<T>`, which carries exactly the `Ok`,
+  `Summary` and `Error` the UI wants. An interface mirroring the class one for
+  one would be ceremony, and the codebase already set the precedent of driving
+  tools directly — the verification ladder calls `build` and `run_tests`
+  without going through the model-facing registry.
+- **The buttons are the same code path, so the guardrails cannot diverge.** A
+  manual push still asks the approval gate; a manual commit still filters
+  staging through the writable set. Nothing about pressing a button makes the
+  action more trusted than the model asking for it.
+- **Manual actions are logged as `Role: "human"` steps.** They go through
+  `IStepLogger`, which is the `TranscriptBus` — so they reach the durable
+  JSONL *and* the live transcript view. Outside a run `RunContext.Current`
+  yields `no-run`/`no-task`, which is honest: the action belonged to a person,
+  not a run, and it therefore contributes to no run's metrics.
+- **The buttons stand down mid-run.** The shell pushes `IsRunning` into the
+  pane. Committing a tree the agent has not finished changing would record
+  work in progress as though it were finished.
+- **A pull request refuses to describe unpushed commits.** Ahead-of-upstream
+  means the PR would show reviewers something other than what the agent
+  built, so it errors with a "run git_push first" hint rather than opening
+  something misleading.
+- **`--flag=value` everywhere in the gh invocation.** A title beginning with a
+  dash cannot then be parsed as an option — the same class of defence as
+  `IsSafeRefName` on the git side.
+
+**Open**
+
+- Task 38 (measure the dormant capabilities) is the last one standing.
+- The manual git strip has no "sync" or "open PR" button; those stayed
+  model-only until there is a reason to widen the surface.
+- Manual steps use their own index counter, so a transcript containing both
+  manual and run steps has two independent sequences. Harmless for filtering,
+  slightly odd if read as one timeline.
+- `gh` is a second host prerequisite alongside git, and nothing checks for it
+  until a PR is attempted.
+
+---
+
 ## 2026-07-27 — Git tools, step 2: sync and push, behind a human (workplan task 41)
 
 **Shipped.** The outward-facing half: `git_sync` (pull --rebase onto the

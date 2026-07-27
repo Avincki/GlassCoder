@@ -267,7 +267,142 @@ public sealed class GitToolTests : IDisposable
     {
         IReadOnlyList<AIFunction> functions = ToolFunctionFactory.Create([Tool()]);
 
-        functions.Select(f => f.Name).ShouldBe(["git_status", "git_commit", "git_sync", "git_push"]);
+        functions.Select(f => f.Name).ShouldBe(
+            ["git_status", "git_commit", "git_sync", "git_push", "create_pull_request"]);
+    }
+
+    [Fact]
+    public async Task A_pull_request_is_opened_through_the_gh_cli_after_approval()
+    {
+        RecordingGate gate = new(approve: true);
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n")
+            .Enqueue(0, "https://github.com/x/y/pull/42\n");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(gate, "src")
+            .CreatePullRequestAsync("Fix the pager", "It was off by one.");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+
+        ProcessRunRequest pr = _runner.Requests[1];
+        pr.FileName.ShouldBe("gh");
+        // --flag=value, so a title starting with a dash can never be read as an option.
+        pr.Arguments.ShouldBe([
+            "pr", "create", "--title=Fix the pager", "--body=It was off by one.", "--head=feature/pager",
+        ]);
+        observation.Data!.Url.ShouldBe("https://github.com/x/y/pull/42");
+        observation.Data.HeadBranch.ShouldBe("feature/pager");
+        gate.Action!.Tool.ShouldBe("create_pull_request");
+        gate.Action.Detail.ShouldContain("Title: Fix the pager");
+    }
+
+    [Fact]
+    public async Task A_configured_base_branch_is_passed_to_the_cli()
+    {
+        _options.PullRequestBaseBranch = "develop";
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n")
+            .Enqueue(0, "https://github.com/x/y/pull/42\n");
+
+        await Tool(new RecordingGate(approve: true), "src").CreatePullRequestAsync("Fix the pager");
+
+        _runner.Requests[1].Arguments.ShouldContain("--base=develop");
+    }
+
+    [Fact]
+    public async Task A_refused_pull_request_never_reaches_the_cli()
+    {
+        RecordingGate gate = new(approve: false);
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(gate, "src")
+            .CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.ApprovalRefused);
+        _runner.Requests.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_pull_request_needs_the_branch_pushed_first()
+    {
+        _runner.Enqueue(0, "# branch.head feature/pager\n");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(new RecordingGate(approve: true), "src")
+            .CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
+        observation.Error.Hint.ShouldContain("git_push");
+    }
+
+    [Fact]
+    public async Task A_pull_request_refuses_to_describe_unpushed_commits()
+    {
+        _runner.Enqueue(0, CleanAheadTwo);
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(new RecordingGate(approve: true), "src")
+            .CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Message.ShouldContain("2 commit(s) ahead");
+    }
+
+    [Fact]
+    public async Task A_pull_request_honours_the_branch_policy()
+    {
+        _options.ProtectedBranches.Add("main");
+        RecordingGate gate = new(approve: true);
+        _runner.Enqueue(0, "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(gate, "src").CreatePullRequestAsync("Ship it");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.BranchNotAllowed);
+        gate.Action.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task An_unauthenticated_gh_cli_says_how_to_fix_it()
+    {
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n")
+            .Enqueue(1, "", "gh: To get started with GitHub CLI, please run: gh auth login");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(new RecordingGate(approve: true), "src")
+            .CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Hint.ShouldContain("gh auth login");
+    }
+
+    [Fact]
+    public async Task An_existing_pull_request_is_reported_as_such()
+    {
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n")
+            .Enqueue(1, "", "a pull request for branch \"feature/pager\" already exists");
+
+        ToolObservation<GitPullRequestResult> observation = await Tool(new RecordingGate(approve: true), "src")
+            .CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.AlreadyExists);
+    }
+
+    [Fact]
+    public async Task A_missing_gh_cli_is_an_observation_with_install_guidance()
+    {
+        GitTool tool = new(
+            new SelectiveThrowingRunner(_runner, "gh"),
+            _workspace.Guard("src"),
+            TempWorkspace.Wrap(_options),
+            new RecordingGate(approve: true));
+
+        _runner.Enqueue(0, "# branch.head feature/pager\n# branch.upstream origin/feature/pager\n# branch.ab +0 -0\n");
+
+        ToolObservation<GitPullRequestResult> observation = await tool.CreatePullRequestAsync("Fix the pager");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.GitUnavailable);
+        observation.Error.Hint.ShouldContain("gh auth login");
     }
 
     private const string CleanBehindTwo =
@@ -513,6 +648,24 @@ public sealed class GitToolTests : IDisposable
     {
         public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default) =>
             throw new System.ComponentModel.Win32Exception("The system cannot find the file specified");
+    }
+
+    /// <summary>A machine that has git but not gh - the common case for the pull-request tool.</summary>
+    private sealed class SelectiveThrowingRunner : IProcessRunner
+    {
+        private readonly IProcessRunner _inner;
+        private readonly string _missing;
+
+        public SelectiveThrowingRunner(IProcessRunner inner, string missing)
+        {
+            _inner = inner;
+            _missing = missing;
+        }
+
+        public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default) =>
+            request.FileName == _missing
+                ? throw new System.ComponentModel.Win32Exception("The system cannot find the file specified")
+                : _inner.RunAsync(request, cancellationToken);
     }
 
     /// <summary>An interactive gate that records what it was asked and answers by script.</summary>

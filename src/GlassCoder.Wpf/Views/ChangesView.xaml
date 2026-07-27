@@ -28,6 +28,7 @@
   <Grid Margin="8">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="200" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
@@ -50,7 +51,38 @@
       </StackPanel>
     </Border>
 
-    <DataGrid Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+    <!-- Manual git controls (workplan task 42). They call the same tool methods the model does,
+         so a push from here still goes through the approval gate above. -->
+    <Border Grid.Row="1" Padding="8" Margin="0,0,0,8" CornerRadius="4"
+            Background="#F4F6F8" BorderBrush="#D0D7DE" BorderThickness="1"
+            Visibility="{Binding GitAvailable, Converter={StaticResource BoolToVisibility}}">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBox Grid.Row="0" Grid.Column="0" VerticalContentAlignment="Center" Padding="4,3"
+                 Text="{Binding CommitMessage, UpdateSourceTrigger=PropertyChanged}"
+                 ToolTip="Commit message for a manual commit." />
+        <Button Grid.Row="0" Grid.Column="1" Content="Commit" Padding="16,4" Margin="8,0,0,0"
+                Command="{Binding CommitCommand}"
+                ToolTip="Stage everything inside the writable path set and commit it." />
+        <Button Grid.Row="0" Grid.Column="2" Content="Push" Padding="16,4" Margin="8,0,0,0"
+                Command="{Binding PushCommand}"
+                ToolTip="Push the current branch. Still asks for approval." />
+
+        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Margin="0,6,0,0" Foreground="#444"
+                   TextWrapping="Wrap" Text="{Binding GitStatus}" />
+      </Grid>
+    </Border>
+
+    <DataGrid Grid.Row="2" AutoGenerateColumns="False" IsReadOnly="True"
               ItemsSource="{Binding Changes}" SelectedItem="{Binding Selected}"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column">
       <DataGrid.Columns>
@@ -75,12 +107,12 @@
       </DataGrid.RowStyle>
     </DataGrid>
 
-    <StackPanel Grid.Row="2" Margin="0,8,0,4">
+    <StackPanel Grid.Row="3" Margin="0,8,0,4">
       <TextBlock FontWeight="Bold" Text="{Binding Selected.Path, StringFormat='Diff — {0}'}" />
       <TextBlock Foreground="#444" Text="{Binding Selected.Verification}" TextWrapping="Wrap" />
     </StackPanel>
 
-    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+    <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
       <ItemsControl ItemsSource="{Binding Selected.Diff}" ItemTemplate="{StaticResource DiffLineTemplate}" />
     </ScrollViewer>
   </Grid>

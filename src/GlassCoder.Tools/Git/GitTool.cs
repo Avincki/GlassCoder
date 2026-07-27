@@ -75,6 +75,17 @@ public sealed record GitPushResult(
     [property: Description("True when this was a first push that set the upstream tracking link.")]
     bool SetUpstream);
 
+/// <summary>Result payload of <c>create_pull_request</c>.</summary>
+/// <param name="Url">URL of the pull request.</param>
+/// <param name="HeadBranch">Branch the pull request is from.</param>
+/// <param name="BaseBranch">Branch it targets.</param>
+/// <param name="Title">Its title.</param>
+public sealed record GitPullRequestResult(
+    [property: Description("URL of the pull request.")] string Url,
+    [property: Description("Branch the pull request is from.")] string HeadBranch,
+    [property: Description("Branch it targets, or '(repository default)'.")] string BaseBranch,
+    [property: Description("Title of the pull request.")] string Title);
+
 /// <summary>
 /// <c>git_status</c> and <c>git_commit</c> - the local, reversible half of version control
 /// (workplan task 40). <c>git_sync</c> and <c>git_push</c> arrive in task 41, behind approval.
@@ -92,6 +103,7 @@ public sealed class GitTool : IToolSet
     private const string CommitToolName = "git_commit";
     private const string SyncToolName = "git_sync";
     private const string PushToolName = "git_push";
+    private const string PullRequestToolName = "create_pull_request";
     private const int MaxOutputCharacters = 4000;
     private const int StagingBatchSize = 50;
 
@@ -391,22 +403,9 @@ public sealed class GitTool : IToolSet
                 "HEAD is detached; push needs a branch.");
         }
 
-        if (_options.ProtectedBranches.Contains(status.Branch, StringComparer.Ordinal))
+        if (CheckBranchPolicy(status.Branch) is { } refusal)
         {
-            return Observation.Fail<GitPushResult>(
-                PushToolName,
-                ToolErrorCodes.BranchNotAllowed,
-                $"Branch {status.Branch} is protected by configuration and cannot be pushed.",
-                "Work on a different branch, or change GlassCoder:Git:ProtectedBranches.");
-        }
-
-        if (_options.PushableBranches.Count > 0 && !_options.PushableBranches.Contains(status.Branch, StringComparer.Ordinal))
-        {
-            return Observation.Fail<GitPushResult>(
-                PushToolName,
-                ToolErrorCodes.BranchNotAllowed,
-                $"Branch {status.Branch} is not in the pushable-branches list.",
-                "Work on a listed branch, or change GlassCoder:Git:PushableBranches.");
+            return Observation.Fail<GitPushResult>(PushToolName, refusal.Code, refusal.Message, refusal.Hint);
         }
 
         if (!IsSafeRefName(_options.Remote) || !IsSafeRefName(status.Branch))
@@ -532,9 +531,154 @@ public sealed class GitTool : IToolSet
                 + (firstPush ? " Upstream set." : string.Empty));
     }
 
-    private async Task<GitRun> RunGitAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    /// <summary>Opens a pull request for the current branch, behind human approval.</summary>
+    [GlassCoderTool(PullRequestToolName, Order = 84)]
+    [Description("Open a GitHub pull request for the current branch using the gh CLI. Like git_push this "
+        + "leaves the machine and normally requires human approval. The branch must already be pushed with "
+        + "everything it should contain - run git_push first.")]
+    public async Task<ToolObservation<GitPullRequestResult>> CreatePullRequestAsync(
+        [Description("Pull request title. One line, imperative mood, under 72 characters.")]
+        string title,
+        [Description("Pull request body in Markdown: what changed and why. May be empty.")]
+        string body = "",
+        CancellationToken cancellationToken = default)
     {
-        ProcessRunRequest request = new(_options.GitExecutable, arguments)
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName, ToolErrorCodes.InvalidArgument, "title is required.");
+        }
+
+        GitRun statusRun = await RunGitAsync(["status", "--porcelain=v2", "--branch"], cancellationToken).ConfigureAwait(false);
+        if (Failed(statusRun))
+        {
+            return FailFrom<GitPullRequestResult>(PullRequestToolName, statusRun);
+        }
+
+        StatusSnapshot status = StatusSnapshot.Parse(statusRun.Result!.StandardOutput);
+        if (status.Branch == "(detached)")
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName, ToolErrorCodes.InvalidArgument, "HEAD is detached; a pull request needs a branch.");
+        }
+
+        if (CheckBranchPolicy(status.Branch) is { } refusal)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName, refusal.Code, refusal.Message, refusal.Hint);
+        }
+
+        // A pull request for commits the remote has never seen would describe work nobody can
+        // review, so an unpushed branch is refused rather than quietly opened against stale code.
+        if (status.Upstream is null)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.NotFound,
+                $"Branch {status.Branch} has not been pushed, so there is nothing to open a pull request for.",
+                "Run git_push first.");
+        }
+
+        if (status.Ahead > 0)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"Branch {status.Branch} is {status.Ahead} commit(s) ahead of {status.Upstream}.",
+                "Run git_push first so the pull request includes them.");
+        }
+
+        string baseBranch = _options.PullRequestBaseBranch ?? "(repository default)";
+        AgentAction action = new(
+            PullRequestToolName,
+            $"Open a pull request from {status.Branch} to {baseBranch}",
+            [$"{status.Branch} → {baseBranch}", $"Title: {title}", .. Preview(body)]);
+
+        ApprovalDecision decision = await _approval.RequestActionAsync(action, cancellationToken).ConfigureAwait(false);
+        if (!decision.Approved)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.ApprovalRefused,
+                decision.Reason ?? "The pull request was not approved.");
+        }
+
+        // --flag=value rather than --flag value: a title or branch beginning with a dash cannot
+        // then be read as an option, whatever the CLI's parser would otherwise have done with it.
+        List<string> arguments = ["pr", "create", $"--title={title}", $"--body={body}", $"--head={status.Branch}"];
+        if (_options.PullRequestBaseBranch is { } configured)
+        {
+            if (!IsSafeRefName(configured))
+            {
+                return Observation.Fail<GitPullRequestResult>(
+                    PullRequestToolName,
+                    ToolErrorCodes.InvalidArgument,
+                    $"'{configured}' is not a usable base branch.");
+            }
+
+            arguments.Add($"--base={configured}");
+        }
+
+        GitRun prRun = await RunProcessAsync(_options.GitHubExecutable, arguments, cancellationToken).ConfigureAwait(false);
+        if (!prRun.Launched)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.GitUnavailable,
+                $"The GitHub CLI could not be started: {prRun.LaunchFailure}",
+                "Install the gh CLI and run 'gh auth login', or set GlassCoder:Git:GitHubExecutable to its full path.");
+        }
+
+        if (prRun.Result!.TimedOut)
+        {
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.Timeout,
+                $"The GitHub CLI exceeded {_options.CommandTimeoutSeconds} seconds and was stopped.");
+        }
+
+        string output = prRun.Result.StandardOutput + '\n' + prRun.Result.StandardError;
+        if (prRun.Result.ExitCode != 0)
+        {
+            if (ContainsAny(output, "gh auth login", "authentication", "not logged"))
+            {
+                return Observation.Fail<GitPullRequestResult>(
+                    PullRequestToolName,
+                    ToolErrorCodes.Unexpected,
+                    $"The GitHub CLI is not authenticated: {Tail(output).Trim()}",
+                    "Run 'gh auth login' on this machine; GlassCoder holds no GitHub token itself.");
+            }
+
+            if (ContainsAny(output, "already exists"))
+            {
+                return Observation.Fail<GitPullRequestResult>(
+                    PullRequestToolName,
+                    ToolErrorCodes.AlreadyExists,
+                    $"A pull request for {status.Branch} already exists: {Tail(output).Trim()}");
+            }
+
+            return Observation.Fail<GitPullRequestResult>(
+                PullRequestToolName,
+                ToolErrorCodes.Unexpected,
+                $"The GitHub CLI exited with {prRun.Result.ExitCode}: {Tail(output).Trim()}");
+        }
+
+        string url = FindUrl(output) ?? "(url not reported)";
+        _logger.LogInformation("Opened a pull request from {Branch}: {Url}", status.Branch, url);
+
+        GitPullRequestResult payload = new(url, status.Branch, baseBranch, title);
+        return Observation.Ok(PullRequestToolName, payload, $"Opened a pull request from {status.Branch}: {url}");
+    }
+
+    private Task<GitRun> RunGitAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
+        RunProcessAsync(_options.GitExecutable, arguments, cancellationToken);
+
+    private async Task<GitRun> RunProcessAsync(
+        string executable,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        ProcessRunRequest request = new(executable, arguments)
         {
             WorkingDirectory = _guard.RepoRoot,
             Timeout = TimeSpan.FromSeconds(Math.Max(1, _options.CommandTimeoutSeconds)),
@@ -544,6 +688,9 @@ public sealed class GitTool : IToolSet
                 ["GIT_TERMINAL_PROMPT"] = "0",
                 ["GCM_INTERACTIVE"] = "never",
                 ["GIT_OPTIONAL_LOCKS"] = "0",
+                ["GH_PROMPT_DISABLED"] = "1",
+                ["GH_NO_UPDATE_NOTIFIER"] = "1",
+                ["NO_COLOR"] = "1",
             },
         };
 
@@ -557,7 +704,7 @@ public sealed class GitTool : IToolSet
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "git could not be launched as {Executable}", _options.GitExecutable);
+            _logger.LogWarning(ex, "{Executable} could not be launched", executable);
             return new GitRun(false, null, ex.Message);
         }
     }
@@ -621,6 +768,40 @@ public sealed class GitTool : IToolSet
     /// </summary>
     private static bool IsSafeRefName(string name) =>
         !string.IsNullOrWhiteSpace(name) && name[0] != '-' && !name.Any(char.IsWhiteSpace);
+
+    /// <summary>
+    /// Branch policy, shared by push and pull request: the deny-list wins, then the allow-list
+    /// when one is configured. Null means the branch may be published.
+    /// </summary>
+    private ToolError? CheckBranchPolicy(string branch)
+    {
+        if (_options.ProtectedBranches.Contains(branch, StringComparer.Ordinal))
+        {
+            return new ToolError(
+                ToolErrorCodes.BranchNotAllowed,
+                $"Branch {branch} is protected by configuration and cannot be published.",
+                "Work on a different branch, or change GlassCoder:Git:ProtectedBranches.");
+        }
+
+        if (_options.PushableBranches.Count > 0 && !_options.PushableBranches.Contains(branch, StringComparer.Ordinal))
+        {
+            return new ToolError(
+                ToolErrorCodes.BranchNotAllowed,
+                $"Branch {branch} is not in the pushable-branches list.",
+                "Work on a listed branch, or change GlassCoder:Git:PushableBranches.");
+        }
+
+        return null;
+    }
+
+    /// <summary>First few lines of a body, so an approval shows what it is agreeing to.</summary>
+    private static IEnumerable<string> Preview(string body) =>
+        body.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Take(10);
+
+    /// <summary>The URL the GitHub CLI printed, which is the whole of its useful output.</summary>
+    private static string? FindUrl(string output) =>
+        output.Split([' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault(t => t.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsConflict(ProcessRunResult result) =>
         ContainsAny(result.StandardOutput + result.StandardError, "conflict", "could not apply");

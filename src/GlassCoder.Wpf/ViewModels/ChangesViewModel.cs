@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using GlassCoder.Core.Diagnostics;
+using GlassCoder.Tools;
 using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Git;
 using GlassCoder.Wpf.Mvvm;
 
 namespace GlassCoder.Wpf.ViewModels;
@@ -86,14 +90,37 @@ public sealed class ChangesViewModel : ViewModelBase
 {
     private readonly IChangeLog _changes;
     private readonly Dispatcher _dispatcher;
+    private readonly GitTool? _git;
+    private readonly IStepLogger? _steps;
     private ChangeRowViewModel? _selected;
     private PendingApproval? _pending;
+    private string _commitMessage = string.Empty;
+    private string _gitStatus = string.Empty;
+    private bool _isGitBusy;
+    private bool _isAgentRunning;
+    private int _manualStep;
 
     /// <summary>Creates the view model and subscribes to the change log.</summary>
-    public ChangesViewModel(IChangeLog changes, Dispatcher? dispatcher = null)
+    /// <param name="changes">The per-task change log.</param>
+    /// <param name="dispatcher">UI dispatcher the collections are marshalled onto.</param>
+    /// <param name="git">
+    /// The git tools, when they are enabled. Null hides the manual controls rather than
+    /// offering buttons that cannot work.
+    /// </param>
+    /// <param name="steps">
+    /// The transcript logger, so a button-initiated git action lands in the record exactly as
+    /// the model's own call would (workplan task 42).
+    /// </param>
+    public ChangesViewModel(
+        IChangeLog changes,
+        Dispatcher? dispatcher = null,
+        GitTool? git = null,
+        IStepLogger? steps = null)
     {
         _changes = changes;
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
+        _git = git;
+        _steps = steps;
 
         foreach (CodeChange change in changes.All())
         {
@@ -104,6 +131,14 @@ public sealed class ChangesViewModel : ViewModelBase
 
         ApproveCommand = new RelayCommand(() => Decide(true), () => Pending is not null);
         RejectCommand = new RelayCommand(() => Decide(false), () => Pending is not null);
+
+        CommitCommand = new RelayCommand(
+            async () => await CommitAsync().ConfigureAwait(true),
+            () => CanRunGit && !string.IsNullOrWhiteSpace(CommitMessage));
+
+        PushCommand = new RelayCommand(
+            async () => await PushAsync().ConfigureAwait(true),
+            () => CanRunGit);
     }
 
     /// <summary>Every change, newest last.</summary>
@@ -138,6 +173,48 @@ public sealed class ChangesViewModel : ViewModelBase
     /// <summary>Rejects the pending change.</summary>
     public RelayCommand RejectCommand { get; }
 
+    /// <summary>Commits the working tree by hand (workplan task 42).</summary>
+    public RelayCommand CommitCommand { get; }
+
+    /// <summary>Pushes the current branch by hand. Still asks for approval.</summary>
+    public RelayCommand PushCommand { get; }
+
+    /// <summary>Whether the git controls are shown at all - that is, whether git is enabled.</summary>
+    public bool GitAvailable => _git is not null;
+
+    /// <summary>Message for a manual commit.</summary>
+    public string CommitMessage
+    {
+        get => _commitMessage;
+        set => SetProperty(ref _commitMessage, value);
+    }
+
+    /// <summary>What the last manual git action did.</summary>
+    public string GitStatus
+    {
+        get => _gitStatus;
+        private set => SetProperty(ref _gitStatus, value);
+    }
+
+    /// <summary>Whether a manual git action is in flight.</summary>
+    public bool IsGitBusy
+    {
+        get => _isGitBusy;
+        private set => SetProperty(ref _isGitBusy, value);
+    }
+
+    /// <summary>
+    /// Whether the agent is mid-run, set by the shell. Committing halfway through a run would
+    /// record a tree the agent has not finished changing, so the buttons stand down until it is.
+    /// </summary>
+    public bool IsAgentRunning
+    {
+        get => _isAgentRunning;
+        set => SetProperty(ref _isAgentRunning, value);
+    }
+
+    private bool CanRunGit => _git is not null && !IsGitBusy && !IsAgentRunning;
+
     /// <summary>Called by the approval gate when a change needs a decision.</summary>
     public Task<ApprovalDecision> RequestApprovalAsync(CodeChange change, CancellationToken cancellationToken)
     {
@@ -169,6 +246,103 @@ public sealed class ChangesViewModel : ViewModelBase
             ApprovalDecision.Reject("The run was cancelled while waiting for approval.")));
 
         return pending.Completion.Task;
+    }
+
+    private async Task CommitAsync()
+    {
+        string message = CommitMessage;
+        bool ok = await RunGitActionAsync(
+            "git_commit",
+            new Dictionary<string, object?> { ["message"] = message, ["stageAll"] = true },
+            token => _git!.CommitAsync(message, stageAll: true, token)).ConfigureAwait(true);
+
+        if (ok)
+        {
+            CommitMessage = string.Empty;
+        }
+    }
+
+    private Task PushAsync() =>
+        RunGitActionAsync("git_push", new Dictionary<string, object?>(), token => _git!.PushAsync(token));
+
+    /// <summary>
+    /// Runs one manual git action: the same tool method the model calls, so the guardrails
+    /// cannot diverge between the two paths - a manual push still asks the approval gate.
+    /// </summary>
+    private async Task<bool> RunGitActionAsync<TData>(
+        string tool,
+        IReadOnlyDictionary<string, object?> arguments,
+        Func<CancellationToken, Task<ToolObservation<TData>>> action)
+    {
+        IsGitBusy = true;
+        GitStatus = "Working…";
+        long start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            ToolObservation<TData> observation = await action(CancellationToken.None).ConfigureAwait(true);
+            GitStatus = observation.Summary ?? (observation.Ok ? "Done." : "Failed.");
+            Record(tool, arguments, observation.Ok, observation.Summary, observation.Error?.Message,
+                Stopwatch.GetElapsedTime(start));
+            return observation.Ok;
+        }
+        catch (Exception ex)
+        {
+            // A tool that throws is a defect, but the button must not take the window with it.
+            GitStatus = $"Failed: {ex.Message}";
+            Record(tool, arguments, false, null, ex.Message, Stopwatch.GetElapsedTime(start));
+            return false;
+        }
+        finally
+        {
+            IsGitBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Puts a button-initiated action into the transcript as its own step, so the record of what
+    /// happened to this repository stays whole whether the model or a person pressed it. The role
+    /// is <c>human</c> and there is no run id outside a run, which is what distinguishes these
+    /// from the loop's own steps rather than letting them masquerade as model work.
+    /// </summary>
+    private void Record(
+        string tool,
+        IReadOnlyDictionary<string, object?> arguments,
+        bool ok,
+        string? summary,
+        string? error,
+        TimeSpan duration)
+    {
+        if (_steps is null)
+        {
+            return;
+        }
+
+        RunContext context = RunContext.Current;
+        _steps.LogStep(new StepRecord
+        {
+            RunId = context.RunId,
+            TaskId = context.TaskId,
+            StepIndex = _manualStep++,
+            Role = "human",
+            StartedAt = DateTimeOffset.UtcNow,
+            Prompt = [],
+            ToolCalls =
+            [
+                new ToolCallRecord(
+                    Guid.NewGuid().ToString("n")[..12],
+                    tool,
+                    arguments,
+                    ok ? "Succeeded" : "Failed",
+                    Parsed: true,
+                    duration.TotalMilliseconds,
+                    summary,
+                    error),
+            ],
+            ModelLatencyMs = 0,
+            StepLatencyMs = duration.TotalMilliseconds,
+            Outcome = ok ? "manual" : "manual-failed",
+        });
     }
 
     private void Decide(bool approved)

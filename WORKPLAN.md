@@ -299,13 +299,13 @@ Acceptance: a push requires a human yes while sync/commit do not, and no schema 
 
 ## 42. Git tools, step 3: pull requests and manual UI actions
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Optional conveniences over the same service: a `create_pull_request` tool (via the `gh` CLI or Octokit — decide when it lands) and manual Commit/Push buttons in the changes pane for runs where the human wants to drive. The buttons call the same underlying code as the tools, so behaviour and guardrails cannot diverge; button-initiated actions still land in the transcript so the measurement story stays whole.
 
-- [ ] Extract the shared git service seam if step 2 has not already forced it.
-- [ ] `create_pull_request` gated by the same approval flow as push.
-- [ ] Commit/Push commands in the WPF changes pane, disabled when `GlassCoder:Git:Enabled` is false.
-- [ ] Log button-initiated git actions into the run record like tool calls.
+- [x] No separate service seam was extracted: `GitTool` **is** the service, and the view model takes it from DI directly — the same precedent the verification ladder set when it drove `build` and `run_tests` without going through the model-facing registry. An interface identical to the class's public surface would have been ceremony.
+- [x] `create_pull_request` via the `gh` CLI (not Octokit), gated by the same `RequestActionAsync` approval as push, and refusing to describe unpushed commits. `--flag=value` form throughout so a title beginning with a dash cannot be read as an option.
+- [x] Commit/Push commands in the WPF changes pane, hidden entirely when `GlassCoder:Git:Enabled` is false (`GetService<GitTool>()` returns null and the strip collapses), and disabled mid-run.
+- [x] Button-initiated actions are logged through `IStepLogger` as `Role: "human"` steps, so they reach the JSONL transcript and the live view exactly as a model tool call does.
 
 Acceptance: a PR can be opened from the loop with approval, and the UI buttons produce the same logged, guarded behaviour as the tools. Depends on task 41.

@@ -165,6 +165,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
             if (SetProperty(ref _isRunning, value))
             {
                 OnPropertyChanged(nameof(CanRetry));
+
+                // The manual git buttons stand down mid-run: committing a tree the agent has not
+                // finished changing would record work in progress as if it were finished.
+                Changes.IsAgentRunning = value;
             }
         }
     }
