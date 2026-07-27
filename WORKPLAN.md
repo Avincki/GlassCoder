@@ -255,3 +255,16 @@ Critique, orchestration and the bash tool all ship disabled (`Critique:Enabled`,
 - [ ] Document which combinations actually improve results versus which only add cost or complexity.
 
 Acceptance: there is measured JSONL evidence (not just code) showing the effect of each advanced capability. Depends on tasks 22, 36, 37.
+
+## 39. Workspace pane: project selector and session file tree
+
+- [x] **Estimated time:** 1d
+
+The window has no view of the workspace itself: which folder the agent works on is invisible outside Settings, and what a session did to the tree is only readable change-by-change on the Changes surface. Add a right-hand pane with the project folder on top and a file tree below, where files modified this session show in green with their net added/removed line counts.
+
+- [x] Per-file rollup over the change log (`FileChangeSummary` in `GlassCoder.Tools`): net counts from the first applied change's before-text to the last applied change's after-text, so a rewrite does not double-count and a reverted change drops out on its own.
+- [x] `WorkspaceViewModel` + `WorkspacePane`, docked right on the shell: read-only root field with Browse, tree filtered by the workspace deny globs, built off the UI thread, updated live from `IChangeLog.Changed` with ancestor folders auto-expanded.
+- [x] Folder selection is save-and-restart: the choice persists through `IUserSettingsStore` like every other setting, and an inline strip offers the restart that makes it the root in force. The tree always shows the active root, never a folder the agent is not in.
+- [x] Tests for the rollup arithmetic in `GlassCoder.Tools.Tests`.
+
+Acceptance: the pane shows the active workspace tree; an agent edit turns its file green with correct net counts; picking a folder persists it and offers a restart. Depends on tasks 25, 27.

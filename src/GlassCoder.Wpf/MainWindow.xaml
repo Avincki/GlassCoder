@@ -116,6 +116,13 @@
       </ListBox.ItemContainerStyle>
     </ListBox>
 
+    <!-- The workspace pane (workplan task 39). Shell-level like the review strip, not a
+         surface: which folder the agent is in and what this session did to it stay visible
+         whichever surface is selected. -->
+    <Border DockPanel.Dock="Right" Width="280" BorderBrush="#DDDDDD" BorderThickness="1,0,0,0">
+      <views:WorkspacePane DataContext="{Binding Workspace}" />
+    </Border>
+
     <ContentControl Content="{Binding CurrentView}" />
   </DockPanel>
 </Window>

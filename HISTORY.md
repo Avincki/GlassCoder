@@ -9,6 +9,55 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — The workspace pane (workplan task 39)
+
+**Shipped.** A right-hand pane on the shell: the project folder on top, the file
+tree below. Files with an applied change this session show in green with their
+net `+added −removed` line counts, updated live from the change log, with the
+folders above them auto-expanded. Browse… picks a new project folder,
+persists it through the user settings store, and offers the restart that makes
+it the root in force. 280 tests green, build clean.
+
+**Decided**
+
+- **Folder selection is save-and-restart, not runtime re-rooting.** The path
+  guard, the sandbox mounts and the context all rooted themselves at startup,
+  and the whole configuration model is deliberately bind-once. A pane that
+  re-rooted just the tree would show a folder the agent is not in; re-rooting
+  everything live is a real architectural change (see Open). So the tree always
+  shows the active root, and a chosen folder becomes a pending strip with a
+  Restart button — the same contract as the settings dialog.
+- **Counts are net, not summed.** `FileChangeSummary` diffs the first applied
+  change's before-text against the last applied change's after-text per file. A
+  line written and then rewritten counts once; an applied-then-reverted change
+  leaves `Applied` and drops out on its own; edits that cancel out exactly
+  still report the file, at `+0 −0` — touched-but-net-nothing is a fact, and
+  the rollup does not editorialise it away.
+- **The tree hides exactly what the deny globs hide.** The pane builds its
+  filter from `Workspace:DeniedGlobs`, so it and the path guard never disagree
+  about what the workspace contains. Directories are pruned with a probe-child
+  match — the globs are of the "everything under here" shape, and enumerating
+  `bin/` only to hide it would be the slowest way to say nothing.
+- **The folder picker went behind `IDesktopShell`.** Alongside `OpenFolder` and
+  `Restart`: view models stay free of dialog classes, and the seam's doc
+  comment now says "what the view models need" rather than counting to two.
+- **Rollup arithmetic lives in `GlassCoder.Tools`, not the view model.** There
+  is no WPF test project, and the one part of this feature with real
+  correctness content is the counting - so it sits next to `ChangeLog` and is
+  tested in `GlassCoder.Tools.Tests`.
+
+**Open**
+
+- Runtime workspace switching (no restart) would need a re-rootable
+  `PathGuard`, recreated sandbox mounts and an invalidated change log — a
+  separate task if restart friction ever matters.
+- Edits made outside the agent are invisible to the tree until Refresh; a
+  `FileSystemWatcher` was deliberately left out of v1.
+- Directory nodes do not roll up their children's counts, and the pane's width
+  is fixed — both easy adds if wanted.
+
+---
+
 ## 2026-07-27 — The critic's transport, and the review on the record (workplan task 37)
 
 **Shipped.** A per-role `Transport` setting: `critic-remote` now speaks Anthropic's

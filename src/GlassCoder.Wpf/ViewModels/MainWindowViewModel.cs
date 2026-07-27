@@ -48,6 +48,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         TranscriptViewModel transcript,
         ChangesViewModel changes,
         MetricsViewModel metrics,
+        WorkspaceViewModel workspace,
         ISettingsDialog settings,
         IAboutDialog about,
         ICriticPanel critics,
@@ -67,6 +68,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Transcript = transcript;
         Changes = changes;
         Metrics = metrics;
+        Workspace = workspace;
         _currentView = transcript;
 
         RunCommand = new RelayCommand(async () => await RunAsync().ConfigureAwait(true), () => !IsRunning);
@@ -88,6 +90,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     /// <summary>The metrics and ablation surface.</summary>
     public MetricsViewModel Metrics { get; }
+
+    /// <summary>The workspace pane on the right of the shell (workplan task 39).</summary>
+    public WorkspaceViewModel Workspace { get; }
 
     /// <summary>Names of the surfaces, for the navigation list.</summary>
     public IReadOnlyList<string> Surfaces { get; } = ["Transcript", "Changes", "Metrics"];

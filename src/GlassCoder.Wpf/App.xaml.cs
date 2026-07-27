@@ -36,6 +36,7 @@ public partial class App : Application
         builder.Services.AddSingleton<TranscriptViewModel>();
         builder.Services.AddSingleton<ChangesViewModel>();
         builder.Services.AddSingleton<MetricsViewModel>();
+        builder.Services.AddSingleton<WorkspaceViewModel>();
         builder.Services.AddSingleton<MainWindowViewModel>();
         builder.Services.AddSingleton<MainWindow>();
         builder.Services.Replace(ServiceDescriptor.Singleton<IApprovalGate, WpfApprovalGate>());

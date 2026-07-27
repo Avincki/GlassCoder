@@ -7,8 +7,8 @@ using System.Windows;
 namespace GlassCoder.Wpf.Services;
 
 /// <summary>
-/// The two things the settings dialog needs from the operating system. A seam rather than direct
-/// calls so the view models stay free of <c>Process.Start</c> and of <c>Application.Current</c>
+/// What the view models need from the operating system. A seam rather than direct calls so they
+/// stay free of <c>Process.Start</c>, of <c>Application.Current</c> and of dialog classes
 /// (CLAUDE.md §14).
 /// </summary>
 public interface IDesktopShell
@@ -21,6 +21,9 @@ public interface IDesktopShell
     /// <c>IOptions&lt;T&gt;</c>, so this is what makes a saved change the one in force.
     /// </summary>
     void Restart();
+
+    /// <summary>Asks the user for a folder. The chosen path, or null when they cancelled.</summary>
+    string? PickFolder(string title, string? initialDirectory);
 }
 
 /// <summary>The Windows implementation of <see cref="IDesktopShell"/>.</summary>
@@ -58,5 +61,17 @@ public sealed class DesktopShell : IDesktopShell
         }
 
         Application.Current?.Shutdown();
+    }
+
+    /// <inheritdoc />
+    public string? PickFolder(string title, string? initialDirectory)
+    {
+        Microsoft.Win32.OpenFolderDialog dialog = new() { Title = title };
+        if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
+        {
+            dialog.InitialDirectory = initialDirectory;
+        }
+
+        return dialog.ShowDialog() == true ? dialog.FolderName : null;
     }
 }
