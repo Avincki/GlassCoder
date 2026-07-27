@@ -149,6 +149,22 @@ public sealed class ChangesViewModel : ViewModelBase
             Selected = Changes.FirstOrDefault(c => c.Id == change.Id);
         });
 
+        return Await(pending, cancellationToken);
+    }
+
+    /// <summary>
+    /// Called by the approval gate when an action - a push, later a PR - needs a decision. Same
+    /// strip, same buttons, same timeout-is-refusal contract; only the shape on display differs.
+    /// </summary>
+    public Task<ApprovalDecision> RequestApprovalAsync(AgentAction action, CancellationToken cancellationToken)
+    {
+        PendingApproval pending = new(action);
+        _dispatcher.BeginInvoke(() => Pending = pending);
+        return Await(pending, cancellationToken);
+    }
+
+    private static Task<ApprovalDecision> Await(PendingApproval pending, CancellationToken cancellationToken)
+    {
         cancellationToken.Register(() => pending.Completion.TrySetResult(
             ApprovalDecision.Reject("The run was cancelled while waiting for approval.")));
 
@@ -165,7 +181,7 @@ public sealed class ChangesViewModel : ViewModelBase
 
         pending.Completion.TrySetResult(approved
             ? ApprovalDecision.Approve()
-            : ApprovalDecision.Reject("A reviewer rejected this change."));
+            : ApprovalDecision.Reject(pending.RejectionReason));
 
         Pending = null;
     }
@@ -187,20 +203,46 @@ public sealed class ChangesViewModel : ViewModelBase
             }
         });
 
-    /// <summary>A change waiting on a decision.</summary>
+    /// <summary>A change or an action waiting on a decision - exactly one of the two.</summary>
     public sealed class PendingApproval
     {
-        /// <summary>Creates the pending approval.</summary>
-        public PendingApproval(CodeChange change) => Change = change;
+        /// <summary>A pending file change, shown as its diff.</summary>
+        public PendingApproval(CodeChange change)
+        {
+            Change = change;
+            Path = change.Path;
+            Explanation = "This change has passed verification and is waiting to be written.";
+            Diff = change.Diff();
+            RejectionReason = "A reviewer rejected this change.";
+        }
 
-        /// <summary>The change.</summary>
-        public CodeChange Change { get; }
+        /// <summary>A pending action, its detail lines shown where the diff would be.</summary>
+        public PendingApproval(AgentAction action)
+        {
+            Action = action;
+            Path = action.Title;
+            Explanation = "This action leaves the machine and cannot be unwound by the change log.";
+            Diff = [.. action.Detail.Select(line => new DiffLine(DiffKind.Context, line, null, null))];
+            RejectionReason = "A reviewer declined the action.";
+        }
 
-        /// <summary>Repo-relative path.</summary>
-        public string Path => Change.Path;
+        /// <summary>The change, when a change is pending.</summary>
+        public CodeChange? Change { get; }
 
-        /// <summary>The diff awaiting a decision.</summary>
-        public IReadOnlyList<DiffLine> Diff => Change.Diff();
+        /// <summary>The action, when an action is pending.</summary>
+        public AgentAction? Action { get; }
+
+        /// <summary>Strip headline: the file for a change, the title for an action.</summary>
+        public string Path { get; }
+
+        /// <summary>One line under the headline saying what a decision means here.</summary>
+        public string Explanation { get; }
+
+        /// <summary>What the strip renders: a real diff, or detail lines dressed as context.</summary>
+        public IReadOnlyList<DiffLine> Diff { get; }
+
+        /// <summary>The reason handed back when the reviewer says no.</summary>
+        public string RejectionReason { get; }
 
         /// <summary>Completed when the user decides.</summary>
         public TaskCompletionSource<ApprovalDecision> Completion { get; } =

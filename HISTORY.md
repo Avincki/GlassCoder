@@ -9,6 +9,56 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — Git tools, step 2: sync and push, behind a human (workplan task 41)
+
+**Shipped.** The outward-facing half: `git_sync` (pull --rebase onto the
+upstream, clean tree required, conflicts auto-aborted and reported) and
+`git_push` (current branch to the configured remote, gated by human approval).
+The approval seam now has an action shape — `AgentAction` +
+`RequestActionAsync` — beside the diff shape, `RequireApprovalForPush`
+defaults to true, and the WPF changes pane shows a push approval with the
+outgoing commits where the diff would be. 314 tests green, build clean.
+
+**Decided**
+
+- **The approval policy lives in the gates, not the tool.** `GitTool` always
+  asks `IApprovalGate`; `AutoApprovalGate` and `WpfApprovalGate` each consult
+  `RequireApprovalForPush`, exactly mirroring the write path. So the headless
+  host fails closed out of the box — a bare `GitTool` with no interactive gate
+  cannot push at all — and a test proves it.
+- **Push approval is default-on; write approval stays default-off.** A write
+  can be reverted from the change log; a push has left the machine. The
+  asymmetry is the point, and it is written into the options' doc comments.
+- **A conflicted sync aborts itself.** The agent has no tool to resolve or
+  abort a rebase, so leaving one in progress would wedge the repository. The
+  tree comes back exactly as it was, the conflicted files are named in a
+  `merge_conflict` observation, and reconciling is explicitly a human's call.
+- **Branch policy is two lists, checked before anyone is asked.**
+  `ProtectedBranches` (deny, wins) and `PushableBranches` (allow, empty =
+  any); a refusal is `branch_not_allowed` and never consumes a human approval.
+  There is no force flag and no free-form refspec anywhere in the schema, so
+  the lists plus the configured remote are the entire policy surface.
+- **The push approval reuses the changes strip wholesale.** `PendingApproval`
+  now carries either a change or an action; an action's detail lines render
+  through the existing diff template as context lines. Same buttons, same
+  timeout-is-refusal, no new UI surface to maintain.
+- **Failure hints teach the loop.** Auth failures hint at the host credential
+  manager (GlassCoder still holds no tokens); non-fast-forward rejections hint
+  at `git_sync`; `git_sync` without an upstream hints that the first
+  `git_push` sets it (`-u`).
+
+**Open**
+
+- Step 3 (task 42): `create_pull_request` and manual Commit/Push buttons over
+  the same code path, plus logging button-initiated actions into the run
+  record.
+- Sync counts movement by before/after SHA, not "commits pulled" — a rebase
+  makes that number honest to compute only with more plumbing than it is
+  worth so far.
+- The commit SHA still is not tied into `IChangeLog`; unchanged from step 1.
+
+---
+
 ## 2026-07-27 — Git tools, step 1: status and commit (workplan task 40)
 
 **Shipped.** The agent can now see and record its work in version control:

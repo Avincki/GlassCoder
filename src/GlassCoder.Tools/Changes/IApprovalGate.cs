@@ -15,7 +15,7 @@ public sealed record ApprovalDecision(bool Approved, string? Reason = null)
     public static ApprovalDecision Reject(string reason) => new(false, reason);
 }
 
-/// <summary>Approval settings (CLAUDE.md §10, workplan task 28).</summary>
+/// <summary>Approval settings (CLAUDE.md §10, workplan tasks 28, 41).</summary>
 public sealed class ApprovalOptions
 {
     /// <summary>Configuration section these options bind from.</summary>
@@ -28,11 +28,27 @@ public sealed class ApprovalOptions
     public bool RequireApprovalForWrites { get; set; }
 
     /// <summary>
+    /// Whether a human must approve each push. On by default, unlike writes: a write can be
+    /// reverted from the change log, a push has left the machine.
+    /// </summary>
+    public bool RequireApprovalForPush { get; set; } = true;
+
+    /// <summary>
     /// How long to wait for an answer before treating silence as refusal. Refusal, not
     /// approval: an unattended prompt must never become a write.
     /// </summary>
     public int ApprovalTimeoutSeconds { get; set; } = 300;
 }
+
+/// <summary>
+/// An agent action that is not a file diff - a push, later a pull request (workplan task 41).
+/// The title and detail lines are all a reviewer sees, so they must carry everything the
+/// decision needs.
+/// </summary>
+/// <param name="Tool">Tool asking, for example <c>git_push</c>.</param>
+/// <param name="Title">One line naming the action, for example "Push 2 commit(s) on main to origin".</param>
+/// <param name="Detail">Supporting lines - the outgoing commits, the branch, the remote.</param>
+public sealed record AgentAction(string Tool, string Title, IReadOnlyList<string> Detail);
 
 /// <summary>
 /// The permission prompt, as a guardrail before write (CLAUDE.md §7, §10; workplan task 28).
@@ -44,6 +60,12 @@ public interface IApprovalGate
 
     /// <summary>Asks whether a change may be written.</summary>
     Task<ApprovalDecision> RequestAsync(CodeChange change, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Asks whether an outward-facing action may proceed. Governed by
+    /// <see cref="ApprovalOptions.RequireApprovalForPush"/> while push is the only such action.
+    /// </summary>
+    Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -87,5 +109,22 @@ public sealed class AutoApprovalGate : IApprovalGate
         return Task.FromResult(ApprovalDecision.Reject(
             "Approval is required for writes, but this host has no way to ask anyone. " +
             "Run the desktop app, or set GlassCoder:Approval:RequireApprovalForWrites to false."));
+    }
+
+    /// <inheritdoc />
+    public Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default)
+    {
+        if (!_options.RequireApprovalForPush)
+        {
+            return Task.FromResult(ApprovalDecision.Approve());
+        }
+
+        _logger.LogWarning(
+            "Approval is required for {Tool} but no interactive approver is registered; refusing the action",
+            action?.Tool);
+
+        return Task.FromResult(ApprovalDecision.Reject(
+            "Approval is required for this action, but this host has no way to ask anyone. " +
+            "Run the desktop app, or set GlassCoder:Approval:RequireApprovalForPush to false."));
     }
 }

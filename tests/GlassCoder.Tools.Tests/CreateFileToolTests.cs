@@ -260,5 +260,8 @@ public sealed class CreateFileToolTests : IDisposable
 
         public Task<ApprovalDecision> RequestAsync(CodeChange change, CancellationToken cancellationToken = default) =>
             Task.FromResult(ApprovalDecision.Reject("A reviewer rejected this change."));
+
+        public Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ApprovalDecision.Reject("A reviewer declined the action."));
     }
 }

@@ -164,6 +164,26 @@ public sealed class PlanningAndChangeTests : IDisposable
     }
 
     [Fact]
+    public async Task Action_approval_fails_closed_by_default()
+    {
+        // Push approval defaults to required, so the headless gate must refuse out of the box.
+        AutoApprovalGate gate = new(Options.Create(new ApprovalOptions()));
+
+        ApprovalDecision decision = await gate.RequestActionAsync(new AgentAction("git_push", "Push 1 commit", []));
+
+        decision.Approved.ShouldBeFalse();
+        decision.Reason.ShouldContain("no way to ask");
+    }
+
+    [Fact]
+    public async Task Action_approval_is_transparent_when_configuration_waives_it()
+    {
+        AutoApprovalGate gate = new(Options.Create(new ApprovalOptions { RequireApprovalForPush = false }));
+
+        (await gate.RequestActionAsync(new AgentAction("git_push", "Push 1 commit", []))).Approved.ShouldBeTrue();
+    }
+
+    [Fact]
     public void Changes_are_grouped_per_task()
     {
         ChangeLog log = new();
@@ -197,5 +217,8 @@ public sealed class PlanningAndChangeTests : IDisposable
 
         public Task<ApprovalDecision> RequestAsync(CodeChange change, CancellationToken cancellationToken = default) =>
             Task.FromResult(ApprovalDecision.Reject("A reviewer rejected this change."));
+
+        public Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ApprovalDecision.Reject("A reviewer declined the action."));
     }
 }

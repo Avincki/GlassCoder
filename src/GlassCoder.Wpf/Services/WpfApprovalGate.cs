@@ -40,17 +40,42 @@ public sealed class WpfApprovalGate : IApprovalGate
             return ApprovalDecision.Approve();
         }
 
-        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ApprovalTimeoutSeconds)));
-
         try
         {
-            return await _changes.RequestApprovalAsync(change, timeout.Token).ConfigureAwait(false);
+            return await AskAsync(t => _changes.RequestApprovalAsync(change, t), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             return ApprovalDecision.Reject(
                 $"Nobody answered within {_options.ApprovalTimeoutSeconds} seconds, so the change was not written.");
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default)
+    {
+        if (!_options.RequireApprovalForPush)
+        {
+            return ApprovalDecision.Approve();
+        }
+
+        try
+        {
+            return await AskAsync(t => _changes.RequestApprovalAsync(action, t), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return ApprovalDecision.Reject(
+                $"Nobody answered within {_options.ApprovalTimeoutSeconds} seconds, so the action was not run.");
+        }
+    }
+
+    private async Task<ApprovalDecision> AskAsync(
+        Func<CancellationToken, Task<ApprovalDecision>> request,
+        CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ApprovalTimeoutSeconds)));
+        return await request(timeout.Token).ConfigureAwait(false);
     }
 }

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
@@ -46,6 +47,34 @@ public sealed record GitCommitResult(
     [property: Description("Changed files left unstaged because they are outside the writable path set.")]
     int ExcludedByGuard);
 
+/// <summary>Result payload of <c>git_sync</c>.</summary>
+/// <param name="Branch">Branch that was synced.</param>
+/// <param name="Upstream">Upstream it was rebased onto.</param>
+/// <param name="BeforeSha">HEAD before the sync.</param>
+/// <param name="AfterSha">HEAD after the sync.</param>
+/// <param name="Updated">Whether the sync changed anything.</param>
+public sealed record GitSyncResult(
+    [property: Description("Branch that was synced.")] string Branch,
+    [property: Description("Upstream the branch was rebased onto.")] string Upstream,
+    [property: Description("HEAD before the sync.")] string BeforeSha,
+    [property: Description("HEAD after the sync.")] string AfterSha,
+    [property: Description("True when the sync changed the branch; false when it was already up to date.")]
+    bool Updated);
+
+/// <summary>Result payload of <c>git_push</c>.</summary>
+/// <param name="Branch">Branch that was pushed.</param>
+/// <param name="Remote">Remote it went to.</param>
+/// <param name="CommitsPushed">Commits that went up.</param>
+/// <param name="Sha">HEAD commit the remote now has.</param>
+/// <param name="SetUpstream">Whether this push created the upstream link.</param>
+public sealed record GitPushResult(
+    [property: Description("Branch that was pushed.")] string Branch,
+    [property: Description("Remote it was pushed to.")] string Remote,
+    [property: Description("Commits that went up.")] int CommitsPushed,
+    [property: Description("HEAD commit the remote now has.")] string Sha,
+    [property: Description("True when this was a first push that set the upstream tracking link.")]
+    bool SetUpstream);
+
 /// <summary>
 /// <c>git_status</c> and <c>git_commit</c> - the local, reversible half of version control
 /// (workplan task 40). <c>git_sync</c> and <c>git_push</c> arrive in task 41, behind approval.
@@ -61,21 +90,33 @@ public sealed class GitTool : IToolSet
 {
     private const string StatusToolName = "git_status";
     private const string CommitToolName = "git_commit";
+    private const string SyncToolName = "git_sync";
+    private const string PushToolName = "git_push";
     private const int MaxOutputCharacters = 4000;
     private const int StagingBatchSize = 50;
 
     private readonly IProcessRunner _runner;
     private readonly IPathGuard _guard;
+    private readonly IApprovalGate _approval;
     private readonly GitOptions _options;
     private readonly ILogger<GitTool> _logger;
 
-    /// <summary>Creates the tool.</summary>
-    public GitTool(IProcessRunner runner, IPathGuard guard, IOptions<GitOptions> options, ILogger<GitTool>? logger = null)
+    /// <summary>
+    /// Creates the tool. Without an explicit gate the default is <see cref="AutoApprovalGate"/>
+    /// over default options, which fails closed for push - approval required, nobody to ask.
+    /// </summary>
+    public GitTool(
+        IProcessRunner runner,
+        IPathGuard guard,
+        IOptions<GitOptions> options,
+        IApprovalGate? approval = null,
+        ILogger<GitTool>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         _runner = runner;
         _guard = guard;
+        _approval = approval ?? new AutoApprovalGate(Microsoft.Extensions.Options.Options.Create(new ApprovalOptions()));
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<GitTool>.Instance;
     }
@@ -220,6 +261,277 @@ public sealed class GitTool : IToolSet
         return Observation.Ok(CommitToolName, payload, summary);
     }
 
+    /// <summary>Brings the branch up to date with its upstream.</summary>
+    [GlassCoderTool(SyncToolName, Order = 82)]
+    [Description("Bring the current branch up to date with its upstream using pull --rebase. Requires a "
+        + "clean working tree - commit first. A conflicted rebase is aborted automatically and reported, "
+        + "leaving the tree exactly as it was. Run this before git_push when the branch is behind.")]
+    public async Task<ToolObservation<GitSyncResult>> SyncAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_guard.HasWritablePaths)
+        {
+            return Observation.Fail<GitSyncResult>(
+                SyncToolName,
+                ToolErrorCodes.PathNotAllowed,
+                "The workspace has no writable paths, so rewriting the tree from a sync is disabled.",
+                "Add entries to GlassCoder:Workspace:WritablePaths.");
+        }
+
+        GitRun statusRun = await RunGitAsync(["status", "--porcelain=v2", "--branch"], cancellationToken).ConfigureAwait(false);
+        if (Failed(statusRun))
+        {
+            return FailFrom<GitSyncResult>(SyncToolName, statusRun);
+        }
+
+        StatusSnapshot status = StatusSnapshot.Parse(statusRun.Result!.StandardOutput);
+        if (status.Branch == "(detached)")
+        {
+            return Observation.Fail<GitSyncResult>(
+                SyncToolName,
+                ToolErrorCodes.InvalidArgument,
+                "HEAD is detached; sync needs a branch.");
+        }
+
+        if (status.Upstream is null)
+        {
+            return Observation.Fail<GitSyncResult>(
+                SyncToolName,
+                ToolErrorCodes.NotFound,
+                $"Branch {status.Branch} has no upstream to sync from.",
+                "The first git_push sets the upstream.");
+        }
+
+        if (status.StagedCount > 0 || status.UnstagedCount > 0 || status.ConflictedCount > 0)
+        {
+            return Observation.Fail<GitSyncResult>(
+                SyncToolName,
+                ToolErrorCodes.InvalidArgument,
+                "The working tree has uncommitted changes; a rebase needs a clean tree.",
+                "Commit them first with git_commit.");
+        }
+
+        if (!IsSafeRefName(_options.Remote) || !IsSafeRefName(status.Branch))
+        {
+            return Observation.Fail<GitSyncResult>(
+                SyncToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{_options.Remote}'/'{status.Branch}' is not a usable remote/branch pair.");
+        }
+
+        GitRun beforeRun = await RunGitAsync(["rev-parse", "HEAD"], cancellationToken).ConfigureAwait(false);
+        if (Failed(beforeRun))
+        {
+            return FailFrom<GitSyncResult>(SyncToolName, beforeRun);
+        }
+
+        string before = beforeRun.Result!.StandardOutput.Trim();
+
+        GitRun pullRun = await RunGitAsync(["pull", "--rebase", _options.Remote, status.Branch], cancellationToken).ConfigureAwait(false);
+        if (Failed(pullRun))
+        {
+            if (pullRun.Launched && !pullRun.Result!.TimedOut && IsConflict(pullRun.Result))
+            {
+                // Never leave the agent mid-rebase: it has no tool to resolve or abort one, so a
+                // conflicted sync must put the tree back exactly as it found it.
+                await RunGitAsync(["rebase", "--abort"], cancellationToken).ConfigureAwait(false);
+
+                IReadOnlyList<string> conflicted = ConflictedFiles(pullRun.Result);
+                string files = conflicted.Count > 0 ? string.Join(", ", conflicted) : "(files not reported)";
+                return Observation.Fail<GitSyncResult>(
+                    SyncToolName,
+                    ToolErrorCodes.MergeConflict,
+                    $"Sync hit merge conflicts in: {files}. The rebase was aborted; the tree is unchanged.",
+                    "The upstream changed the same code as local commits. A human may need to reconcile them.");
+            }
+
+            return FailFrom<GitSyncResult>(SyncToolName, pullRun);
+        }
+
+        GitRun afterRun = await RunGitAsync(["rev-parse", "HEAD"], cancellationToken).ConfigureAwait(false);
+        string after = Failed(afterRun) ? "(unknown)" : afterRun.Result!.StandardOutput.Trim();
+        bool updated = !string.Equals(before, after, StringComparison.Ordinal);
+
+        GitSyncResult payload = new(status.Branch, status.Upstream, before, after, updated);
+        return Observation.Ok(
+            SyncToolName,
+            payload,
+            updated
+                ? $"Synced {status.Branch} with {status.Upstream}: {Shorten(before)} → {Shorten(after)}."
+                : $"{status.Branch} is already up to date with {status.Upstream}.");
+    }
+
+    /// <summary>Publishes the current branch, behind human approval.</summary>
+    [GlassCoderTool(PushToolName, Order = 83)]
+    [Description("Push the current branch to the configured remote. This is the one action that leaves the "
+        + "machine: it normally requires human approval, and a refusal is final for this attempt. Commit "
+        + "first, and run git_sync if the branch is behind its upstream.")]
+    public async Task<ToolObservation<GitPushResult>> PushAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_guard.HasWritablePaths)
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.PathNotAllowed,
+                "The workspace has no writable paths, so publishing from it is disabled.",
+                "Add entries to GlassCoder:Workspace:WritablePaths.");
+        }
+
+        GitRun statusRun = await RunGitAsync(["status", "--porcelain=v2", "--branch"], cancellationToken).ConfigureAwait(false);
+        if (Failed(statusRun))
+        {
+            return FailFrom<GitPushResult>(PushToolName, statusRun);
+        }
+
+        StatusSnapshot status = StatusSnapshot.Parse(statusRun.Result!.StandardOutput);
+        if (status.Branch == "(detached)")
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.InvalidArgument,
+                "HEAD is detached; push needs a branch.");
+        }
+
+        if (_options.ProtectedBranches.Contains(status.Branch, StringComparer.Ordinal))
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.BranchNotAllowed,
+                $"Branch {status.Branch} is protected by configuration and cannot be pushed.",
+                "Work on a different branch, or change GlassCoder:Git:ProtectedBranches.");
+        }
+
+        if (_options.PushableBranches.Count > 0 && !_options.PushableBranches.Contains(status.Branch, StringComparer.Ordinal))
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.BranchNotAllowed,
+                $"Branch {status.Branch} is not in the pushable-branches list.",
+                "Work on a listed branch, or change GlassCoder:Git:PushableBranches.");
+        }
+
+        if (!IsSafeRefName(_options.Remote) || !IsSafeRefName(status.Branch))
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{_options.Remote}'/'{status.Branch}' is not a usable remote/branch pair.");
+        }
+
+        bool firstPush = status.Upstream is null;
+        if (!firstPush && status.Ahead == 0)
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.NotFound,
+                $"Nothing to push: {status.Branch} is not ahead of {status.Upstream}.",
+                "Commit something first with git_commit.");
+        }
+
+        int outgoing;
+        GitRun logRun;
+        if (firstPush)
+        {
+            GitRun countRun = await RunGitAsync(["rev-list", "--count", "HEAD"], cancellationToken).ConfigureAwait(false);
+            if (Failed(countRun) || !int.TryParse(countRun.Result!.StandardOutput.Trim(), out outgoing))
+            {
+                return FailFrom<GitPushResult>(PushToolName, countRun);
+            }
+
+            logRun = await RunGitAsync(
+                ["log", "--oneline", $"-{_options.MaxListedCommits}"], cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            outgoing = status.Ahead;
+            logRun = await RunGitAsync(
+                ["log", "--oneline", $"-{_options.MaxListedCommits}", $"{status.Upstream}..HEAD"],
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (Failed(logRun))
+        {
+            return FailFrom<GitPushResult>(PushToolName, logRun);
+        }
+
+        string[] outgoingLines = logRun.Result!.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        List<string> detail =
+        [
+            firstPush
+                ? $"{status.Branch} → {_options.Remote}/{status.Branch} (first push; sets the upstream)"
+                : $"{status.Branch} → {status.Upstream}",
+            .. outgoingLines,
+        ];
+        if (outgoing > outgoingLines.Length)
+        {
+            detail.Add($"… and {outgoing - outgoingLines.Length} more commit(s)");
+        }
+
+        AgentAction action = new(
+            PushToolName,
+            $"Push {outgoing} commit(s) on {status.Branch} to {_options.Remote}",
+            detail);
+
+        ApprovalDecision decision = await _approval.RequestActionAsync(action, cancellationToken).ConfigureAwait(false);
+        if (!decision.Approved)
+        {
+            return Observation.Fail<GitPushResult>(
+                PushToolName,
+                ToolErrorCodes.ApprovalRefused,
+                decision.Reason ?? "The push was not approved.");
+        }
+
+        List<string> pushArguments = ["push"];
+        if (firstPush)
+        {
+            pushArguments.Add("-u");
+        }
+
+        pushArguments.AddRange([_options.Remote, status.Branch]);
+
+        GitRun pushRun = await RunGitAsync(pushArguments, cancellationToken).ConfigureAwait(false);
+        if (Failed(pushRun))
+        {
+            if (pushRun.Launched && !pushRun.Result!.TimedOut)
+            {
+                string error = pushRun.Result.StandardError + pushRun.Result.StandardOutput;
+                if (ContainsAny(error, "authentication failed", "could not read username", "permission denied"))
+                {
+                    return Observation.Fail<GitPushResult>(
+                        PushToolName,
+                        ToolErrorCodes.Unexpected,
+                        $"The remote refused the credentials: {Tail(error).Trim()}",
+                        "Sign in on the host (git credential manager or SSH agent); GlassCoder holds no tokens itself.");
+                }
+
+                if (ContainsAny(error, "non-fast-forward", "fetch first", "[rejected]"))
+                {
+                    return Observation.Fail<GitPushResult>(
+                        PushToolName,
+                        ToolErrorCodes.Unexpected,
+                        $"The remote is ahead: {Tail(error).Trim()}",
+                        "Run git_sync to rebase onto the remote, then push again.");
+                }
+            }
+
+            return FailFrom<GitPushResult>(PushToolName, pushRun);
+        }
+
+        GitRun shaRun = await RunGitAsync(["rev-parse", "HEAD"], cancellationToken).ConfigureAwait(false);
+        string sha = Failed(shaRun) ? "(unknown)" : shaRun.Result!.StandardOutput.Trim();
+
+        _logger.LogInformation(
+            "Pushed {CommitCount} commit(s) on {Branch} to {Remote}", outgoing, status.Branch, _options.Remote);
+
+        GitPushResult payload = new(status.Branch, _options.Remote, outgoing, sha, firstPush);
+        return Observation.Ok(
+            PushToolName,
+            payload,
+            $"Pushed {outgoing} commit(s) on {status.Branch} to {_options.Remote}."
+                + (firstPush ? " Upstream set." : string.Empty));
+    }
+
     private async Task<GitRun> RunGitAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
         ProcessRunRequest request = new(_options.GitExecutable, arguments)
@@ -302,6 +614,35 @@ public sealed class GitTool : IToolSet
 
     private IReadOnlyList<string> Cap(IReadOnlyList<string> files) =>
         files.Count <= _options.MaxListedFiles ? files : [.. files.Take(_options.MaxListedFiles)];
+
+    /// <summary>
+    /// A name safe to hand to git as its own argv element: a leading dash would be read as an
+    /// option, which is the one way a configured value could smuggle in a flag like --mirror.
+    /// </summary>
+    private static bool IsSafeRefName(string name) =>
+        !string.IsNullOrWhiteSpace(name) && name[0] != '-' && !name.Any(char.IsWhiteSpace);
+
+    private static bool IsConflict(ProcessRunResult result) =>
+        ContainsAny(result.StandardOutput + result.StandardError, "conflict", "could not apply");
+
+    private static IReadOnlyList<string> ConflictedFiles(ProcessRunResult result)
+    {
+        const string marker = "Merge conflict in ";
+        List<string> files = [];
+        foreach (string line in (result.StandardOutput + '\n' + result.StandardError).Split('\n'))
+        {
+            int at = line.IndexOf(marker, StringComparison.Ordinal);
+            if (at >= 0)
+            {
+                files.Add(line[(at + marker.Length)..].Trim());
+            }
+        }
+
+        return files;
+    }
+
+    private static bool ContainsAny(string text, params string[] needles) =>
+        needles.Any(n => text.Contains(n, StringComparison.OrdinalIgnoreCase));
 
     private static string Shorten(string sha) => sha.Length > 8 ? sha[..8] : sha;
 

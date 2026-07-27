@@ -1,4 +1,5 @@
 using GlassCoder.TestSupport;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
@@ -30,8 +31,10 @@ public sealed class GitToolTests : IDisposable
 
     public void Dispose() => _workspace.Dispose();
 
-    private GitTool Tool(params string[] writablePaths) =>
-        new(_runner, _workspace.Guard(writablePaths), TempWorkspace.Wrap(_options));
+    private GitTool Tool(params string[] writablePaths) => Tool(null, writablePaths);
+
+    private GitTool Tool(IApprovalGate? gate, params string[] writablePaths) =>
+        new(_runner, _workspace.Guard(writablePaths), TempWorkspace.Wrap(_options), gate);
 
     [Fact]
     public async Task Status_reports_branch_position_and_counts()
@@ -264,7 +267,245 @@ public sealed class GitToolTests : IDisposable
     {
         IReadOnlyList<AIFunction> functions = ToolFunctionFactory.Create([Tool()]);
 
-        functions.Select(f => f.Name).ShouldBe(["git_status", "git_commit"]);
+        functions.Select(f => f.Name).ShouldBe(["git_status", "git_commit", "git_sync", "git_push"]);
+    }
+
+    private const string CleanBehindTwo =
+        "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -2\n";
+
+    private const string CleanAheadTwo =
+        "# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -0\n";
+
+    [Fact]
+    public async Task Sync_rebases_onto_the_upstream_and_reports_the_movement()
+    {
+        _runner.Enqueue(0, CleanBehindTwo)
+            .Enqueue(0, "aaa111\n")                      // rev-parse before
+            .Enqueue(0, "Updating aaa111..bbb222\n")     // pull --rebase
+            .Enqueue(0, "bbb222\n");                     // rev-parse after
+
+        ToolObservation<GitSyncResult> observation = await Tool("src").SyncAsync();
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        _runner.Requests[2].Arguments.ShouldBe(["pull", "--rebase", "origin", "main"]);
+        observation.Data!.Updated.ShouldBeTrue();
+        observation.Data.BeforeSha.ShouldBe("aaa111");
+        observation.Data.AfterSha.ShouldBe("bbb222");
+        observation.Summary.ShouldContain("Synced main");
+    }
+
+    [Fact]
+    public async Task Sync_reports_already_up_to_date()
+    {
+        _runner.Enqueue(0, CleanBehindTwo)
+            .Enqueue(0, "aaa111\n")
+            .Enqueue(0, "Already up to date.\n")
+            .Enqueue(0, "aaa111\n");
+
+        ToolObservation<GitSyncResult> observation = await Tool("src").SyncAsync();
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Updated.ShouldBeFalse();
+        observation.Summary.ShouldContain("already up to date");
+    }
+
+    [Fact]
+    public async Task Sync_refuses_a_dirty_tree()
+    {
+        _runner.Enqueue(0, CleanBehindTwo + "1 .M N... 100644 100644 100644 e69de29 e69de29 src/Pager.cs\n");
+
+        ToolObservation<GitSyncResult> observation = await Tool("src").SyncAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Hint.ShouldContain("git_commit");
+        _runner.Requests.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Sync_needs_an_upstream()
+    {
+        _runner.Enqueue(0, "# branch.head main\n");
+
+        ToolObservation<GitSyncResult> observation = await Tool("src").SyncAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
+        observation.Error.Hint.ShouldContain("git_push");
+    }
+
+    [Fact]
+    public async Task A_conflicted_sync_aborts_the_rebase_and_reports_the_files()
+    {
+        _runner.Enqueue(0, CleanBehindTwo)
+            .Enqueue(0, "aaa111\n")
+            .Enqueue(1, "CONFLICT (content): Merge conflict in src/Pager.cs\n", "error: could not apply abc123");
+
+        ToolObservation<GitSyncResult> observation = await Tool("src").SyncAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.MergeConflict);
+        observation.Error.Message.ShouldContain("src/Pager.cs");
+        observation.Error.Message.ShouldContain("aborted");
+        // The tree must never be left mid-rebase: the agent has no tool to resolve one.
+        _runner.Requests[3].Arguments.ShouldBe(["rebase", "--abort"]);
+    }
+
+    [Fact]
+    public async Task Sync_requires_a_writable_workspace()
+    {
+        ToolObservation<GitSyncResult> observation = await Tool().SyncAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.PathNotAllowed);
+        _runner.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Push_asks_for_approval_and_a_refusal_blocks_it()
+    {
+        RecordingGate gate = new(approve: false);
+        _runner.Enqueue(0, CleanAheadTwo)
+            .Enqueue(0, "abc1234 Fix the pager\ndef5678 Add the pager\n");
+
+        ToolObservation<GitPushResult> observation = await Tool(gate, "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.ApprovalRefused);
+        _runner.Requests.ShouldNotContain(r => r.Arguments[0] == "push");
+        gate.Action!.Title.ShouldContain("2 commit(s)");
+        gate.Action.Detail.ShouldContain("main → origin/main");
+        gate.Action.Detail.ShouldContain("abc1234 Fix the pager");
+    }
+
+    [Fact]
+    public async Task An_approved_push_sends_the_branch_to_the_configured_remote()
+    {
+        RecordingGate gate = new(approve: true);
+        _runner.Enqueue(0, CleanAheadTwo)
+            .Enqueue(0, "abc1234 Fix the pager\ndef5678 Add the pager\n")
+            .Enqueue(0)                                  // push
+            .Enqueue(0, "cafe1234\n");                   // rev-parse
+
+        ToolObservation<GitPushResult> observation = await Tool(gate, "src").PushAsync();
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        _runner.Requests[2].Arguments.ShouldBe(["push", "origin", "main"]);
+        observation.Data!.Branch.ShouldBe("main");
+        observation.Data.Remote.ShouldBe("origin");
+        observation.Data.CommitsPushed.ShouldBe(2);
+        observation.Data.SetUpstream.ShouldBeFalse();
+        observation.Data.Sha.ShouldBe("cafe1234");
+    }
+
+    [Fact]
+    public async Task A_first_push_sets_the_upstream()
+    {
+        RecordingGate gate = new(approve: true);
+        _runner.Enqueue(0, "# branch.head main\n")
+            .Enqueue(0, "3\n")                           // rev-list --count HEAD
+            .Enqueue(0, "abc one\ndef two\nghi three\n") // log
+            .Enqueue(0)                                  // push -u
+            .Enqueue(0, "cafe1234\n");
+
+        ToolObservation<GitPushResult> observation = await Tool(gate, "src").PushAsync();
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        _runner.Requests[3].Arguments.ShouldBe(["push", "-u", "origin", "main"]);
+        observation.Data!.SetUpstream.ShouldBeTrue();
+        observation.Data.CommitsPushed.ShouldBe(3);
+        gate.Action!.Detail[0].ShouldContain("first push");
+    }
+
+    [Fact]
+    public async Task Push_refuses_a_protected_branch_before_anyone_is_asked()
+    {
+        _options.ProtectedBranches.Add("main");
+        RecordingGate gate = new(approve: true);
+        _runner.Enqueue(0, CleanAheadTwo);
+
+        ToolObservation<GitPushResult> observation = await Tool(gate, "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.BranchNotAllowed);
+        gate.Action.ShouldBeNull();
+        _runner.Requests.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Push_enforces_the_branch_allow_list()
+    {
+        _options.PushableBranches.Add("feature/pager");
+        _runner.Enqueue(0, CleanAheadTwo);
+
+        ToolObservation<GitPushResult> observation = await Tool(new RecordingGate(approve: true), "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.BranchNotAllowed);
+    }
+
+    [Fact]
+    public async Task Nothing_to_push_fails_cleanly()
+    {
+        _runner.Enqueue(0, "# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n");
+
+        ToolObservation<GitPushResult> observation = await Tool(new RecordingGate(approve: true), "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
+        observation.Error.Message.ShouldContain("Nothing to push");
+    }
+
+    [Fact]
+    public async Task Push_fails_closed_without_an_interactive_gate()
+    {
+        // The default gate is AutoApprovalGate over default options: push approval is required
+        // and there is nobody to ask, so a bare GitTool cannot push at all.
+        _runner.Enqueue(0, CleanAheadTwo)
+            .Enqueue(0, "abc1234 Fix the pager\n");
+
+        ToolObservation<GitPushResult> observation = await Tool("src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.ApprovalRefused);
+        observation.Error.Message.ShouldContain("no way to ask");
+        _runner.Requests.ShouldNotContain(r => r.Arguments[0] == "push");
+    }
+
+    [Fact]
+    public async Task An_authentication_failure_hints_at_the_host_credential_manager()
+    {
+        _runner.Enqueue(0, CleanAheadTwo)
+            .Enqueue(0, "abc1234 Fix the pager\n")
+            .Enqueue(128, "", "fatal: Authentication failed for 'https://github.com/x/y.git/'");
+
+        ToolObservation<GitPushResult> observation = await Tool(new RecordingGate(approve: true), "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Hint.ShouldContain("credential");
+    }
+
+    [Fact]
+    public async Task A_non_fast_forward_rejection_hints_at_sync()
+    {
+        _runner.Enqueue(0, CleanAheadTwo)
+            .Enqueue(0, "abc1234 Fix the pager\n")
+            .Enqueue(1, "", "! [rejected]  main -> main (fetch first)");
+
+        ToolObservation<GitPushResult> observation = await Tool(new RecordingGate(approve: true), "src").PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Hint.ShouldContain("git_sync");
+    }
+
+    [Fact]
+    public async Task Push_requires_a_writable_workspace()
+    {
+        ToolObservation<GitPushResult> observation = await Tool(new RecordingGate(approve: true)).PushAsync();
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.PathNotAllowed);
+        _runner.Requests.ShouldBeEmpty();
     }
 
     /// <summary>A runner whose executable does not exist, as on a machine without git.</summary>
@@ -272,5 +513,28 @@ public sealed class GitToolTests : IDisposable
     {
         public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default) =>
             throw new System.ComponentModel.Win32Exception("The system cannot find the file specified");
+    }
+
+    /// <summary>An interactive gate that records what it was asked and answers by script.</summary>
+    private sealed class RecordingGate : IApprovalGate
+    {
+        private readonly bool _approve;
+
+        public RecordingGate(bool approve) => _approve = approve;
+
+        public AgentAction? Action { get; private set; }
+
+        public bool IsInteractive => true;
+
+        public Task<ApprovalDecision> RequestAsync(CodeChange change, CancellationToken cancellationToken = default) =>
+            Task.FromResult(ApprovalDecision.Approve());
+
+        public Task<ApprovalDecision> RequestActionAsync(AgentAction action, CancellationToken cancellationToken = default)
+        {
+            Action = action;
+            return Task.FromResult(_approve
+                ? ApprovalDecision.Approve()
+                : ApprovalDecision.Reject("A reviewer declined the push."));
+        }
     }
 }

@@ -285,15 +285,15 @@ Acceptance: with `GlassCoder:Git:Enabled` true the agent can inspect the tree an
 
 ## 41. Git tools, step 2: git_sync and git_push behind approval
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 The outward-facing half. Push is the first agent action that leaves the machine and cannot be unwound, so it goes behind the same human gate as writes — which first needs generalising, because `IApprovalGate` is shaped around a `CodeChange` diff and a push approval is an action description plus an ahead-count, not a file diff.
 
-- [ ] Generalise the approval seam (an action-shaped request alongside the diff-shaped one) and add `RequireApprovalForPush` to `ApprovalOptions`, default true, surfaced through the WPF changes pane with the same timeout-is-refusal contract.
-- [ ] `git_sync`: `pull --rebase` against the configured remote, conflicts reported as an observation for the model to reason about.
-- [ ] `git_push`: current branch to the configured remote only; no `--force` in the schema at all; optional branch allow-list / never-push-default-branch switch in `GitOptions`.
-- [ ] Credentials stay the host's problem: `GIT_TERMINAL_PROMPT=0` and non-interactive credential-manager settings so a missing login is a clean failure, never a hang.
-- [ ] Tests: approval refused blocks the push, sync conflict surfaces as an observation, branch policy is enforced.
+- [x] Generalise the approval seam (`AgentAction` + `RequestActionAsync` alongside the diff-shaped request) and add `RequireApprovalForPush` to `ApprovalOptions`, default true, surfaced through the WPF changes pane with the same timeout-is-refusal contract. The headless `AutoApprovalGate` fails closed for actions exactly as it does for writes.
+- [x] `git_sync`: `pull --rebase` against the configured remote; requires a clean tree and an upstream; a conflicted rebase is auto-aborted (the agent has no tool to resolve one) and reported with the conflicted files as a `merge_conflict` observation.
+- [x] `git_push`: current branch to the configured remote only; no `--force` in the schema at all; `PushableBranches` allow-list and `ProtectedBranches` deny-list in `GitOptions` (deny wins), refused with `branch_not_allowed` before anyone is asked. The approval shows the outgoing commits.
+- [x] Credentials stay the host's problem: `GIT_TERMINAL_PROMPT=0` and non-interactive credential-manager settings so a missing login is a clean failure with a hint, never a hang; non-fast-forward rejections hint at `git_sync`.
+- [x] Tests: approval refused blocks the push, the default gate fails closed, sync conflict aborts and surfaces as an observation, branch policy is enforced, auth failures hint at the credential manager.
 
 Acceptance: a push requires a human yes while sync/commit do not, and no schema the model sees can express a force-push. Depends on tasks 28, 40.
 

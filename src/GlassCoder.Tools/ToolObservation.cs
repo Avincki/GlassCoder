@@ -81,6 +81,12 @@ public static class ToolErrorCodes
     /// <summary>The git executable was missing, or the workspace is not a git repository.</summary>
     public const string GitUnavailable = "git_unavailable";
 
+    /// <summary>Branch policy refused the operation (used by <c>git_push</c>).</summary>
+    public const string BranchNotAllowed = "branch_not_allowed";
+
+    /// <summary>A merge or rebase hit conflicts (used by <c>git_sync</c>).</summary>
+    public const string MergeConflict = "merge_conflict";
+
     /// <summary>An unexpected failure. The loop turns escaped exceptions into this.</summary>
     public const string Unexpected = "unexpected";
 }

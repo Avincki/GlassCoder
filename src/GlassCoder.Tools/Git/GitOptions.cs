@@ -41,4 +41,23 @@ public sealed class GitOptions
 
     /// <summary>Hard cap on file paths listed in one observation. The counts stay truthful.</summary>
     public int MaxListedFiles { get; set; } = 100;
+
+    /// <summary>Remote that <c>git_sync</c> pulls from and <c>git_push</c> pushes to.</summary>
+    public string Remote { get; set; } = "origin";
+
+    /// <summary>
+    /// Branches <c>git_push</c> may touch. Empty means any branch. The schema the model sees
+    /// carries no force flag and no free-form refspec, so this list and
+    /// <see cref="ProtectedBranches"/> are the whole policy surface.
+    /// </summary>
+    public IList<string> PushableBranches { get; } = [];
+
+    /// <summary>
+    /// Branches <c>git_push</c> refuses regardless of approval - listing "main" here makes
+    /// agent work flow through feature branches. Wins over <see cref="PushableBranches"/>.
+    /// </summary>
+    public IList<string> ProtectedBranches { get; } = [];
+
+    /// <summary>Hard cap on outgoing commits listed in a push approval or observation.</summary>
+    public int MaxListedCommits { get; set; } = 20;
 }

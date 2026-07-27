@@ -1,0 +1,1126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Making the vLLM worker and critic containers on a DGX Spark come back automatically after a reboot: restart policies, systemd ordering, warm-up, and how to verify it actually survives.">
+<title>Surviving a reboot — vLLM on DGX Spark</title>
+
+<style>
+  :root {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #101414;
+      --surface: #171C1D;
+      --sunk: #1C2223;
+      --ink: #E7EBEB;
+      --muted: #93A0A1;
+      --faint: #6A7677;
+      --rule: #263030;
+      --rule-strong: #3A4647;
+      --signal: #45C4DA;
+      --signal-soft: #10282C;
+      --pass: #86C34A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #1A2412;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101414;
+    --surface: #171C1D;
+    --sunk: #1C2223;
+    --ink: #E7EBEB;
+    --muted: #93A0A1;
+    --faint: #6A7677;
+    --rule: #263030;
+    --rule-strong: #3A4647;
+    --signal: #45C4DA;
+    --signal-soft: #10282C;
+    --pass: #86C34A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #1A2412;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 56ch;
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 2.25rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.67rem;
+    display: block;
+  }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.7rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.22rem; font-weight: 600; margin: 2.3rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.77rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.7rem 0 0.6rem;
+  }
+
+  p, ul.prose, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+    word-break: break-word;
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.6;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; word-break: normal; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  .filename {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--faint);
+    display: block;
+    margin: 0 0 0.35rem;
+  }
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.06rem; }
+
+  dl.spec { border-top: 1px solid var(--rule); margin: 0 0 1.4rem; }
+
+  dl.spec > div {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  dl.spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  dl.spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: 0.9rem; }
+
+  th {
+    text-align: left;
+    font-size: 0.69rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td { padding: 0.62rem 1rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.83rem; }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.caution { border-left-color: var(--warn); }
+  .note.stop { border-left-color: var(--fail); }
+  .note p:last-child, .note pre:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.caution .tag { color: var(--warn); }
+  .note.stop .tag { color: var(--fail); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.71rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+
+  /* ---- boot timeline ---- */
+
+  .timeline { max-width: var(--measure); margin: 0 0 1.6rem; border-top: 1px solid var(--rule); }
+
+  .tl-row {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 0 1.2rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+
+  .tl-when {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--signal);
+    font-variant-numeric: tabular-nums;
+    padding-top: 0.12rem;
+  }
+
+  .tl-what b { display: block; font-weight: 600; font-size: 0.95rem; }
+  .tl-what span { color: var(--muted); font-size: 0.9rem; }
+
+  /* ---- path chooser ---- */
+
+  .paths {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+    max-width: var(--measure);
+    margin: 0 0 1.6rem;
+  }
+
+  .path {
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.15rem;
+  }
+
+  .path h4 { margin: 0 0 0.45rem; color: var(--signal); }
+  .path b { display: block; font-family: var(--serif); font-size: 1.08rem; margin-bottom: 0.4rem; }
+  .path p { font-size: 0.9rem; color: var(--muted); margin: 0 0 0.55rem; }
+  .path ul { margin: 0; padding-left: 1.1rem; font-size: 0.87rem; color: var(--muted); display: flex; flex-direction: column; gap: 0.25rem; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+
+  footer a { color: var(--muted); }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    dl.spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+    .tl-row { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Companion to the operator's guide</div>
+    <h1>Surviving a reboot</h1>
+    <p class="standfirst">
+      Coming back up is not one problem but three: the containers have to start, they have to start
+      in an order, and something has to warm them before the harness arrives.
+    </p>
+    <div class="specstrip">
+      <div><b>Containers</b> vllm-worker · vllm-critic</div>
+      <div><b>Cold start</b> ~12–18 min to usable</div>
+      <div><b>Reload cost</b> paid on every boot</div>
+      <div><b>Checked</b> July 2026</div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#happens">What a reboot actually does</a></li>
+      <li><a href="#choose">Choosing a path</a></li>
+      <li><a href="#policies">Path A — restart policies</a></li>
+      <li><a href="#systemd">Path B — systemd units</a></li>
+      <li><a href="#warm">The warm-up</a></li>
+      <li><a href="#verify">Proving it survives</a></li>
+      <li><a href="#edges">Rough edges</a></li>
+      <li><a href="#unverified">What I have not verified</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= 1 ================= -->
+    <section class="part" id="happens">
+      <div class="part-head"><span class="num">01</span><h2>What a reboot actually does</h2></div>
+
+      <p>
+        As the setup guide leaves things, the two containers behave differently on boot, and only
+        one of them comes back. That asymmetry is not intentional — it is an artefact of the
+        <code>docker run</code> in section 04 omitting a flag that section 03 has.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Container</th><th>As written</th><th class="m">On reboot</th><th>Consequence</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>vllm-worker</td>
+              <td class="m">--restart unless-stopped</td>
+              <td><span class="pill pass">comes back</span></td>
+              <td>Starts with the Docker daemon. Still cold for 10–15 minutes.</td>
+            </tr>
+            <tr>
+              <td>vllm-critic</td>
+              <td class="m">(no policy)</td>
+              <td><span class="pill fail">stays down</span></td>
+              <td>
+                GlassCoder's <code>worker</code> role looks healthy while <code>critic</code>
+                fails to connect. The Phase 2 refutation pass is the thing that breaks, which is
+                a long way from the symptom.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The timeline you are actually waiting through</h3>
+
+      <p>
+        The load cost is not a first-run cost. Rough edge 6 in the setup guide —
+        <em>startup takes forever every time</em> — is exactly this: default safetensors loading
+        re-reads the full weight file on every start. Nothing is cached across a reboot that
+        materially helps, because on a unified-memory box the page cache would have to hold a
+        second copy of something already occupying half of RAM.
+      </p>
+
+      <div class="timeline">
+        <div class="tl-row">
+          <div class="tl-when">0:00</div>
+          <div class="tl-what"><b>Power on</b><span>Firmware, kernel, userspace. A minute or two.</span></div>
+        </div>
+        <div class="tl-row">
+          <div class="tl-when">~0:01</div>
+          <div class="tl-what"><b>Docker daemon ready</b><span>Restart policies fire here. Both containers would begin loading at once if both are set to auto-start.</span></div>
+        </div>
+        <div class="tl-row">
+          <div class="tl-when">0:01 – 0:16</div>
+          <div class="tl-what"><b>Worker reads ~66 GB from NVMe</b><span>10–15 minutes per the setup guide. The port is open long before the model is servable.</span></div>
+        </div>
+        <div class="tl-row">
+          <div class="tl-when">~0:16</div>
+          <div class="tl-what"><b>First request triggers JIT</b><span>Around 25 seconds. Whoever sends the first request pays it — make that a throwaway curl, not a GlassCoder run.</span></div>
+        </div>
+        <div class="tl-row">
+          <div class="tl-when">~0:17</div>
+          <div class="tl-what"><b>Actually usable</b><span>Tool-call validity is the acceptance test, not "the port answers".</span></div>
+        </div>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">The failure this creates</span>
+        <p>
+          A machine that reboots overnight looks fine in the morning — <code>docker ps</code> shows
+          the worker running — and the first run of the day either times out or silently loses the
+          critic. Both symptoms point at the harness. Neither is the harness.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 2 ================= -->
+    <section class="part" id="choose">
+      <div class="part-head"><span class="num">02</span><h2>Choosing a path</h2></div>
+
+      <p>
+        There are two ways to make this reliable, and the important thing is to pick
+        <em>one</em>. Docker's restart policies and systemd both want to own the container
+        lifecycle; run both and you get a container systemd thinks it started, Docker restarts
+        underneath it, and neither reports honestly.
+      </p>
+
+      <div class="paths">
+        <div class="path">
+          <h4>Path A</h4>
+          <b>Restart policies</b>
+          <p>One command per container. Docker brings both up when the daemon starts.</p>
+          <ul>
+            <li>Two minutes of work</li>
+            <li>No ordering — both load at once</li>
+            <li>No warm-up</li>
+            <li>Right answer if you rarely reboot</li>
+          </ul>
+        </div>
+        <div class="path">
+          <h4>Path B</h4>
+          <b>systemd units</b>
+          <p>Units start the containers in sequence and gate on readiness before warming.</p>
+          <ul>
+            <li>Critic waits for the worker</li>
+            <li>Warm-up runs unattended</li>
+            <li><code>journalctl</code> tells you what happened</li>
+            <li>Right answer if reboots are routine</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="note">
+        <span class="tag">Prerequisite for both</span>
+        <p>
+          Neither path does anything if the Docker daemon itself does not start at boot. This is
+          the default on Ubuntu with the official packages, but confirm it once rather than
+          assume it:
+        </p>
+<pre><code>systemctl is-enabled docker      <span class="c"># → enabled</span>
+sudo systemctl enable docker     <span class="c"># if it says disabled</span></code></pre>
+      </div>
+    </section>
+
+    <!-- ================= 3 ================= -->
+    <section class="part" id="policies">
+      <div class="part-head"><span class="num">03</span><h2>Path A — restart policies</h2></div>
+
+      <p>
+        If the containers already exist, you do not need to recreate them. <code>docker update</code>
+        changes the policy in place, which matters here because recreating means another
+        15-minute load.
+      </p>
+
+<pre><code><span class="c"># the fix</span>
+docker update --restart unless-stopped vllm-critic
+
+<span class="c"># confirm both, don't trust that it took</span>
+docker inspect -f '{{.Name}} {{.HostConfig.RestartPolicy.Name}}' \
+  vllm-worker vllm-critic</code></pre>
+
+      <p>Expect two lines reading <code>unless-stopped</code>. If the critic container no longer exists, recreate it with the policy included:</p>
+
+<pre><code>docker run -d --name vllm-critic --restart unless-stopped \
+  --gpus all --ipc=host -p 8003:8000 \
+  -e HF_TOKEN="$HF_TOKEN" \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  nvcr.io/nvidia/vllm:26.02-py3 \
+  vllm serve &lt;a-small-model-from-another-family&gt; \
+    --served-model-name critic \
+    --max-model-len 32768 \
+    --gpu-memory-utilization 0.10 \
+    --max-num-seqs 4</code></pre>
+
+      <p>
+        Two differences from the setup guide's version: the restart policy, and
+        <code>-e HF_TOKEN</code>, which section 04 omits and which you need if the critic
+        checkpoint is gated.
+      </p>
+
+      <h4>unless-stopped versus always</h4>
+
+      <dl class="spec">
+        <div>
+          <dt>unless-stopped</dt>
+          <dd>Starts with the daemon <em>unless</em> you had deliberately stopped it beforehand. A manual <code>docker stop</code> survives the reboot as an intentional decision.</dd>
+        </div>
+        <div>
+          <dt>always</dt>
+          <dd>Starts with the daemon regardless. Convenient until the evening you stop the critic to free memory, reboot, and find it running again.</dd>
+        </div>
+      </dl>
+
+      <p>
+        <code>unless-stopped</code> is the better default on a box you also use interactively.
+      </p>
+    </section>
+
+    <!-- ================= 4 ================= -->
+    <section class="part" id="systemd">
+      <div class="part-head"><span class="num">04</span><h2>Path B — systemd units</h2></div>
+
+      <p>
+        Path A's weakness is that both containers begin reading tens of gigabytes from the same
+        NVMe simultaneously, and they draw their memory from one shared pool with no coordination.
+        systemd gives you ordering, a readiness gate, and a log.
+      </p>
+
+      <div class="note stop">
+        <span class="tag">Do this first</span>
+        <p>
+          Hand the lifecycle to systemd <em>or</em> to Docker, never both. Before installing the
+          units, clear the policies:
+        </p>
+<pre><code>docker update --restart no vllm-worker vllm-critic</code></pre>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>The worker unit</h3>
+            <p>
+              <code>docker start</code> returns as soon as the container is running, so
+              <code>Type=oneshot</code> with <code>RemainAfterExit=yes</code> is the honest
+              shape — the unit represents "the container has been started", not "the model is
+              ready". Readiness is step 3's job.
+            </p>
+            <span class="filename">/etc/systemd/system/vllm-worker.service</span>
+<pre><code>[Unit]
+Description=vLLM worker for GlassCoder
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker start vllm-worker
+ExecStop=/usr/bin/docker stop --time=60 vllm-worker
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+            <p>
+              If your HuggingFace cache lives anywhere other than the internal NVMe, add
+              <code>RequiresMountsFor=/path/to/cache</code> under <code>[Unit]</code> so the unit
+              does not start before the mount exists. The setup guide already recommends keeping
+              that cache local, which sidesteps the issue entirely.
+            </p>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>The readiness gate</h3>
+            <p>
+              This is the piece that makes ordering meaningful. It polls until the worker answers,
+              then sends the throwaway request that absorbs the JIT cost. Everything downstream
+              orders after it.
+            </p>
+            <span class="filename">/etc/systemd/system/vllm-worker-ready.service</span>
+<pre><code>[Unit]
+Description=Wait for the vLLM worker, then warm it
+Requires=vllm-worker.service
+After=vllm-worker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=1800
+ExecStart=/usr/local/bin/vllm-warmup.sh 8001 worker
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+            <p>
+              <code>TimeoutStartSec=1800</code> gives thirty minutes — comfortably more than the
+              10–15 minute load, so a slow boot is not misreported as a failure. The script
+              itself is in section 05.
+            </p>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>The critic unit, ordered behind it</h3>
+            <p>
+              <code>After=vllm-worker-ready.service</code> is the whole point: the critic does not
+              begin loading until the worker has finished and answered, so the two never contend
+              for disk or profile memory against each other.
+            </p>
+            <span class="filename">/etc/systemd/system/vllm-critic.service</span>
+<pre><code>[Unit]
+Description=vLLM critic for GlassCoder
+Requires=docker.service
+After=docker.service vllm-worker-ready.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker start vllm-critic
+ExecStop=/usr/bin/docker stop --time=60 vllm-critic
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+            <div class="note caution">
+              <span class="tag">Not a hard dependency</span>
+              <p>
+                <code>After=</code> without <code>Requires=</code> on the ready unit is
+                deliberate. If the worker warm-up fails, you still want the critic to try —
+                a degraded box is more useful than a dark one, and the journal will tell you
+                which half broke.
+              </p>
+            </div>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Optionally, warm the critic too</h3>
+            <p>
+              Same script, different port and alias. Small models load fast enough that this is
+              optional, but it costs nothing.
+            </p>
+            <span class="filename">/etc/systemd/system/vllm-critic-ready.service</span>
+<pre><code>[Unit]
+Description=Wait for the vLLM critic, then warm it
+Requires=vllm-critic.service
+After=vllm-critic.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=900
+ExecStart=/usr/local/bin/vllm-warmup.sh 8003 critic
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Install and enable</h3>
+            <p>
+              <code>systemd-analyze verify</code> catches typos and bad directives before a reboot
+              does. Worth running — the alternative is discovering the mistake fifteen minutes into
+              a boot.
+            </p>
+<pre><code>sudo systemd-analyze verify /etc/systemd/system/vllm-*.service
+sudo systemctl daemon-reload
+sudo systemctl enable vllm-worker vllm-worker-ready \
+                      vllm-critic vllm-critic-ready
+
+<span class="c"># exercise it without rebooting first</span>
+sudo systemctl start vllm-worker-ready
+systemctl list-unit-files 'vllm-*'</code></pre>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================= 5 ================= -->
+    <section class="part" id="warm">
+      <div class="part-head"><span class="num">05</span><h2>The warm-up</h2></div>
+
+      <p>
+        Two jobs in one script: block until the endpoint serves the alias, then spend one tiny
+        request on the kernel compilation so a real run never does. It takes a port and an alias,
+        so one file covers both roles.
+      </p>
+
+      <span class="filename">/usr/local/bin/vllm-warmup.sh</span>
+<pre><code>#!/usr/bin/env bash
+set -euo pipefail
+
+PORT="${1:?usage: vllm-warmup.sh PORT ALIAS}"
+ALIAS="${2:?usage: vllm-warmup.sh PORT ALIAS}"
+DEADLINE=$(( SECONDS + 1500 ))
+
+echo "waiting for ${ALIAS} on :${PORT}"
+until curl -sf "http://localhost:${PORT}/v1/models" &gt;/dev/null; do
+  if (( SECONDS &gt;= DEADLINE )); then
+    echo "timed out waiting for ${ALIAS}" &gt;&amp;2
+    exit 1
+  fi
+  sleep 10
+done
+
+<span class="c"># the alias must be the one the harness addresses, not a checkpoint path</span>
+curl -sf "http://localhost:${PORT}/v1/models" | grep -q "\"${ALIAS}\"" || {
+  echo "endpoint is up but does not serve alias ${ALIAS}" &gt;&amp;2
+  exit 1
+}
+
+echo "warming ${ALIAS} (absorbs the ~25s JIT)"
+curl -sf "http://localhost:${PORT}/v1/chat/completions" \
+  -H 'content-type: application/json' \
+  -d "{\"model\":\"${ALIAS}\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":3}" \
+  &gt;/dev/null
+
+echo "${ALIAS} warm after ${SECONDS}s"</code></pre>
+
+<pre><code>sudo install -m 0755 vllm-warmup.sh /usr/local/bin/vllm-warmup.sh
+/usr/local/bin/vllm-warmup.sh 8001 worker    <span class="c"># test it by hand first</span></code></pre>
+
+      <div class="note">
+        <span class="tag">Why check the alias</span>
+        <p>
+          The setup guide notes GlassCoder rejects anything resembling a checkpoint path and
+          requires the alias. Checking for it here means a mis-set
+          <code>--served-model-name</code> surfaces at boot with a clear message, rather than as a
+          connection error in the harness hours later.
+        </p>
+      </div>
+
+      <p>
+        On Path A, where there are no units, run the same script from a
+        <code>@reboot</code> cron entry instead:
+      </p>
+
+<pre><code><span class="c"># crontab -e</span>
+@reboot sleep 60 &amp;&amp; /usr/local/bin/vllm-warmup.sh 8001 worker \
+  &gt;&gt; /var/log/vllm-warmup.log 2&gt;&amp;1</code></pre>
+    </section>
+
+    <!-- ================= 6 ================= -->
+    <section class="part" id="verify">
+      <div class="part-head"><span class="num">06</span><h2>Proving it survives</h2></div>
+
+      <p>
+        <code>docker restart</code> is not a test of this. The daemon-startup path is precisely
+        the one that behaves differently, so the only honest check is a real reboot.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Reboot, and wait properly</h3>
+<pre><code>sudo reboot
+<span class="c"># give it 20 minutes before concluding anything</span></code></pre>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Both containers running</h3>
+<pre><code>docker ps --format '{{.Names}}\t{{.Status}}\t{{.RunningFor}}'</code></pre>
+            <p>Two rows. <code>RunningFor</code> should be roughly your uptime, not seconds — seconds means something is crash-looping.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Both aliases served</h3>
+<pre><code>curl -s localhost:8001/v1/models | jq '.data[].id'   <span class="c"># → "worker"</span>
+curl -s localhost:8003/v1/models | jq '.data[].id'   <span class="c"># → "critic"</span></code></pre>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>On Path B, read the journal</h3>
+<pre><code>systemctl status 'vllm-*' --no-pager
+journalctl -u vllm-worker-ready -b --no-pager</code></pre>
+            <p>
+              The warm-up line reports its own elapsed seconds. That number is your real
+              boot-to-usable figure, and it is worth writing down — if it drifts upward over
+              months, the cache has probably moved off the NVMe.
+            </p>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>The acceptance test that matters</h3>
+            <p>
+              A served alias is a weaker claim than a working tool call. Re-run the setup guide's
+              tool-call check, then confirm validity rate is still near 1.0:
+            </p>
+<pre><code>jq -r '"\(.taskId)  validity=\(.toolCallValidityRate)"' \
+  metrics/metrics.jsonl | tail -3</code></pre>
+          </div>
+        </li>
+      </ol>
+
+      <div class="note caution">
+        <span class="tag">If GlassCoder runs elsewhere</span>
+        <p>
+          The harness config addresses <code>http://spark.local:8001/v1</code>. If GlassCoder runs
+          on the 5090 rather than on the Spark, that name resolves via mDNS, which is a second
+          thing that has to come back after a reboot and is outside Docker's control entirely.
+          Testing with <code>curl</code> from the client machine — not from the Spark — is the
+          check that covers it. A static IP or hosts entry removes the variable if it proves
+          flaky.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 7 ================= -->
+    <section class="part" id="edges">
+      <div class="part-head"><span class="num">07</span><h2>Rough edges</h2></div>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Symptom</th><th>Cause and fix</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Critic missing after reboot, worker fine</td>
+              <td>The original condition. No restart policy on <code>vllm-critic</code>; see section 03.</td>
+            </tr>
+            <tr>
+              <td>Container restarts but exits repeatedly</td>
+              <td>
+                A restart policy will loop a container that fails for an unrelated reason. Read
+                <code>docker logs --tail 50 vllm-worker</code> before adjusting anything —
+                the sm_121 build mismatch from the setup guide presents exactly this way.
+              </td>
+            </tr>
+            <tr>
+              <td>Both start, one hits the OOM killer</td>
+              <td>
+                Concurrent startup on a shared pool. The setup guide's advice to drop the worker
+                to <code>0.75</code> when running a critic is what protects you. Path B avoids
+                the contention outright by serialising.
+              </td>
+            </tr>
+            <tr>
+              <td>systemd says active, endpoint dead</td>
+              <td>
+                Expected with <code>Type=oneshot</code> on the start units — they report that the
+                container was started, not that the model loaded. The ready unit is the one to
+                check.
+              </td>
+            </tr>
+            <tr>
+              <td>Container comes up twice, or fights itself</td>
+              <td>Both a restart policy and a systemd unit are managing it. Pick one; see section 04.</td>
+            </tr>
+            <tr>
+              <td>First run after boot still times out</td>
+              <td>
+                Warm-up not running or not finished. On Path A the cron entry's fixed
+                <code>sleep</code> is a guess; the script's own polling loop is what makes it
+                correct, so do not shorten it into a bare sleep.
+              </td>
+            </tr>
+            <tr>
+              <td>Reboots happening unexpectedly</td>
+              <td>
+                Unattended upgrades can reboot the box overnight. <code>last reboot</code> and
+                <code>/var/log/unattended-upgrades/</code> will say. Worth knowing about a machine
+                that takes fifteen minutes to become useful.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 8 ================= -->
+    <section class="part" id="unverified">
+      <div class="part-head"><span class="num">08</span><h2>What I have not verified</h2></div>
+
+      <p>
+        Three claims in this document are reasoning rather than measurement. They are called out
+        here so nothing above reads as more settled than it is.
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt>compile cache</dt>
+          <dd>
+            The <code>docker run</code> commands mount only the HuggingFace cache. Recent vLLM
+            versions appear to cache compiled kernels separately — possibly under
+            <code>~/.cache/vllm</code> — which would live in the container's writable layer and
+            survive <code>docker start</code> but not recreation. If that is right, a second
+            <code>-v</code> would make recreations cheaper. Confirm the path against the docs for
+            your pinned image tag before adding it; I have not verified it for the NGC 26.02
+            build.
+          </dd>
+        </div>
+        <div>
+          <dt>memory profiling</dt>
+          <dd>
+            The claim that two containers profiling concurrently may each over-estimate available
+            memory follows from how vLLM sizes its KV cache, but I have not confirmed the
+            behaviour on GB10 unified memory specifically. It is the main argument for Path B's
+            ordering — treat it as a plausible risk to test, not an established fact.
+          </dd>
+        </div>
+        <div>
+          <dt>readiness endpoint</dt>
+          <dd>
+            The warm-up polls <code>/v1/models</code>, which the setup guide already uses and is
+            therefore known to work. vLLM likely also exposes a <code>/health</code> endpoint that
+            would be a more idiomatic probe, but since I cannot confirm its semantics for this
+            build, the script uses the endpoint you have already exercised.
+          </dd>
+        </div>
+      </dl>
+
+      <div class="note">
+        <span class="tag">Also unresolved</span>
+        <p>
+          The critic <code>docker run</code> keeps the setup guide's
+          <code>&lt;a-small-model-from-another-family&gt;</code> placeholder, because the actual
+          checkpoint was never specified. Substitute the real one before running it.
+        </p>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">Dated material</span>
+        <p>
+          Written July 2026 against the setup guide of the same date. Restart policies and
+          systemd semantics are stable; container tags and vLLM's startup behaviour are not.
+          The 10–15 minute load figure is inherited from the setup guide rather than measured
+          here — replace it with your own warm-up timing once you have a few boots on record.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  Companion to <i>Serving a model to GlassCoder on DGX Spark</i> · sections 03, 04 and 09 ·
+  verify against Docker and systemd documentation for your distribution
+</footer>
+
+</body>
+</html>
