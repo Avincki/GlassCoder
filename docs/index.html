@@ -546,7 +546,7 @@
     </p>
     <div class="specstrip">
       <div><b>Stack</b> C# · .NET 10 · WPF</div>
-      <div><b>Seam</b> OpenAI-compatible HTTP</div>
+      <div><b>Seam</b> OpenAI-compatible HTTP · Anthropic messages</div>
       <div><b>Surfaces</b> desktop app · console host</div>
       <div><b>Outputs</b> JSONL transcript · JSONL metrics</div>
     </div>
@@ -584,6 +584,15 @@
         Which server answers is configuration, never architecture.
       </p>
 
+      <p>
+        Each role also picks its <b>transport</b>. <code>OpenAI</code> is the default and speaks
+        the shape above; <code>Anthropic</code> speaks <code>/v1/messages</code> through the
+        official SDK, which is what lets a hosted second opinion sit beside local roles without
+        anything above the seam knowing the difference. The transport is one line of
+        configuration, and the endpoint convention differs — see
+        <a href="#config">configuration</a>.
+      </p>
+
       <p>Everything above that seam is a small loop you can read:</p>
 
       <pre><code>Observe  →  Think  →  Act  →  Result
@@ -607,7 +616,8 @@
         <div>
           <dt>GlassCoder.Wpf</dt>
           <dd>The desktop app. Same services, same configuration — adds a live transcript,
-              diff review with approval, and the metrics dashboard.</dd>
+              diff review with approval, the metrics dashboard, and a workspace pane showing
+              what this session changed.</dd>
         </div>
       </dl>
 
@@ -628,6 +638,9 @@
         <li><b>Docker</b>, if you want the agent to build or run tests. Without it those two
             tools refuse rather than running on your machine — see
             <a href="#refuse">defaults that refuse</a>.</li>
+        <li><b>git</b> on the PATH, and <b>the GitHub CLI</b> signed in with
+            <code>gh auth login</code>, only if you enable the git tools. Both hold their own
+            credentials, which is why GlassCoder stores none.</li>
       </ul>
 
       <ol class="steps">
@@ -635,7 +648,7 @@
           <div class="step-body">
             <h3>Build it</h3>
 <pre><code>dotnet build
-dotnet test        <span class="c"># optional: 195 tests, ~25s</span></code></pre>
+dotnet test        <span class="c"># optional: 348 tests, ~30s</span></code></pre>
           </div>
         </li>
 
@@ -729,9 +742,10 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
           <tbody>
             <tr>
               <td class="m">Models</td>
-              <td>Endpoints, aliases, sampling, cost per million tokens, constrained decoding —
-                  per role (<code>worker</code>, <code>drafter</code>, <code>critic</code>).</td>
-              <td>Swapping models or serving several at once.</td>
+              <td>Endpoints, aliases, transport, sampling, cost per million tokens, constrained
+                  decoding — per role (<code>worker</code>, <code>drafter</code>,
+                  <code>critic</code>, <code>critic-remote</code>).</td>
+              <td>Swapping models, serving several at once, or pointing a role at a hosted API.</td>
             </tr>
             <tr>
               <td class="m">Workspace</td>
@@ -754,14 +768,28 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
               <td>Edits land broken, or the check costs too much latency.</td>
             </tr>
             <tr>
+              <td class="m">VerificationLadder</td>
+              <td>The in-loop climb after every applied change: whether it runs at all, the
+                  analyzer rung, the test filter, the full-suite rung, the critique cap.</td>
+              <td>Tuning what the loop checks between steps, and what it costs.</td>
+            </tr>
+            <tr>
               <td class="m">Sandbox</td>
               <td>Docker vs host, image, network policy, hardening, <code>bash</code> opt-in.</td>
               <td>Build and test tools refuse to run.</td>
             </tr>
             <tr>
               <td class="m">Approval</td>
-              <td>Whether a human must approve each write, and the timeout.</td>
-              <td>You want to review diffs before they land.</td>
+              <td>Whether a human must approve each write and each push, and the timeout.</td>
+              <td>You want to review diffs before they land, or anything before it leaves the
+                  machine.</td>
+            </tr>
+            <tr>
+              <td class="m">Git</td>
+              <td>The five git tools and their whole policy surface: the executable, hooks, the
+                  commit trailer, the remote, the pushable and protected branch lists, the
+                  <code>gh</code> CLI and the pull-request base branch.</td>
+              <td>Letting the agent record or publish its own work. Off by default.</td>
             </tr>
             <tr>
               <td class="m">Critique</td>
@@ -795,6 +823,23 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
         </table>
       </div>
 
+      <div class="note">
+        <span class="tag">The two transports spell an endpoint differently</span>
+        <p>
+          An <code>OpenAI</code> role's endpoint ends in <code>/v1</code>, because the client
+          appends <code>/chat/completions</code>. An <code>Anthropic</code> role's endpoint is the
+          <em>host root</em> — <code>https://api.anthropic.com</code> — because the SDK appends
+          <code>/v1/messages</code> itself. A <code>/v1</code> suffix there produces
+          <code>/v1/v1/messages</code> and a 404 that reads like an outage.
+        </p>
+        <p>
+          Sampling parameters are dropped rather than forwarded on the Anthropic transport:
+          current models reject <code>temperature</code> and <code>top_p</code> with a 400 instead
+          of ignoring them, so which oracle a role addresses stays a configuration choice rather
+          than a crash.
+        </p>
+      </div>
+
       <h3>Overriding without editing the file</h3>
 
       <p>Environment variables win over the file, and command-line arguments win over those:</p>
@@ -817,7 +862,7 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
       <div class="part-head"><span class="num">04</span><h2>Defaults that refuse</h2></div>
 
       <p>
-        Four defaults will stop the agent doing something you might have expected it to do. Each
+        Five defaults will stop the agent doing something you might have expected it to do. Each
         is deliberate, and each fails <em>closed</em> — the safe direction — so you should expect
         to meet them and turn them off knowingly.
       </p>
@@ -852,6 +897,12 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
           exactly when someone believed it was protecting them. Use the desktop app when you want
           this on.
         </p>
+        <p>
+          <code>RequireApprovalForPush</code> is the same mechanism pointed at
+          <code>git_push</code> and <code>create_pull_request</code>, and it ships <b>on</b>. The
+          asymmetry is the point: a write can be reverted from the change log, a push has left
+          the machine.
+        </p>
       </div>
 
       <div class="note refuse">
@@ -862,6 +913,26 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
           Prefer the dedicated tools: they give the agent better observations and you better logs.
         </p>
       </div>
+
+      <div class="note refuse">
+        <span class="tag">Git is off, and runs outside the sandbox</span>
+        <p>
+          The five git tools register only when <code>Git:Enabled</code> is <code>true</code>.
+          Unlike every other executing tool they run on the <em>host</em>, because the container
+          has neither the network nor the credentials a push needs — so the honest description is
+          that switching them on grants a capability the sandbox does not contain. What makes that
+          defensible is that nothing here executes repository code: every invocation is a fixed
+          argument list with no shell, and commit hooks are disabled unless
+          <code>Git:AllowHooks</code> says otherwise, since a hook is code the agent may just have
+          written.
+        </p>
+        <p>
+          GlassCoder still holds no credential of its own. Git authenticates through your
+          credential manager and <code>create_pull_request</code> through <code>gh auth</code>,
+          with prompts disabled so a missing credential is a fast typed failure rather than a hung
+          step.
+        </p>
+      </div>
     </section>
 
     <!-- ============ 5 ============ -->
@@ -869,9 +940,9 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
       <div class="part-head"><span class="num">05</span><h2>Tools &amp; the verification ladder</h2></div>
 
       <p>
-        Eight tools are offered, in this order. Order is part of the contract — the model reaches
-        for what it is shown first, so the cheap, high-value oracles come before the expensive
-        ones.
+        Eight tools are offered by default, in this order. Order is part of the contract — the
+        model reaches for what it is shown first, so the cheap, high-value oracles come before the
+        expensive ones.
       </p>
 
       <div class="scroller">
@@ -895,17 +966,46 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
         exceptions</b>. A tool failure is information the agent acts on; it never ends the run.
       </p>
 
+      <h3>Two opt-in sets on top</h3>
+
+      <p>
+        <code>bash</code> arrives last and only behind the sandbox. The five <b>git</b> tools
+        arrive with <code>Git:Enabled</code>, and they are what let a run record and publish its
+        own work rather than leaving a dirty tree behind:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Tool</th><th>Does</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td class="m">git_status</td><td>Branch, ahead/behind, staged, modified, untracked, conflicted.</td><td>Read-only, from <code>--porcelain=v2</code>. The file list is capped; the counts stay true.</td></tr>
+            <tr><td class="m">git_commit</td><td>Stages and commits.</td><td>Staging is filtered through the <b>writable path set</b>, and reports what it left out. Conflicted paths are never auto-staged.</td></tr>
+            <tr><td class="m">git_sync</td><td><code>pull --rebase</code> onto the upstream.</td><td>Requires a clean tree. A conflicted rebase aborts itself and names the files — reconciling is a human's call.</td></tr>
+            <tr><td class="m">git_push</td><td>Pushes the current branch to the configured remote.</td><td>Gated by human approval, and by the branch lists <em>before</em> anyone is asked. No force flag, no free-form refspec.</td></tr>
+            <tr><td class="m">create_pull_request</td><td>Opens a GitHub PR through <code>gh</code>.</td><td>Same gate. Refuses while the branch is ahead of its upstream, rather than describing commits reviewers cannot see.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Every agent commit carries a <code>Co-Authored-By: GlassCoder</code> trailer by default, so
+        agent commits are recognisable as agent commits. Set <code>Git:CommitTrailer</code> to
+        empty to disable it.
+      </p>
+
       <h3>The ladder, cheapest oracle first</h3>
 
       <p>
-        After an edit, verification climbs from the bottom. Each rung runs only if the one below
-        it passed, so tests never run on code that does not compile.
+        After every step that applied a change, the controller loop climbs the ladder from the
+        bottom. Each rung runs only if the one below it passed, so tests never run on code that
+        does not compile, and a rung that cannot run — not a C# file, no sandbox — skips rather
+        than fails.
       </p>
 
       <div class="ladder">
         <div class="rung">
           <span class="n">06</span>
-          <span class="what"><b>Critique</b><span>Multi-critic refutation. Off by default; reports rather than gates. Written and unwired — nothing calls the ladder yet.</span></span>
+          <span class="what"><b>Critique</b><span>Multi-critic refutation, on a different model family. Runs in the loop whenever critique is enabled — which it is not by default. Reports rather than blocks unless <code>CritiqueGates</code> says otherwise.</span></span>
           <span class="pill warn">optional</span>
         </div>
         <div class="rung">
@@ -941,6 +1041,33 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
         new error. Errors that were already there never block an edit — the agent is usually
         editing precisely because something is broken.
       </p>
+
+      <div class="note">
+        <span class="tag">In the loop, the policy is correction — not rejection</span>
+        <p>
+          A failed climb does not fail the step, revert the change or summon a human. The report
+          goes back to the model as an observation and the loop carries on, which is the recovery
+          hypothesis this harness exists to measure. Refusing what a cheap check can prove broken
+          is the <em>write tools'</em> job, and it happens before disk; what the ladder catches
+          here is <b>applied</b> work — a red test, a break in another project — and silently
+          reverting that would leave the model reasoning about a tree that no longer matches what
+          it was told.
+        </p>
+        <p>
+          A clean climb is reported too, otherwise the next step is spent calling
+          <code>build</code> to learn what the harness already knows. A climb in which every rung
+          skipped says nothing at all: silence is more honest than a hollow "verified". The
+          outcome is stamped onto the change-log entries that caused it, lands in the step record,
+          and moves the same recovery and compile-error counters a model-called build would —
+          recovery rate must not depend on who pressed the button.
+        </p>
+        <p>
+          Switch the whole thing off with
+          <code>VerificationLadder:VerifyAppliedChanges</code>. Note that
+          <code>TestFilter</code> is null by default, which makes rung 4 the full suite already —
+          <code>RunFullSuite</code> only adds anything alongside a filter.
+        </p>
+      </div>
 
       <div class="note">
         <span class="tag">Why you never see a wall of errors</span>
@@ -1016,6 +1143,22 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
         That is enough to reconstruct the run completely — which is not a claim, it is a test:
         the harness reads its own log back into a transcript, and a truncated final line (what a
         crash leaves) costs you that line and nothing else.
+      </p>
+
+      <p>
+        There are three record types, not two. Beside the step and run records sits a
+        <b>review record</b>: when a critic judges a finished run, its verdict is written verbatim
+        — the role, every vote with its reason and whether that critic was even reachable, tokens,
+        cost and duration — and replays with the run it judged. It is a separate record because
+        the run record closes <em>before</em> the review runs; an opinion cannot ride the record of
+        the run it is judging. A critic quotes the diff it read, so review records fall under the
+        same content-redaction switch as everything else.
+      </p>
+
+      <p>
+        Manual actions land here too. Pressing <b>Commit</b> or <b>Push</b> in the desktop app
+        writes a step with <code>Role: "human"</code>, outside any run — which is honest: the
+        action belonged to a person, so it contributes to no run's metrics.
       </p>
 
       <h4>Redaction</h4>
@@ -1135,6 +1278,28 @@ glasscoder suite --suite-task suite-03-off-by-one</code></pre>
         fills as the loop turns.
       </p>
 
+      <p>
+        Two things sit on the shell rather than on any one surface, because they stay true
+        whichever surface is selected: the <b>workspace pane</b> on the right, and the review strip
+        above the status bar when a critic has judged a finished run.
+      </p>
+
+      <h3>Workspace pane</h3>
+      <p>
+        The project folder on top, the file tree below, and a drag handle so it can be resized out
+        of the way. Files this session changed show green with their <em>net</em>
+        <code>+added −removed</code> counts — a line written and rewritten counts once, an
+        applied-then-reverted change drops out on its own — and the folders above them expand
+        themselves, so a modification is never folded away. The tree hides exactly what the denied
+        globs hide, so it and the path guard never disagree about what the workspace contains.
+      </p>
+      <p>
+        <b>Browse…</b> picks a new project folder and saves it like any other setting. It does not
+        re-root the running process: the path guard, the sandbox mounts and the context all bound
+        themselves at startup, so the pane offers a restart instead of showing you a folder the
+        agent is not in.
+      </p>
+
       <h3>Transcript</h3>
       <p>
         Every step as it happens, with tools, outcome, tokens and latency. Filter by tool, by
@@ -1154,7 +1319,17 @@ glasscoder suite --suite-task suite-03-off-by-one</code></pre>
       <p>
         Turn on <code>Approval:RequireApprovalForWrites</code> and each write pauses here with
         <b>Approve</b> and <b>Reject</b> next to the actual diff, so you decide while looking at
-        the change rather than at a filename in a dialog.
+        the change rather than at a filename in a dialog. A push asks in the same strip, with the
+        outgoing commits where the diff would be.
+      </p>
+      <p>
+        With git enabled the surface also grows a manual strip — a commit message box,
+        <b>Commit</b> and <b>Push</b>. Those buttons call the very same tool methods the model
+        calls, so a manual push still asks the approval gate and a manual commit still filters
+        staging through the writable set: nothing about pressing a button makes an action more
+        trusted than the model asking for it. They stand down mid-run, because committing a tree
+        the agent has not finished changing would record work in progress as though it were
+        finished.
       </p>
 
       <h3>Metrics</h3>
@@ -1222,7 +1397,8 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
       <p>
         Four documents live under <code>docs/NewFeatures</code>, written against the current
         code so the names, configuration keys and estimates are real. None is a prerequisite for
-        any phase above; the first has since been built in part — its own page says which parts.
+        any phase above; the first has since been built, and its own page has been rewritten from
+        a proposal into a description of what shipped.
       </p>
 
       <div class="scroller">
@@ -1233,8 +1409,9 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
               <td><a href="NewFeatures/claude-second-opinion.html">A second opinion</a></td>
               <td>A different model family judging the local worker's work — chosen before the run,
                   asked again after it, and never allowed to start one.</td>
-              <td>Built, minus the transport and the rung-6 wiring. Critique is still off by
-                  default.</td>
+              <td>Built, including the Anthropic transport and the in-loop rung 6, with the review
+                  persisted into the transcript. Critique is still off by default, so all of it is
+                  dormant until you switch it on.</td>
             </tr>
             <tr>
               <td><a href="NewFeatures/mcp-retrieval.html">Retrieval over MCP</a></td>
@@ -1297,6 +1474,26 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
               <td><code>edit_file</code> found the target text more than once. This is a
                   guardrail, not a bug: an edit that could land in two places would land in the
                   wrong one silently.</td>
+            </tr>
+            <tr>
+              <td class="m">git_unavailable</td>
+              <td>Git is not on the PATH, or the workspace is not a repository. Also what you get
+                  when git needs a credential or an identity it cannot obtain: prompts are
+                  disabled on purpose, so that fails fast instead of hanging a loop step.</td>
+            </tr>
+            <tr>
+              <td class="m">branch_not_allowed</td>
+              <td>Branch policy refused the push before anyone was asked to approve it — the
+                  branch is in <code>ProtectedBranches</code>, or a non-empty
+                  <code>PushableBranches</code> does not list it. A refusal here never consumes a
+                  human approval.</td>
+            </tr>
+            <tr>
+              <td class="m">merge_conflict</td>
+              <td><code>git_sync</code> hit conflicts and <b>aborted the rebase itself</b>, so the
+                  tree is exactly as it was and the conflicted files are named. The agent has no
+                  tool to resolve or abort one, and leaving a rebase in progress would wedge the
+                  repository.</td>
             </tr>
             <tr>
               <td class="m">exit 2 at startup</td>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="The GlassCoder settings dialog: where settings and API keys are stored, what overrides what, every tab annotated, and the four-step connection check that answers whether the seam actually works.">
+<meta name="description" content="The GlassCoder settings dialog: where settings and API keys are stored, what overrides what, all eight tabs annotated — including git and publishing policy — and the four-step connection check that answers whether the seam actually works.">
 <title>GlassCoder — Settings &amp; the connection check</title>
 
 <style>
@@ -623,6 +623,7 @@
       <li><a href="#agent">Agent &amp; context</a></li>
       <li><a href="#verification">Verification &amp; critique</a></li>
       <li><a href="#sandbox">Sandbox &amp; approval</a></li>
+      <li><a href="#git">Git &amp; publishing</a></li>
       <li><a href="#logging">Logging &amp; metrics</a></li>
       <li><a href="#telemetry">Telemetry &amp; provenance</a></li>
       <li><a href="#wiring">How it is wired</a></li>
@@ -754,6 +755,15 @@
           <code>config/phase1.json</code> means. Arms have to mean the same thing everywhere, or no
           measurement taken in one applies to another.
         </p>
+        <p>
+          Which environment source, exactly, turned out to matter as much as the rule.
+          <code>HostApplicationBuilder</code> registers <b>two</b> — the <code>DOTNET_</code>
+          host source, which sits <em>before</em> <code>appsettings.json</code>, and the
+          unprefixed application source after it. Scanning forwards found the first, which put
+          saved settings <em>underneath</em> the shipped defaults and silently discarded every
+          value that both files mention. The scan runs backwards for that reason, and the doc
+          comment now says so: this is load-bearing, not incidental.
+        </p>
       </div>
 
       <p>
@@ -787,15 +797,15 @@
       <figure>
         <div class="shot">
           <img src="../Settings_Model.png"
-               alt="The Models tab of the GlassCoder settings dialog: a Seam group with default role, telemetry source name and a sensitive-telemetry checkbox; a list of the critic, drafter and worker roles on the left, each showing its endpoint and &quot;Not checked yet.&quot;; and an editor on the right with Endpoint, Authentication and Sampling groups.">
+               alt="The Models tab of the GlassCoder settings dialog: eight tabs across the top — Models, Workspace, Agent, Verification, Sandbox, Git, Logging, Telemetry — a Seam group with default role, telemetry source name and a sensitive-telemetry checkbox; a list of the critic, critic-remote, drafter and worker roles on the left, each showing its endpoint and &quot;Not checked yet.&quot;; and an editor on the right with an Endpoint group holding role name, endpoint, a Transport dropdown reading OpenAI, served model alias and timeout, above Authentication and Sampling groups.">
           <span class="mark" style="left:15%;   top:9.2%;">1</span>
           <span class="mark" style="left:24%;   top:41%;">2</span>
           <span class="mark" style="left:71.5%; top:43.7%;">3</span>
-          <span class="mark" style="left:66%;   top:66.8%;">4</span>
-          <span class="mark" style="left:14.3%; top:88.5%;">5</span>
+          <span class="mark" style="left:66%;   top:76.9%;">4</span>
+          <span class="mark" style="left:14.3%; top:90.6%;">5</span>
           <span class="mark" style="left:70%;   top:97.7%;">6</span>
         </div>
-        <figcaption>The Models tab on the configuration GlassCoder ships with: three roles, no keys, nothing checked yet.</figcaption>
+        <figcaption>The Models tab on the configuration GlassCoder ships with: four roles, no keys, nothing checked yet.</figcaption>
       </figure>
 
       <dl class="legend">
@@ -814,10 +824,10 @@
         </div>
         <div>
           <span class="n">3</span>
-          <dt>Endpoint &amp; alias</dt>
-          <dd>The OpenAI-compatible base URL, and the <em>served alias</em> to address. Never a
-              checkpoint path: serving topology lives below the seam, and a path here is rejected
-              before the dialog will save.</dd>
+          <dt>Endpoint, transport &amp; alias</dt>
+          <dd>The base URL, the wire format it speaks, and the <em>served alias</em> to address.
+              Never a checkpoint path: serving topology lives below the seam, and a path here is
+              rejected before the dialog will save.</dd>
         </div>
         <div>
           <span class="n">4</span>
@@ -838,6 +848,52 @@
               red above these buttons, and nothing is written.</dd>
         </div>
       </dl>
+
+      <h3>Two transports, and the endpoint each expects</h3>
+
+      <p>
+        <b>Transport</b> picks the wire format, and it is the setting that lets a hosted role sit
+        beside local ones without anything above the seam knowing. It also changes what a valid
+        endpoint looks like, which is the one place the two conventions can bite:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Transport</th><th>Speaks</th><th class="m">Endpoint</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">OpenAI</td>
+              <td><code>/v1/chat/completions</code>. The default, and what every local server
+                  answers.</td>
+              <td class="m">http://localhost:8001/v1</td>
+            </tr>
+            <tr>
+              <td class="m">Anthropic</td>
+              <td><code>/v1/messages</code>, through the official SDK — which brings retries,
+                  typed errors and the versioned header with it.</td>
+              <td class="m">https://api.anthropic.com</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The Anthropic endpoint is the <em>host root</em>, because the client appends the path
+        itself. A <code>/v1</code> suffix there produces <code>/v1/v1/messages</code> and a 404
+        that reads exactly like an outage — which is why the hint under the field states both
+        conventions rather than one.
+      </p>
+
+      <div class="note">
+        <span class="tag">Sampling is dropped, not forwarded, on the Anthropic transport</span>
+        <p>
+          Current Anthropic models reject <code>temperature</code> and <code>top_p</code> with a
+          400 rather than ignoring them, and a critic panel pins temperature at zero — the right
+          habit for a local critic and a fatal one here. The transport nulls them out, so which
+          oracle a role addresses stays a configuration choice instead of a crash. Leave those
+          boxes empty on such a role; they would be ignored anyway.
+        </p>
+      </div>
 
       <h3>The key, and where it really comes from</h3>
 
@@ -1012,6 +1068,14 @@ the model server is running and serving this endpoint.</code></pre>
         step answers "can this endpoint, key and alias produce a completion", and a server that
         rejects a guided-decoding property is a different problem with a different fix.
       </p>
+
+      <p>
+        The check follows the role's transport rather than assuming one. It looks for the model
+        list where that transport keeps it — <code>/models</code> beside an OpenAI endpoint that
+        already ends in <code>/v1</code>, <code>/v1/models</code> under an Anthropic host root —
+        authenticates the way each expects, and omits sampling parameters on the Anthropic side
+        for the same reason the real transport does.
+      </p>
     </section>
 
     <!-- ============ 5 ============ -->
@@ -1059,6 +1123,36 @@ the model server is running and serving this endpoint.</code></pre>
         <b>Follow symbolic links</b> stays off unless you have a specific reason: a link is the
         simplest way to walk a path allow-list straight out of the workspace.
       </p>
+
+      <h3>The repository root, and the two front ends that read it differently</h3>
+
+      <p>
+        <b>Repository root</b> ships as <code>"."</code>, which the path guard resolves against the
+        <em>process working directory</em>. That is the right contract for the console host —
+        <code>cd</code> into the repository, then run — and the wrong one for a window nobody
+        launches from a shell, where the working directory is the folder the executable lives in.
+        Left alone, a double-clicked app therefore roots itself in
+        <code>bin\Debug\net10.0-windows</code> and the agent greps its own DLLs.
+      </p>
+
+      <p>
+        So the desktop app treats <code>"."</code> as "nobody chose one" and walks up from the
+        executable looking for a <code>.git</code> entry or a solution file. It applies that
+        <em>only</em> when no layer supplied a real root — anything you choose, save or export
+        still wins — and outside a checkout it finds nothing and says so rather than guessing.
+        Both front ends now log the root they resolved at startup, which is the fastest way to
+        confirm the agent is where you think it is.
+      </p>
+
+      <div class="note">
+        <span class="tag">The pane is the quicker route</span>
+        <p>
+          The workspace pane on the right of the shell has a <b>Browse…</b> button that writes
+          this exact setting. It saves like any other setting and offers a restart, because the
+          path guard, the sandbox mounts and the context all bind their root once at startup —
+          re-rooting only the tree would show you a folder the agent is not in.
+        </p>
+      </div>
 
       <div class="note">
         <span class="tag">Tool limits are context budget, not safety</span>
@@ -1142,9 +1236,9 @@ the model server is running and serving this endpoint.</code></pre>
       <figure>
         <div class="shot">
           <img src="../Settings_Verification.png"
-               alt="The Verification tab: compiler-feedback checkboxes for verifying edits before write and refusing breaking edits, max summarised diagnostics, include warnings, max compile files, extra reference directories, an analyzers checkbox, and a Critique group with an enable checkbox, critic role, critic count, refutation threshold and a blocking checkbox.">
+               alt="The Verification tab: compiler-feedback checkboxes for verifying edits before write and refusing breaking edits, max summarised diagnostics, include warnings, max compile files, extra reference directories, a &quot;Verify after write&quot; checkbox reading &quot;Climb the ladder after every step that applies a change&quot;, an empty test filter for rung 4, an analyzers checkbox, and a Critique group with an enable checkbox, critic role, critic count, refutation threshold and a blocking checkbox.">
         </div>
-        <figcaption>Verification and critique. The two checkboxes at the top are the ones that change what reaches disk.</figcaption>
+        <figcaption>Verification and critique. The two checkboxes at the top change what reaches disk; “Verify after write” decides what happens once it has.</figcaption>
       </figure>
 
       <p>
@@ -1166,6 +1260,40 @@ the model server is running and serving this endpoint.</code></pre>
         Analyzers are rung 3, and they report rather than gate whether they run or not. That is the
         same rule the repository's own build follows.
       </p>
+
+      <h3>Verify after write</h3>
+
+      <p>
+        The three settings below the compiler-feedback group control the climb the controller loop
+        makes <em>after</em> a step has applied a change — a different moment from the two
+        checkboxes above, and a different policy. <b>Verify after write</b> is on by default:
+        syntax, compile, analyzers and tests run automatically, and the first failure goes back to
+        the model as an observation.
+      </p>
+
+      <p>
+        It does not revert anything. The write tools already refuse what a cheap in-memory check
+        can prove broken; what this climb catches is <em>applied</em> work — a red test, a break in
+        a project the edit did not touch — and silently rolling that back would leave the model
+        reasoning about a tree that no longer matches what it was told. So the loop reports and
+        carries on, which is the recovery-rate hypothesis made measurable.
+      </p>
+
+      <p>
+        <b>Test filter</b> is passed to <code>dotnet test --filter</code> so the per-step rung
+        stays cheaper than the whole suite. Leave it empty and rung 4 <em>is</em> the full suite
+        already, which is worth knowing before you wonder where the wall-clock went.
+      </p>
+
+      <div class="note">
+        <span class="tag">Switching it on cannot make things worse</span>
+        <p>
+          A rung that cannot run — not a C# file, no sandbox — is skipped rather than failed, and a
+          climb where every rung skipped reports nothing at all. Silence is more honest than a
+          hollow "verified", and it means an environment without Docker sees the same behaviour it
+          saw before.
+        </p>
+      </div>
 
       <h3>Critique</h3>
 
@@ -1204,9 +1332,9 @@ the model server is running and serving this endpoint.</code></pre>
       <figure>
         <div class="shot">
           <img src="../Settings_Sandbox.png"
-               alt="The Sandbox tab: mode set to Docker, an unchecked permit-unsandboxed-execution box, the SDK image and workspace mount point, network off with network-for-restore on, container hardening on, memory, process and timeout limits, the container environment list, and an Approval group with an unchecked approve-every-write box and a 300-second timeout.">
+               alt="The Sandbox tab: mode set to Docker, an unchecked permit-unsandboxed-execution box, the SDK image and workspace mount point, network off with network-for-restore on, container hardening on, memory, process and timeout limits, the container environment list, and below them a &quot;The bash tool&quot; group with an unchecked &quot;Advertise bash to the model&quot; box. The Approval group sits below the fold.">
         </div>
-        <figcaption>Sandbox policy. The premise is that a build is arbitrary code execution — because it is.</figcaption>
+        <figcaption>Sandbox policy. The premise is that a build is arbitrary code execution — because it is, which is why bash is governed on the same tab.</figcaption>
       </figure>
 
       <p>
@@ -1232,12 +1360,45 @@ the model server is running and serving this endpoint.</code></pre>
         environment pins <code>NUGET_PACKAGES</code> and <code>HOME</code> at writable paths.
       </p>
 
+      <h3>The bash tool</h3>
+
+      <p>
+        <b>Advertise bash to the model</b> is the last capability the harness gains, and it is
+        governed here rather than on its own tab because it is exactly as privileged as the build
+        above it. It refuses outright unless the mode is <code>Docker</code> or unsandboxed
+        execution has been permitted: there is no "just this once" path onto the host.
+      </p>
+
+      <p>
+        Prefer the dedicated tools wherever one fits. <code>read_file</code>, <code>grep</code>,
+        <code>glob</code>, <code>edit_file</code>, <code>build</code> and <code>run_tests</code>
+        are safer, and they give the agent better observations to reason about than a wall of shell
+        output.
+      </p>
+
+      <div class="note">
+        <span class="tag">It only became saveable recently</span>
+        <p>
+          This switch used to be read straight out of configuration and existed nowhere as a
+          property, so it could be set in a file and never saved from the dialog. Both opt-in keys
+          — this one and <code>Git:Enabled</code> — are now built from the property name itself, so
+          the string the registration reads cannot drift from the one the settings file writes. The
+          failure mode that guards against is a capability that quietly does not appear.
+        </p>
+      </div>
+
       <h3>Approval</h3>
 
       <p>
         <b>Ask before a change is written</b> turns the Changes surface into a gate: each write
         pauses with the diff and Approve / Reject next to it. It ships off, because the harness's
         normal mode is headless measurement.
+      </p>
+
+      <p>
+        Its counterpart for pushes lives on the <a href="#git">Git tab</a> instead, next to the
+        remote and the branch lists. Approval for writes belongs with the sandbox because that is
+        where writes are governed; somebody configuring a push looks for it under Git.
       </p>
 
       <div class="note">
@@ -1251,8 +1412,137 @@ the model server is running and serving this endpoint.</code></pre>
     </section>
 
     <!-- ============ 9 ============ -->
+    <section class="part" id="git">
+      <div class="part-head"><span class="num">09</span><h2>Git &amp; publishing</h2></div>
+
+      <p>
+        Whether the agent can record its own work, and what it is allowed to do with it. This whole
+        tab is dormant until the first checkbox is ticked: the five git tools are opt-in like
+        <code>bash</code>, and until then the model is not shown them at all.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Git.png"
+               alt="The Git tab: a &quot;The git tools&quot; group with the enable checkbox ticked, the git executable, a 120-second command timeout and an unchecked run-commit-hooks box; below it a Commits group with the Co-Authored-By provenance trailer and a files-listed-per-result cap of 100.">
+        </div>
+        <figcaption>The Git tab with the tools switched on. Hooks stay off: they are the one setting here that runs code the agent may have written.</figcaption>
+      </figure>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Group</th><th>Decides</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">The git tools</td>
+              <td>Whether <code>git_status</code>, <code>git_commit</code>, <code>git_sync</code>,
+                  <code>git_push</code> and <code>create_pull_request</code> are advertised; the
+                  executable; the per-command timeout; and whether commit hooks may run.</td>
+            </tr>
+            <tr>
+              <td class="m">Commits</td>
+              <td>The provenance trailer, and how many paths one observation may list.</td>
+            </tr>
+            <tr>
+              <td class="m">Publishing</td>
+              <td>Push approval, the remote, the pushable and protected branch lists, and how many
+                  outgoing commits an approval shows.</td>
+            </tr>
+            <tr>
+              <td class="m">Pull requests</td>
+              <td>The GitHub CLI to shell out to, and the branch pull requests target.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Git runs on <em>this machine</em>, not in the sandbox. That is not an oversight: the
+        container has neither the network nor the credentials a push needs, and both are the whole
+        point of the outward-facing half. What makes host execution defensible is that nothing here
+        executes repository code — every invocation is a fixed argument list with no shell
+        involved.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Hooks are the exception, and they are off</span>
+        <p>
+          A pre-commit hook <em>is</em> arbitrary code execution on the host, outside the sandbox,
+          and it may be code the agent has just written. <b>Let pre-commit hooks run</b> is the one
+          setting on this tab that hands the container's privileges to something the agent
+          influences. Turn it on only where you own the hooks.
+        </p>
+      </div>
+
+      <h3>GlassCoder holds no token</h3>
+
+      <p>
+        Git authenticates through the credential manager you already signed in to, and
+        <code>create_pull_request</code> shells out to <code>gh</code> rather than calling the REST
+        API, because <code>gh auth</code> already holds those credentials. A REST client would have
+        meant a personal access token this application stores — a new secret, a new place to leak
+        it — to reimplement what <code>gh pr create</code> does. The cost of the bargain is a
+        second host prerequisite, and nothing checks for <code>gh</code> until a pull request is
+        attempted.
+      </p>
+
+      <p>
+        Interactive prompts are disabled on every invocation. A missing credential or an
+        unconfigured identity therefore comes back as a fast, typed <code>git_unavailable</code>
+        rather than a loop step hung on a password prompt nobody can see.
+      </p>
+
+      <h3>Branch policy is the whole policy surface</h3>
+
+      <p>
+        The schema the model sees carries no force flag and no free-form refspec. So the remote plus
+        two lists are everything a push can be:
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt>Pushable branches</dt>
+          <dd>An allow-list. Empty means any branch may be pushed.</dd>
+        </div>
+        <div>
+          <dt>Protected branches</dt>
+          <dd>A deny-list, and it wins. Listing your default branch here is how agent work is made
+              to flow through feature branches.</dd>
+        </div>
+      </dl>
+
+      <p>
+        Both are checked <em>before</em> anyone is asked to approve, so a refusal never consumes a
+        human decision. The dialog validates them the same way the tool does — a name git would
+        read as an option is refused here rather than surfacing later as a puzzling tool failure —
+        and an allow-list wholly contained in the deny-list is refused too, since it can only ever
+        mean "nothing may be pushed". Validation runs only while the tools are enabled: a remote of
+        <code>--mirror</code> should block a save when git can act on it and be nobody's problem
+        when it cannot.
+      </p>
+
+      <div class="note">
+        <span class="tag">Push approval is on by default — writes are not</span>
+        <p>
+          The asymmetry is deliberate and it is the reason the two switches sit on different tabs.
+          A write can be reverted from the change log; a push has already left the machine. Silence
+          is refusal here too, and the console host — which cannot ask anyone — refuses outright,
+          so a headless run cannot push at all unless you give it an interactive gate.
+        </p>
+      </div>
+
+      <p>
+        One setting on another tab decides more about <code>git_commit</code> than anything here:
+        <b>writable paths</b> on the <a href="#workspace">Workspace tab</a>. Staging is filtered
+        through it, so with that list empty nothing is writable and committing is refused. Conflicted
+        paths are never staged automatically either — staging one marks the conflict resolved, and
+        that is a judgement the agent has to make explicitly.
+      </p>
+    </section>
+
+    <!-- ============ 10 ============ -->
     <section class="part" id="logging">
-      <div class="part-head"><span class="num">09</span><h2>Logging &amp; metrics</h2></div>
+      <div class="part-head"><span class="num">10</span><h2>Logging &amp; metrics</h2></div>
 
       <p>
         The transcript is the primary teaching artifact, and this tab decides how much of it survives
@@ -1299,9 +1589,9 @@ the model server is running and serving this endpoint.</code></pre>
       </p>
     </section>
 
-    <!-- ============ 10 ============ -->
+    <!-- ============ 11 ============ -->
     <section class="part" id="telemetry">
-      <div class="part-head"><span class="num">10</span><h2>Telemetry &amp; provenance</h2></div>
+      <div class="part-head"><span class="num">11</span><h2>Telemetry &amp; provenance</h2></div>
 
       <p>
         Tracing every model call, and stamping every run with what the code and context were when it
@@ -1339,9 +1629,9 @@ the model server is running and serving this endpoint.</code></pre>
       </p>
     </section>
 
-    <!-- ============ 11 ============ -->
+    <!-- ============ 12 ============ -->
     <section class="part" id="wiring">
-      <div class="part-head"><span class="num">11</span><h2>How it is wired</h2></div>
+      <div class="part-head"><span class="num">12</span><h2>How it is wired</h2></div>
 
       <p>
         The dialog binds the <em>real</em> options classes rather than a parallel set of editable
@@ -1349,6 +1639,11 @@ the model server is running and serving this endpoint.</code></pre>
         dialog rotting: a second, hand-maintained model of the configuration drifts the moment
         somebody adds a property, and then the UI quietly stops being able to set it. Here a new
         option round-trips through the file the day it is added — only its editor has to be written.
+      </p>
+
+      <p>
+        The Git tab is the proof of that. Making a whole section saveable was one property on
+        <code>GlassCoderSettings</code>; everything else on this page was writing the editor.
       </p>
 
       <div class="scroller">
@@ -1384,7 +1679,9 @@ the model server is running and serving this endpoint.</code></pre>
             <tr>
               <td class="m">SettingsWindow</td>
               <td class="m">Wpf/Views</td>
-              <td>Seven tabs. Its code-behind is twenty lines and sets a <code>DataContext</code>.</td>
+              <td>Eight tabs — Models, Workspace, Agent, Verification, Sandbox, Git, Logging,
+                  Telemetry. Its code-behind is twenty lines and sets a
+                  <code>DataContext</code>.</td>
             </tr>
           </tbody>
         </table>
@@ -1409,9 +1706,9 @@ the model server is running and serving this endpoint.</code></pre>
       </div>
     </section>
 
-    <!-- ============ 12 ============ -->
+    <!-- ============ 13 ============ -->
     <section class="part" id="stuck">
-      <div class="part-head"><span class="num">12</span><h2>When it looks wrong</h2></div>
+      <div class="part-head"><span class="num">13</span><h2>When it looks wrong</h2></div>
 
       <div class="scroller">
         <table>
@@ -1461,6 +1758,37 @@ the model server is running and serving this endpoint.</code></pre>
             <tr>
               <td>The agent still cannot write</td>
               <td><b>Writable paths</b> is empty, and empty means nothing — not everything.</td>
+            </tr>
+            <tr>
+              <td>Only eight tools are listed</td>
+              <td>That is the whole default set. <code>bash</code> and the five git tools are
+                  opt-in, on the Sandbox and Git tabs respectively — and like every setting, they
+                  appear after a restart.</td>
+            </tr>
+            <tr>
+              <td>Git tools enabled, and the window never appears</td>
+              <td>Fixed, and worth recognising if you are running an older build: enabling git used
+                  to close a cycle in the service graph, and the app hung at 0% CPU with nothing in
+                  the log rather than throwing. Launching with
+                  <code>GlassCoder__Git__Enabled=false</code> was the confirmation.</td>
+            </tr>
+            <tr>
+              <td>A commit stages nothing</td>
+              <td>Staging is filtered through <b>writable paths</b>. With that list empty there is
+                  nothing a commit is permitted to include, and it is refused rather than
+                  committing an empty tree.</td>
+            </tr>
+            <tr>
+              <td>The dialog refuses to save a branch list</td>
+              <td>A name git would parse as an option, or an allow-list wholly contained in the
+                  deny-list — which can only mean "nothing may be pushed". Both are caught here
+                  rather than surfacing later as a puzzling tool failure.</td>
+            </tr>
+            <tr>
+              <td>The project points at <code>bin\Debug\net10.0-windows</code></td>
+              <td>Nothing was ever chosen, so the placeholder <code>"."</code> resolved against the
+                  executable's own folder. Pick a folder with <b>Browse…</b> in the workspace pane,
+                  or set <b>Repository root</b> here.</td>
             </tr>
             <tr>
               <td>You want the shipped configuration back</td>

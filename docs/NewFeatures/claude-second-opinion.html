@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Design note: a second-opinion critic in GlassCoder — chosen before a run, asked again after it, and never allowed to start one.">
+<meta name="description" content="Design note: a second-opinion critic in GlassCoder — chosen before a run, asked during and after it, recorded in the transcript, and never allowed to start one.">
 <title>GlassCoder — A second opinion</title>
 
 <style>
@@ -385,9 +385,11 @@
 
   .ui-main { display: flex; align-items: stretch; }
 
-  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  /* Pane chrome, as shipped: the surface list is dark blue, a step lighter than the header,
+     with the content area between the two panes staying light. */
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #57799B; background: #3A5A7D; color: #EDF3F9; padding: 0.15rem 0; }
   .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
-  .ui-nav div.sel { background: #CCE4F7; }
+  .ui-nav div.sel { background: #57799B; color: #FFFFFF; font-weight: 600; box-shadow: inset 3px 0 0 #9BD0F5; }
 
   .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
 
@@ -603,16 +605,16 @@
 <body>
 <header class="masthead">
   <div class="masthead-inner">
-    <div class="eyebrow">Design note · partly built</div>
+    <div class="eyebrow">Design note · built</div>
     <h1>A second opinion</h1>
     <p class="standfirst">
       Putting a different model family in front of the local worker's work: which critic judges is
-      chosen before you press Run, the finished run is offered to it afterwards, and acting on
-      what it says stays a button a human presses. Most of this is now written; the transport that
-      would make that critic Claude specifically is not.
+      chosen before you press Run, every applied change is judged during it, the finished run is
+      offered to the same critic afterwards, and acting on what it says stays a button a human
+      presses. All of that is now written, transport included. What is left is measuring it.
     </p>
     <div class="specstrip">
-      <div><b>Status</b> built, minus the transport</div>
+      <div><b>Status</b> built · off by default</div>
       <div><b>Touches</b> Models · Core.Verification · Core.Agent · Wpf</div>
       <div><b>Reuses</b> CriticPanel, rung 6</div>
       <div><b>Blocks</b> nothing — critique is off by default</div>
@@ -644,24 +646,28 @@
 
   <main>
 
-    <div class="note refuse">
+    <div class="note">
       <span class="tag">What is built, and what is not</span>
       <p>
-        <b>Built:</b> the critic role is chosen per run and recorded in the transcript; a finished
-        run is offered to that critic; a refuted run offers a retry that a human presses; an
-        unreachable critic no longer counts as an approving vote; a role declares whether it needs
-        a key, so the control that offers it can be greyed out instead of failing on press.
+        <b>Built:</b> the critic role is chosen per run and recorded in the transcript; rung 6 runs
+        inside the loop after every applied change; a finished run is offered to the same critic; a
+        refuted run offers a retry that a human presses; the review is persisted verbatim into the
+        JSONL transcript and replays with its run; an unreachable critic no longer counts as an
+        approving vote; a role declares whether it needs a key, so the control that offers it can
+        be greyed out instead of failing on press.
       </p>
       <p>
-        <b>Not built:</b> the transport. <code>ChatClientFactory</code> still builds exactly one
-        shape of client — <code>Microsoft.Extensions.AI.OpenAI</code> over an OpenAI-compatible
-        endpoint — so the second-opinion role can address a hosted gateway or a second local model
-        of a different family, but not Anthropic's own <code>/v1/messages</code>. Everything else
-        on this page is provider-agnostic and works today; §2 is where that gap sits.
+        <b>Built since:</b> the transport. A role now picks its wire format, and
+        <code>critic-remote</code> speaks Anthropic's <code>/v1/messages</code> against
+        <code>api.anthropic.com</code> out of the box, through the official SDK's
+        <code>IChatClient</code> adapter. The OpenAI-compatible shape is still one config switch
+        away. §2 describes what shipped.
       </p>
       <p>
-        <b>Also not built:</b> the <b>Ask Claude</b> button on the approval banner (§3 describes
-        what replaced it, and why the banner is still the harder problem).
+        <b>Still not built:</b> the <b>Ask Claude</b> button on the approval banner (§3 describes
+        what replaced it, and why the banner is still the harder problem), and any measurement at
+        all — nothing on this page has been run against a real critic on a real task suite. That is
+        workplan task 38, and it is now unblocked.
       </p>
     </div>
 
@@ -700,10 +706,14 @@
             <tr><td>The pre-submit checkbox</td><td class="m">Wpf/MainWindow.xaml</td>
                 <td><span class="pill pass">new</span> Ticked before Run; disabled with a reason
                     when the second critic cannot be reached.</td></tr>
-            <tr><td>Ladder integration</td><td class="m">Core/Verification/VerificationLadder.cs</td>
-                <td><span class="pill warn">wired, unused</span> Rung 6 takes a
-                    <code>CriticRole</code>, but nothing in <code>src</code> calls
-                    <code>VerifyAsync</code> yet. See §8.</td></tr>
+            <tr><td>Ladder integration</td><td class="m">Core/Agent/AgentLoop.cs</td>
+                <td><span class="pill pass">new</span> The loop climbs the ladder after every step
+                    that applied a change, and rung 6 runs whenever critique is enabled
+                    (task 36).</td></tr>
+            <tr><td>The review on the record</td><td class="m">Core/Diagnostics/ReviewRecord.cs</td>
+                <td><span class="pill pass">new</span> A third transcript record type beside steps
+                    and runs. Written by <code>RunReviewer</code>, parsed back by
+                    <code>TranscriptReader</code> (task 37).</td></tr>
             <tr><td>An arm that turns it on</td><td class="m">Lab/Ablation/StandardArms.cs</td>
                 <td><span class="pill pass">shipped</span> <code>with-critique</code>. Not in
                     <code>Default</code>.</td></tr>
@@ -712,7 +722,9 @@
                     dialog</a> stores a per-role key under DPAPI and never writes it to a config
                     file.</td></tr>
             <tr><td>A non-OpenAI transport</td><td class="m">Models/ChatClientFactory.cs</td>
-                <td><span class="pill fail">missing</span> Still the whole gap.</td></tr>
+                <td><span class="pill pass">new</span> <code>Transport</code> on the role;
+                    Anthropic's <code>/v1/messages</code> via the official SDK's
+                    <code>AsIChatClient</code> (task 37).</td></tr>
           </tbody>
         </table>
       </div>
@@ -765,17 +777,30 @@
             <tr><td>Consumed by</td><td>The next model step</td><td>A human deciding whether to retry</td></tr>
             <tr><td>Latency budget</td><td>Tight — it is in the loop</td><td>Loose — the run is already over</td></tr>
             <tr><td>Cost profile</td><td>Every change × N critics</td><td>One panel, per run</td></tr>
-            <tr><td>State</td><td><span class="pill warn">wired, unused</span></td><td><span class="pill pass">shipped</span></td></tr>
+            <tr><td>State</td><td><span class="pill pass">shipped</span></td><td><span class="pill pass">shipped</span></td></tr>
           </tbody>
         </table>
       </div>
 
       <p>
-        They are complementary, and the second turned out to be the one worth building first —
-        not because it is a better oracle, but because it is the one that has a runtime path
-        today. Nothing in <code>src</code> calls <code>VerificationLadder.VerifyAsync</code>, so
-        rung 6 is a rung nothing climbs; a review of a finished run needs only the run.
+        They are complementary, and the second turned out to be the one worth building first — not
+        because it is a better oracle, but because it was the one with a runtime path at the time:
+        a review of a finished run needs only the run, whereas rung 6 needed the loop to climb the
+        ladder at all. It does now, so both moments are live, and the interesting question moved
+        from "does this work" to "which of the two is worth its cost".
       </p>
+
+      <div class="note">
+        <span class="tag">The in-loop half has a cost profile worth respecting</span>
+        <p>
+          Rung 6 runs on <em>every applied change</em>, times N critics. Against a local critic that
+          is wall-clock; against a hosted one it is a bill, and
+          <code>RunBudget.EstimatedCostUsd</code> now adds the critic's spend at the critic role's
+          own prices, so <code>Agent:MaxCostUsd</code> can actually trip on it. The post-run review
+          is one panel per run. Nobody has yet measured whether the first buys enough recovery to
+          justify the ratio.
+        </p>
+      </div>
 
       <div class="note">
         <span class="tag">One critic, chosen once</span>
@@ -816,56 +841,77 @@
         enough.
       </p>
 
-      <div class="note refuse">
-        <span class="tag">The transport is still the gap</span>
-        <p>
-          <code>ChatClientFactory</code> builds one shape of client:
-          <code>Microsoft.Extensions.AI.OpenAI</code> over an OpenAI-compatible base endpoint. So
-          <code>critic-remote</code> can point at an OpenAI-compatible gateway, or at a second
-          local model of a different family — but not at Anthropic's own
-          <code>/v1/messages</code>, which is a different wire format. Everything else here is
-          provider-agnostic; this one thing is not, and the shipped config points at
-          <code>localhost:8004</code> rather than pretending otherwise.
-        </p>
-      </div>
+      <h3>The transport, as built</h3>
 
       <p>
         The pipeline the factory assembles — role defaults, then constrained decoding, then
-        OpenTelemetry, then transport — is worth keeping intact, so the remaining change is a
-        <em>transport swap at the innermost layer</em>, not a parallel factory.
+        OpenTelemetry, then transport — was worth keeping intact, so what landed is a
+        <em>transport swap at the innermost layer</em> rather than a parallel factory. The shipped
+        <code>critic-remote</code> now points at <code>api.anthropic.com</code> and model
+        <code>claude-opus-5</code>.
       </p>
 
       <ul class="prose">
-        <li><b>Add <code>Provider</code> to <code>ModelRoleOptions</code></b>, defaulting to
-            <code>openai</code> so every existing config keeps working untouched.</li>
-        <li><b>Branch only on the innermost client.</b> Everything outside it — telemetry, role
+        <li><b><code>Transport</code> on <code>ModelRoleOptions</code></b>, defaulting to
+            <code>OpenAI</code> — so every existing role keeps working untouched and no
+            configuration changes behaviour silently.</li>
+        <li><b>The official SDK, not a hand-rolled client.</b> The <code>Anthropic</code> package
+            ships a first-party <code>IChatClient</code> adapter (<code>AsIChatClient</code>), so
+            this is a second branch in <code>ChatClientFactory</code> rather than a wire format we
+            would own the parsing of — and it brings retries, typed errors and the versioned
+            <code>anthropic-version</code> header with it.</li>
+        <li><b>Only the innermost client branches.</b> Everything outside it — telemetry, role
             defaults, cost accounting, the deliberate <em>absence</em> of
             <code>UseFunctionInvocation()</code> — stays shared.</li>
         <li><b>Constrained decoding does not apply.</b> The critic returns JSON by prompt, not by
-            grammar, and <code>CriticPanel.Parse</code> already falls back to a text heuristic
-            when the JSON is malformed. <code>critic-remote</code> switches the stage off.</li>
-        <li><b>The critic needs very little of a transport.</b> No tools, no streaming, no
-            function invocation — one system message, one user message, text back. That is a much
-            smaller client than a worker would need.</li>
+            grammar, and <code>CriticPanel.Parse</code> already falls back to a text heuristic when
+            the JSON is malformed. <code>critic-remote</code> switches the stage off.</li>
       </ul>
 
-      <div class="note">
-        <span class="tag">Correction — cost was not as instrumented as this page claimed</span>
+      <div class="note refuse">
+        <span class="tag">Two things this transport does that the other does not</span>
         <p>
-          The earlier version of this section said a paid critic “slots into both without new
-          plumbing”, so that “a runaway critique loop trips a budget rather than a credit card”.
-          That was wrong. <code>RunBudget</code> prices a whole run from a single role's rates
-          (<code>RunBudget.cs</code>), so a critic on a different role with different prices
-          contributes nothing to <code>Agent:MaxCostUsd</code> — a budget that cannot trip.
+          <b>Its endpoint is a host root.</b> The SDK appends <code>/v1/messages</code> itself, so
+          <code>https://api.anthropic.com</code> is the whole endpoint — a <code>/v1</code> suffix
+          produces <code>/v1/v1/…</code> and a 404 that looks like an outage. The settings hint and
+          the config comments state which convention each transport uses for exactly that reason.
         </p>
         <p>
-          What is true now: <code>CritiqueResult</code> carries the panel's own
-          <code>InputTokens</code>, <code>OutputTokens</code> and
-          <code>EstimatedCostUsd</code>, computed from the critic role's prices, and the review
-          shows that figure. The budget itself is unchanged, because nothing in a run bills a
-          second role today — whoever wires rung 6 into the loop owes
-          <code>RunBudget.EstimatedCostUsd</code> a second price table, and there is a comment on
-          it saying so.
+          <b>It drops sampling parameters rather than forwarding them.</b> Current Anthropic models
+          reject <code>temperature</code> and <code>top_p</code> with a 400 instead of ignoring
+          them, and the critic panel pins temperature at 0 — the right habit for a local critic and
+          a fatal one here. The transport's role defaults null them out, so which oracle a role
+          addresses stays a config choice rather than a crash.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">A refusal is an empty answer, not an exception</span>
+        <p>
+          The API's safety classifiers can decline a request with a successful HTTP 200, a
+          <code>stop_reason</code> of "refusal" and no content at all. Through the critic panel's
+          existing parse that reads as "the critic returned nothing" — a failure to judge, a
+          non-vote, outside the quorum, which is exactly right. The fake server used in tests has a
+          refusal case so this stays true by test rather than by luck.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">Correction — cost, and what has since been fixed</span>
+        <p>
+          An earlier version of this section said a paid critic “slots into both without new
+          plumbing”, so that “a runaway critique loop trips a budget rather than a credit card”.
+          That was wrong at the time: <code>RunBudget</code> priced a whole run from a single role's
+          rates, so a critic on a different role contributed nothing to
+          <code>Agent:MaxCostUsd</code> — a budget that could not trip.
+        </p>
+        <p>
+          It can now. <code>CritiqueResult</code> carries the panel's own <code>InputTokens</code>,
+          <code>OutputTokens</code> and <code>EstimatedCostUsd</code> computed at the critic role's
+          prices, and <code>RunBudget.EstimatedCostUsd</code> adds that figure — the debt the old
+          comment named, paid when rung 6 was wired into the loop.
+          <code>MaxTotalTokens</code> deliberately still counts only worker tokens, because it
+          guards the worker's context window, which the critic never occupies.
         </p>
       </div>
     </section>
@@ -950,7 +996,7 @@
                   <span class="ui-btn">Ask Claude</span>
                 </div>
               </div>
-              <div class="ui-label">Second opinion — claude-opus-4-8 · 2.4s · 1,830 tokens</div>
+              <div class="ui-label">Second opinion — claude-opus-5 · 2.4s · 1,830 tokens</div>
               <div class="ui-sub">
                 <b>Concern: the input array is sorted in place.</b> <code>Ascending</code> returns the
                 same array it was given, so a caller holding <code>input</code> sees it reordered.
@@ -1038,10 +1084,12 @@
       </div>
 
       <p>
-        <b>Recommendation, unchanged:</b> the Messages API for rung 6, because it runs on every
-        change and needs bounded cost and latency. Consider the CLI only for the post-run review,
-        where nothing is waiting on it and depth is worth seconds — and where a single unbounded
-        call is a decision someone just made deliberately.
+        <b>Recommendation, and what was taken:</b> the Messages API, for both moments. Rung 6 runs
+        on every change and needs bounded cost and latency, which decided it there; the post-run
+        review then got the same transport for free rather than earning a second integration. The
+        CLI remains worth considering only for the review, where nothing is waiting on it and depth
+        is worth seconds — and where a single unbounded call is a decision someone just made
+        deliberately.
       </p>
 
       <div class="note refuse">
@@ -1189,11 +1237,13 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
             </tr>
             <tr>
               <td>Is the output recorded?</td>
-              <td><b>Partly, and this is the weakest part.</b> The run record carries
-                  <code>CriticRole</code> and <code>Attempt</code>, so the transcript says which
-                  oracle judged and which attempt this was. The review's <em>text</em> is not yet
-                  persisted — it lives in the view model until dismissed. It should land on
-                  <code>CodeChange</code> or beside the run record; see §8.</td>
+              <td><b>Yes, verbatim, as its own record.</b> The run record carries
+                  <code>CriticRole</code> and <code>Attempt</code>; the critique itself is a
+                  <code>ReviewRecord</code> beside it — every vote with its reason and
+                  availability, tokens, cost, duration — routed and redacted like any other record
+                  and replayed with its run. It is <em>not</em> a field on the run record, because
+                  the run record closes before the review runs: an opinion cannot ride the record
+                  of the run it judges.</td>
             </tr>
             <tr>
               <td>How much context does it send?</td>
@@ -1235,49 +1285,62 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
     <section class="part" id="work">
       <div class="part-head"><span class="num">08</span><h2>What is left</h2></div>
 
+      <p>
+        The numbers below are the workplan's, not this page's — the earlier draft invented its own
+        and they no longer matched anything.
+      </p>
+
       <div class="scroller">
         <table class="doc">
-          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>State</th></tr></thead>
+          <thead><tr><th>#</th><th>Task</th><th>State</th></tr></thead>
           <tbody>
-            <tr><td class="m">36</td><td>Quorum handling for unreachable critics, with the count
-                surfaced in <code>CritiqueResult</code>.</td><td class="m">0.5d</td>
+            <tr><td class="m">—</td><td>Quorum handling for unreachable critics, with the count
+                surfaced in <code>CritiqueResult</code>.</td>
                 <td><span class="pill pass">done</span></td></tr>
-            <tr><td class="m">37</td><td><code>Provider</code> on <code>ModelRoleOptions</code> and a
-                non-OpenAI transport at the innermost layer of the client pipeline.</td><td class="m">1d</td>
-                <td><span class="pill fail">not started</span></td></tr>
-            <tr><td class="m">38</td><td>Per-run critic role, threaded through the request, the
-                ladder, the run record and the metrics.</td><td class="m">0.5d</td>
+            <tr><td class="m">—</td><td>Per-run critic role, threaded through the request, the
+                ladder, the run record and the metrics.</td>
                 <td><span class="pill pass">done</span></td></tr>
-            <tr><td class="m">39</td><td>Post-run review, the pre-submit checkbox, and a
-                human-pressed retry carrying <code>Attempt</code>.</td><td class="m">1d</td>
+            <tr><td class="m">—</td><td>Post-run review, the pre-submit checkbox, and a
+                human-pressed retry carrying <code>Attempt</code>.</td>
                 <td><span class="pill pass">done</span></td></tr>
-            <tr><td class="m">52</td><td>Wire <code>VerificationLadder.VerifyAsync</code> into the
-                loop so rung 6 runs at all, billing the critic at its own role's prices.</td><td class="m">1d</td>
-                <td><span class="pill fail">not started</span></td></tr>
-            <tr><td class="m">53</td><td>Persist the review text beside the run record, so an
-                opinion that shaped a decision leaves a trace.</td><td class="m">0.5d</td>
-                <td><span class="pill fail">not started</span></td></tr>
-            <tr><td class="m">54</td><td>Enable critique against a second-opinion critic; add
-                <code>with-critique</code> to a named comparison and read recovery rate.</td><td class="m">0.5d</td>
-                <td><span class="pill warn">blocked on 37, 52</span></td></tr>
-            <tr><td class="m">55</td><td><b>Ask Claude</b> command on <code>ChangesViewModel</code>,
+            <tr><td class="m">36</td><td>Climb the ladder in the loop after every applied change, so
+                rung 6 runs at all — billing the critic at its own role's prices.</td>
+                <td><span class="pill pass">done</span></td></tr>
+            <tr><td class="m">37</td><td><code>Transport</code> on <code>ModelRoleOptions</code>, the
+                Anthropic client at the innermost layer, and the review persisted as a
+                <code>ReviewRecord</code>.</td>
+                <td><span class="pill pass">done</span></td></tr>
+            <tr><td class="m">38</td><td>Enable critique against the second-opinion critic across a
+                named comparison and read recovery rate and cost-per-solved-task.</td>
+                <td><span class="pill warn">open — no longer blocked</span></td></tr>
+            <tr><td class="m">—</td><td><b>Ask Claude</b> command on <code>ChangesViewModel</code>,
                 timeout suspension in <code>WpfApprovalGate</code>, opinion pane in
-                <code>ChangesView</code>.</td><td class="m">1.5d</td>
+                <code>ChangesView</code>.</td>
                 <td><span class="pill fail">not started</span></td></tr>
           </tbody>
         </table>
       </div>
 
       <div class="note">
-        <span class="tag">Task 52 is the one that matters most</span>
+        <span class="tag">Task 38 is now the one that matters</span>
         <p>
-          Rung 6 is written, tested and now takes a role — and nothing calls it. Until
-          <code>VerifyAsync</code> is wired into the loop, the in-run half of this page is a
-          capability the harness has and never uses, and the recovery-rate argument in §5 cannot be
-          run at all. That is a bigger gap than the transport, and less visible, because everything
-          around it compiles and passes.
+          Everything on this page compiles, is tested, and does nothing until
+          <code>Critique:Enabled</code> is set — so the recovery-rate argument in §5 has still never
+          been run. Rung 6 running inside the loop makes cost-per-solved-task with a hosted critic a
+          real number that nobody has measured, which is precisely the thing task 38 exists to do.
         </p>
       </div>
+
+      <p>Two smaller threads are open beside it:</p>
+
+      <ul class="prose">
+        <li><b>The review strip does not say the critique is on the record</b>, and there is no UI
+            for browsing past reviews. The transcript view reads step records only;
+            <code>ReviewRecorded</code> is on the bus for whoever adds that.</li>
+        <li><b>The in-loop critique records a verdict, not a vote-by-vote record.</b> Rung 6 puts its
+            conclusion in the step's verification summary; if task 38 makes rung 6 look interesting,
+            it deserves the same <code>ReviewRecord</code> treatment the post-run review got.</li>
+      </ul>
 
       <h3>Acceptance, in the style of the existing plan</h3>
 
@@ -1291,12 +1354,15 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
         <li><span class="pill pass">holds</span> Nothing but a human press starts a retry, and a
             retry is a new run with <code>Attempt = 2</code> against the same task.
             (<code>RunReviewerTests</code>.)</li>
-        <li><span class="pill warn">untested</span> Switching the critic role from a local endpoint
-            to a hosted one is a configuration change with no code change — true for any
-            OpenAI-compatible endpoint, unverified for anything else until task 37.</li>
-        <li><span class="pill warn">unmeasurable</span> <code>pass@1</code> is unchanged by enabling
-            critique. Still the right criterion, and it cannot be checked until task 52 makes rung
-            6 run.</li>
+        <li><span class="pill pass">holds</span> Switching a critic role between wire formats is a
+            configuration change with no code change, and a refusal from the hosted API is a
+            non-vote rather than an exception. (<code>AnthropicTransportTests</code> against a
+            socket-level fake server.)</li>
+        <li><span class="pill pass">holds</span> A review is written to the transcript and reads back
+            as the same record, with its votes, tokens and cost intact.</li>
+        <li><span class="pill warn">unmeasured</span> <code>pass@1</code> is unchanged by enabling
+            critique, and recovery rate improves. Still the right criterion; it needs a real critic
+            and a real suite run, which is task 38.</li>
       </ul>
 
       <div class="note">
@@ -1317,7 +1383,7 @@ _logger.LogWarning(ex, <span class="c">"Critic {Index} failed; counting it as a 
 </div>
 
 <footer>
-  GlassCoder design note · a second opinion · built except the transport and the rung-6 wiring ·
+  GlassCoder design note · a second opinion · built, off by default, unmeasured ·
   companion to <a href="mcp-retrieval.html">retrieval over MCP</a> and the
   <a href="../index.html">operator's guide</a>
 </footer>

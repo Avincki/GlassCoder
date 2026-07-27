@@ -830,10 +830,23 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
       <div class="part-head"><span class="num">04</span><h2>Serving the three roles</h2></div>
 
       <p>
-        GlassCoder addresses three served aliases: <code>worker</code> drives the loop,
+        GlassCoder addresses three <em>served</em> aliases: <code>worker</code> drives the loop,
         <code>drafter</code> is there for a larger model on hard sub-problems, and
         <code>critic</code> runs the refutation pass. You do not need three models to start.
       </p>
+
+      <div class="note">
+        <span class="tag">There is a fourth role, and it is not served here</span>
+        <p>
+          <code>critic-remote</code> is the second opinion the desktop app offers per run, and it
+          ships pointed at <code>api.anthropic.com</code> over the Anthropic transport rather than
+          at this box. Nothing on the Spark serves it, and nothing on this page changes because it
+          exists — it is listed here only so a fourth entry under
+          <code>Models:Roles</code> is not mistaken for an alias you forgot to serve. Point it at a
+          local endpoint instead if you would rather keep everything on your own hardware; it is a
+          transport switch and an endpoint.
+        </p>
+      </div>
 
       <h3>One Spark, one model</h3>
 

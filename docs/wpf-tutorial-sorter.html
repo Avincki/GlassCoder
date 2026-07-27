@@ -385,9 +385,11 @@
 
   .ui-main { display: flex; align-items: stretch; }
 
-  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  /* Pane chrome, as shipped: the surface list is dark blue, a step lighter than the header,
+     with the content area between the two panes staying light. */
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #57799B; background: #3A5A7D; color: #EDF3F9; padding: 0.15rem 0; }
   .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
-  .ui-nav div.sel { background: #CCE4F7; }
+  .ui-nav div.sel { background: #57799B; color: #FFFFFF; font-weight: 600; box-shadow: inset 3px 0 0 #9BD0F5; }
 
   .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
 
@@ -925,6 +927,19 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
         </div>
         <figcaption>Eight tools, empty transcript. Nothing here tells you whether writes are enabled — only an attempt to write will.</figcaption>
       </figure>
+
+      <div class="note">
+        <span class="tag">What the mockups leave out</span>
+        <p>
+          The real window carries a <b>workspace pane</b> down the right-hand side — project folder
+          on top, file tree below — which these diagrams omit for space. Check the path at the top
+          of it before you start: it is the repository the agent is rooted in, and a wrong root is
+          the commonest reason a first run goes nowhere. It also earns its place in this tutorial
+          specifically, because <code>DoubleSorter.cs</code> does not exist yet: when the agent
+          creates it, the file appears in that tree in green.
+          <a href="wpf-app.html#workspace">The reference covers it</a>.
+        </p>
+      </div>
     </section>
 
     <!-- ============ 3 ============ -->

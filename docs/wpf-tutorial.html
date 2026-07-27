@@ -385,9 +385,11 @@
 
   .ui-main { display: flex; align-items: stretch; }
 
-  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  /* Pane chrome, as shipped: the surface list is dark blue, a step lighter than the header,
+     with the content area between the two panes staying light. */
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #57799B; background: #3A5A7D; color: #EDF3F9; padding: 0.15rem 0; }
   .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
-  .ui-nav div.sel { background: #CCE4F7; }
+  .ui-nav div.sel { background: #57799B; color: #FFFFFF; font-weight: 600; box-shadow: inset 3px 0 0 #9BD0F5; }
 
   .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
 
@@ -768,6 +770,23 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
           check <code>Models:Roles:worker:Endpoint</code>, or press <b>Settings… → Test
           connection</b>, which says which of the four stages failed rather than making you
           guess (<a href="settings.html">guide</a>).
+        </p>
+        <p>
+          Thirteen tools instead of eight means the git tools are switched on. Nothing in this
+          tutorial needs them, and they change nothing it teaches.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">One thing the mockups leave out</span>
+        <p>
+          The real window has a fourth region these diagrams omit for space: the <b>workspace
+          pane</b> down the right-hand side, showing the project folder and its file tree. It is
+          worth a glance now — the path at the top of it is the repository the agent is actually
+          rooted in, which is the single most common thing to have wrong on a first launch. From
+          lesson 5 onwards it is also the quickest way to see what a run changed: touched files
+          turn green with their net line counts.
+          <a href="wpf-app.html#workspace">The reference covers it</a>.
         </p>
       </div>
     </section>
