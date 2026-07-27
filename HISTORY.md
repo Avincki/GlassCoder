@@ -9,6 +9,58 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — Dark chrome around the content
+
+**Shipped.** The surface list and the workspace pane are now dark blue
+(`#3A5A7D`), framing a content area that stays light. The header keeps
+`#1F2933` and was explicitly left alone. 348 tests green.
+
+**Decided**
+
+- **The header stays darker than the panes.** It holds the goal and the run
+  controls; being the darkest thing in the window is what keeps it reading as
+  the top of a hierarchy rather than a third panel. That is why `Chrome*` and
+  `Pane*` are two palettes and not one.
+- **The palette is `Color` resources with the brushes derived from them**, not
+  brushes alone. The tree recolours selection by overriding four `SystemColors`
+  brush keys, and those need raw `Color` values — as hardcoded hex they would
+  have gone on matching the *old* pane colour after any recolour, silently. The
+  first version of this change had exactly that bug in it.
+- **Selection is templated, not merely recoloured.** The stock `ListBoxItem`
+  and `TreeViewItem` paint the system highlight, a pale blue behind near-black
+  text, which on a dark ground is worse than no styling at all. The list gets a
+  full template (fill plus an accent bar, since a fill alone is weak at this
+  contrast); the tree gets the four brush overrides instead, because its default
+  template also owns the expander glyph and the indentation and neither needed
+  changing. Inactive selection is styled too — the tree loses focus whenever the
+  goal box is used, and a selection that vanishes then reads as a click that did
+  not register.
+- **The modified-file green and red are lightened here and left alone on the
+  Changes surface.** `#1B5E20` and `#B00020` are chosen against white. The panes
+  agree on the hue, which is the part that carries meaning; agreeing on the hex
+  would only mean one of the two is invisible.
+
+**Verified**
+
+Every candidate was built, captured and compared as a real window rather than
+reasoned about. Two traps cost a round each and are worth writing down:
+
+- Capture with **`PrintWindow(hwnd, hdc, 2)`** — flag 2 is
+  `PW_RENDERFULLCONTENT`. `CopyFromScreen` grabs whatever is on top and is
+  offset by the invisible resize border; plain `PrintWindow` without flag 2
+  captures a WPF window as solid black.
+- Call **`SetProcessDpiAwarenessContext(-4)` before any window measurement**.
+  This display runs at 125%, so a DPI-unaware process gets virtualised
+  coordinates from `GetWindowRect`, sizes the bitmap in logical units, and
+  `PrintWindow` then fills only the top-left corner. The tell is a capture that
+  is sharp and correctly framed but missing content — 1400x950 against a real
+  1550x950.
+
+Tree selection was checked by driving UI Automation to select a node and
+capturing that, rather than assuming the brush overrides took.
+
+---
+
 ## 2026-07-27 — The window that never opened
 
 **Shipped.** A fix for a startup deadlock, the desktop composition root pulled

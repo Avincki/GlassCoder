@@ -3,6 +3,57 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:GlassCoder.Wpf">
     <Application.Resources>
-         
+
+        <!--
+          The header. Deliberately the darkest thing in the window: it holds the goal and the run
+          controls, and being darker than the panes either side of the content is what keeps it
+          reading as the top of a hierarchy rather than one more panel.
+        -->
+        <SolidColorBrush x:Key="ChromeBackground" Color="#1F2933" />
+
+        <!--
+          The two panes - the surface list on the left, the workspace on the right. Clearly lighter
+          and bluer than the header, so the three read as one frame with the header on top rather
+          than as one flat slab of colour. The content surfaces inside stay light: they are
+          long-form reading, and the diff colours were chosen against white.
+
+          Declared as Colors, with the brushes derived below. The tree hands raw Colors to the
+          SystemColors brush keys it overrides for selection, and a Color it cannot take from here
+          is a Color that silently stops matching the pane the day this changes.
+        -->
+        <Color x:Key="PaneBackgroundColor">#3A5A7D</Color>
+        <Color x:Key="PaneFieldColor">#2F4A68</Color>
+
+        <!-- Not pure white. Full-contrast text on a dark ground glares over a long session;
+             this is the readable step down, with white kept for what is genuinely selected. -->
+        <Color x:Key="PaneForegroundColor">#EDF3F9</Color>
+        <Color x:Key="PaneMutedForegroundColor">#BACBDA</Color>
+
+        <Color x:Key="PaneBorderColor">#57799B</Color>
+        <Color x:Key="PaneHoverColor">#456A8F</Color>
+        <Color x:Key="PaneSelectedColor">#57799B</Color>
+        <Color x:Key="PaneAccentColor">#9BD0F5</Color>
+
+        <SolidColorBrush x:Key="PaneBackground" Color="{StaticResource PaneBackgroundColor}" />
+        <!-- Inset fields - the workspace path box, the tree - sit below the pane rather than on
+             it, which is what says "content" without needing a second border. -->
+        <SolidColorBrush x:Key="PaneField" Color="{StaticResource PaneFieldColor}" />
+        <SolidColorBrush x:Key="PaneForeground" Color="{StaticResource PaneForegroundColor}" />
+        <SolidColorBrush x:Key="PaneMutedForeground" Color="{StaticResource PaneMutedForegroundColor}" />
+        <SolidColorBrush x:Key="PaneBorder" Color="{StaticResource PaneBorderColor}" />
+        <SolidColorBrush x:Key="PaneHover" Color="{StaticResource PaneHoverColor}" />
+        <SolidColorBrush x:Key="PaneSelected" Color="{StaticResource PaneSelectedColor}" />
+        <SolidColorBrush x:Key="PaneAccent" Color="{StaticResource PaneAccentColor}" />
+
+        <!--
+          Modified-file counts, lightened for the dark pane. The Changes surface keeps #1B5E20 and
+          #B00020, which are chosen against its white background and are all but invisible here.
+          These are the same two hues carried onto a dark ground, so the panes still agree that
+          green means added and red means removed - agreeing on the hue is what matters, and
+          agreeing on the hex would only mean one of the two is unreadable.
+        -->
+        <SolidColorBrush x:Key="PaneAdded" Color="#7FD18B" />
+        <SolidColorBrush x:Key="PaneRemoved" Color="#F09C9C" />
+
     </Application.Resources>
 </Application>
