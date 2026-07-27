@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Diagnostics;
 using GlassCoder.Tools.Changes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -103,6 +104,8 @@ public sealed class RunReviewer : IRunReviewer
     private readonly ICriticPanel _critics;
     private readonly IChangeLog _changes;
     private readonly RunReviewOptions _options;
+    private readonly IStepLogger? _transcript;
+    private readonly TimeProvider _time;
     private readonly ILogger<RunReviewer> _logger;
 
     /// <summary>Creates the reviewer.</summary>
@@ -110,13 +113,17 @@ public sealed class RunReviewer : IRunReviewer
         ICriticPanel critics,
         IChangeLog changes,
         IOptions<RunReviewOptions> options,
-        ILogger<RunReviewer>? logger = null)
+        ILogger<RunReviewer>? logger = null,
+        IStepLogger? transcript = null,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         _critics = critics;
         _changes = changes;
         _options = options.Value;
+        _transcript = transcript;
+        _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RunReviewer>.Instance;
     }
 
@@ -204,6 +211,28 @@ public sealed class RunReviewer : IRunReviewer
             critique.Role,
             critique.Inconclusive ? "inconclusive" : critique.Refuted ? "REFUTED" : "accepted",
             elapsed);
+
+        // The critique goes into the transcript verbatim (workplan task 37). Until now it lived
+        // in the view model until dismissed - and an opinion that shaped a retry but left no
+        // trace was the one thing on that surface that could not be reconstructed.
+        _transcript?.LogReview(new ReviewRecord
+        {
+            RunId = result.RunId,
+            TaskId = result.TaskId,
+            Attempt = result.Attempt,
+            CriticRole = critique.Role,
+            Refuted = critique.Refuted,
+            Inconclusive = critique.Inconclusive,
+            Summary = critique.Summary,
+            Votes = [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available))],
+            RespondingVotes = critique.RespondingVotes,
+            UnavailableVotes = critique.UnavailableVotes,
+            InputTokens = critique.InputTokens,
+            OutputTokens = critique.OutputTokens,
+            EstimatedCostUsd = critique.EstimatedCostUsd,
+            DurationMs = elapsed,
+            RecordedAt = _time.GetUtcNow(),
+        });
 
         return new RunReview
         {

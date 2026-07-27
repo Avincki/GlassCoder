@@ -16,6 +16,7 @@ internal sealed class RunBudget
     private readonly ModelRoleOptions _role;
     private readonly TimeProvider _time;
     private readonly long _startTimestamp;
+    private decimal _criticSpendUsd;
 
     public RunBudget(AgentOptions limits, ModelRoleOptions role, TimeProvider time)
     {
@@ -42,19 +43,24 @@ internal sealed class RunBudget
     public TimeSpan Elapsed => _time.GetElapsedTime(_startTimestamp);
 
     /// <summary>
-    /// Spend on the run, at the driving role's prices.
+    /// Spend on the run: the worker's tokens at the driving role's prices, plus whatever the
+    /// critique rung spent, at the critic role's own prices.
     /// <para>
-    /// This prices every token at one role's rate, which is correct only while a run addresses
-    /// one role - true today, and not true the moment the critique rung runs inside the loop on a
-    /// paid critic. Charging that critic at a local worker's rate of zero would make
-    /// <see cref="AgentOptions.MaxCostUsd"/> a budget that cannot trip. Whoever wires rung 6 into
-    /// the loop owes this method a second price table; <see cref="Verification.CritiqueResult"/>
-    /// already carries the panel's own cost, computed from the critic role's prices.
+    /// The critic's spend arrives pre-priced (<see cref="Verification.CritiqueResult.EstimatedCostUsd"/>)
+    /// rather than as tokens, because pricing another role's tokens at this role's rate would
+    /// make a hosted critic read as free and <see cref="AgentOptions.MaxCostUsd"/> a budget that
+    /// cannot trip. Critic tokens are deliberately absent from the token counts:
+    /// <see cref="AgentOptions.MaxTotalTokens"/> guards the worker's context window, which the
+    /// critic never occupies.
     /// </para>
     /// </summary>
     public decimal EstimatedCostUsd =>
         ((decimal)InputTokens / 1_000_000m * _role.InputCostPerMillionTokens) +
-        ((decimal)OutputTokens / 1_000_000m * _role.OutputCostPerMillionTokens);
+        ((decimal)OutputTokens / 1_000_000m * _role.OutputCostPerMillionTokens) +
+        _criticSpendUsd;
+
+    /// <summary>Adds spend already priced at another role's rates - the critique rung's, today.</summary>
+    public void AddCriticSpend(decimal costUsd) => _criticSpendUsd += costUsd;
 
     /// <summary>The limit that has tripped, or null when the loop may continue.</summary>
     public AgentStopReason? Exhausted()

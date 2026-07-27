@@ -64,6 +64,41 @@ public sealed class StepLogger : IStepLogger
         _logger.LogInformation("glasscoder.run {@Run}", sanitised);
     }
 
+    /// <inheritdoc />
+    public void LogReview(ReviewRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        bool content = _options.LogSourceContent;
+        int max = _options.MaxLoggedTextLength;
+
+        // A critic quotes the diff it judged, so its words fall under the same redaction switch
+        // as everything else that carries source content.
+        ReviewRecord sanitised = record with
+        {
+            Summary = SecretRedactor.Sanitise(record.Summary, content, max) ?? string.Empty,
+            Votes =
+            [
+                .. record.Votes.Select(v => v with
+                {
+                    Reason = SecretRedactor.Sanitise(v.Reason, content, max) ?? string.Empty,
+                }),
+            ],
+        };
+
+        // Same routing trick again: the property name sends this to the JSONL transcript.
+        _logger.LogInformation("glasscoder.review {@Review}", sanitised);
+
+        _logger.LogInformation(
+            "Review of run {RunId} by {CriticRole}: {Outcome} · {Responding}/{Votes} voted · ${Cost:F4}",
+            record.RunId,
+            record.CriticRole,
+            record.Inconclusive ? "inconclusive" : record.Refuted ? "REFUTED" : "accepted",
+            record.RespondingVotes,
+            record.Votes.Count,
+            record.EstimatedCostUsd);
+    }
+
     private static string DescribeTools(StepRecord record) =>
         record.ToolCalls.Count == 0
             ? "no tool call"

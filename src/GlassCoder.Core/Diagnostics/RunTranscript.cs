@@ -14,11 +14,12 @@ namespace GlassCoder.Core.Diagnostics;
 public sealed class RunTranscript
 {
     /// <summary>Creates a transcript from its parts.</summary>
-    public RunTranscript(string runId, RunRecord? run, IReadOnlyList<StepRecord> steps)
+    public RunTranscript(string runId, RunRecord? run, IReadOnlyList<StepRecord> steps, ReviewRecord? review = null)
     {
         RunId = runId;
         Run = run;
         Steps = steps;
+        Review = review;
     }
 
     /// <summary>Run identifier.</summary>
@@ -29,6 +30,9 @@ public sealed class RunTranscript
 
     /// <summary>Steps in index order.</summary>
     public IReadOnlyList<StepRecord> Steps { get; }
+
+    /// <summary>The second opinion on the run, when one was asked for (workplan task 37).</summary>
+    public ReviewRecord? Review { get; }
 
     /// <summary>Task identifier, from whichever record carries it.</summary>
     public string? TaskId => Run?.TaskId ?? (Steps.Count > 0 ? Steps[0].TaskId : null);
@@ -102,6 +106,15 @@ public sealed class RunTranscript
             text.AppendLine();
             text.AppendLine(culture,
                 $"=== {Run.StopReason} after {Run.Steps} steps · {Run.TotalTokens} tokens · {Run.ElapsedMs:F0} ms · tool-call validity {ValidityRate(Run):P0} ===");
+        }
+
+        if (Review is not null)
+        {
+            string verdict = Review.Inconclusive ? "inconclusive" : Review.Refuted ? "REFUTED" : "accepted";
+            text.AppendLine();
+            text.AppendLine(culture,
+                $"=== review by {Review.CriticRole}: {verdict} · {Review.RespondingVotes}/{Review.Votes.Count} voted · ${Review.EstimatedCostUsd:F4} ===");
+            text.AppendLine(culture, $"{Review.Summary}");
         }
 
         return text.ToString();

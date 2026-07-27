@@ -47,6 +47,7 @@ public static class TranscriptReader
 
         Dictionary<string, List<StepRecord>> steps = new(StringComparer.Ordinal);
         Dictionary<string, RunRecord> runs = new(StringComparer.Ordinal);
+        Dictionary<string, ReviewRecord> reviews = new(StringComparer.Ordinal);
         List<string> order = [];
 
         foreach (string line in lines)
@@ -78,6 +79,11 @@ public static class TranscriptReader
                 Track(order, steps, run.RunId);
                 runs[run.RunId] = run;
             }
+            else if (TryRead(root, SerilogBootstrap.ReviewPropertyName, out ReviewRecord? review) && review is not null)
+            {
+                Track(order, steps, review.RunId);
+                reviews[review.RunId] = review;
+            }
         }
 
         return
@@ -85,7 +91,8 @@ public static class TranscriptReader
             .. order.Select(runId => new RunTranscript(
                 runId,
                 runs.GetValueOrDefault(runId),
-                [.. steps[runId].OrderBy(s => s.StepIndex)])),
+                [.. steps[runId].OrderBy(s => s.StepIndex)],
+                reviews.GetValueOrDefault(runId))),
         ];
     }
 

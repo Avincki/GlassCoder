@@ -1,9 +1,12 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using GlassCoder.Core.Context;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Metrics;
 using GlassCoder.Core.Provenance;
+using GlassCoder.Core.Verification;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Changes;
@@ -34,6 +37,9 @@ public sealed class AgentLoop : IAgentLoop
     private readonly IMetricsRecorder _metrics;
     private readonly ITodoList _todos;
     private readonly IProvenanceStamper? _provenance;
+    private readonly IVerificationLadder? _verifier;
+    private readonly IChangeLog? _changes;
+    private readonly VerificationLadderOptions _verification;
     private readonly AgentOptions _defaults;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentLoop> _logger;
@@ -49,7 +55,10 @@ public sealed class AgentLoop : IAgentLoop
         ITodoList? todos = null,
         IProvenanceStamper? provenance = null,
         TimeProvider? timeProvider = null,
-        ILogger<AgentLoop>? logger = null)
+        ILogger<AgentLoop>? logger = null,
+        IVerificationLadder? verifier = null,
+        IChangeLog? changes = null,
+        IOptions<VerificationLadderOptions>? verificationOptions = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -60,6 +69,9 @@ public sealed class AgentLoop : IAgentLoop
         _metrics = metrics;
         _todos = todos ?? new TodoList();
         _provenance = provenance;
+        _verifier = verifier;
+        _changes = changes;
+        _verification = verificationOptions?.Value ?? new VerificationLadderOptions();
         _defaults = options.Value;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
@@ -104,6 +116,10 @@ public sealed class AgentLoop : IAgentLoop
         AgentStopReason stopReason;
         string? finalText = null;
         string? error = null;
+
+        // Cursor into this run's slice of the change log, so each step verifies only the
+        // changes it applied itself (workplan task 36).
+        int changesSeen = 0;
 
         while (true)
         {
@@ -171,8 +187,44 @@ public sealed class AgentLoop : IAgentLoop
                 ChatRole.Tool,
                 [.. invocations.Select(i => (AIContent)new FunctionResultContent(i.CallId, i.Result))]));
 
+            // Verify: when the step applied changes, climb the ladder before the next thought,
+            // so the model learns immediately whether its change survives the cheap oracles
+            // (CLAUDE.md §8, workplan task 36).
+            StepVerification? verification = null;
+            if (_verifier is not null && _changes is not null && _verification.VerifyAppliedChanges)
+            {
+                IReadOnlyList<CodeChange> runChanges =
+                    [.. _changes.All().Where(c => string.Equals(c.RunId, request.RunId, StringComparison.Ordinal))];
+                IReadOnlyList<CodeChange> applied =
+                    [.. runChanges.Skip(changesSeen).Where(c => c.Status == ChangeStatus.Applied)];
+                changesSeen = runChanges.Count;
+
+                if (applied.Count > 0)
+                {
+                    verification = await VerifyChangesAsync(request, applied, budget, metrics, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            if (verification is not null)
+            {
+                // The report goes back as an observation, not a verdict the loop acts on
+                // itself: the failure policy is that the model corrects, the same way it
+                // corrects after a failing tool call. Rejected-at-the-gate is the write
+                // tools' job; reverting applied work is a human's.
+                messages.Add(new ChatMessage(ChatRole.User, verification.Message));
+            }
+
             budget.CountStep();
-            LogStep(step with { Prompt = prompt }, messages, response, invocations, modelLatency, "continued", null);
+            LogStep(
+                step with { Prompt = prompt },
+                messages,
+                response,
+                invocations,
+                modelLatency,
+                "continued",
+                null,
+                verification?.Record);
         }
 
         AgentRunResult result = new()
@@ -271,6 +323,115 @@ public sealed class AgentLoop : IAgentLoop
     }
 
     /// <summary>
+    /// Climbs the verification ladder over the changes one step applied (workplan task 36).
+    /// <para>
+    /// The failure policy is correction, not rejection: the report goes back to the model as an
+    /// observation and the loop carries on. The write tools already refuse changes their
+    /// in-memory check can prove broken; what the ladder catches here - a red test, a break in
+    /// another project - is applied work, and silently reverting applied work would leave the
+    /// model reasoning about a working tree that no longer matches what it was told.
+    /// </para>
+    /// </summary>
+    private async Task<StepVerification?> VerifyChangesAsync(
+        AgentRunRequest request,
+        IReadOnlyList<CodeChange> applied,
+        RunBudget budget,
+        RunMetricsCollector metrics,
+        CancellationToken cancellationToken)
+    {
+        // A single-file step gets the syntax rung on exactly what changed; a multi-file step
+        // starts at the compile rung, which covers every file at once.
+        CodeChange? single = applied.Count == 1 ? applied[0] : null;
+
+        VerificationReport report;
+        try
+        {
+            report = await _verifier!.VerifyAsync(
+                new VerificationRequest(
+                    FilePath: single?.Path,
+                    FileText: single?.AfterText,
+                    TestFilter: _verification.TestFilter,
+                    RunFullSuite: _verification.RunFullSuite,
+                    Goal: request.Goal,
+                    ChangeDescription: DescribeChanges(applied),
+                    CriticRole: request.CriticRole),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The harness failing to verify is not the model failing to code. Log it and
+            // continue unverified rather than handing the model an error it cannot act on.
+            _logger.LogWarning(ex, "Verification could not run after step; continuing unverified");
+            return null;
+        }
+
+        if (report.Results.All(r => r.Skipped))
+        {
+            // Nothing could judge this change - not a C# file, no sandbox. Silence is more
+            // honest than a hollow "verified".
+            return null;
+        }
+
+        if (report.Critique is { } critique)
+        {
+            // Rung 6 spends the critic role's tokens; bill them at the critic role's prices.
+            budget.AddCriticSpend(critique.EstimatedCostUsd);
+        }
+
+        metrics.ObserveVerification(report);
+
+        foreach (CodeChange change in applied)
+        {
+            // Tie the outcome to the change that produced it (CLAUDE.md §10).
+            _changes!.Update(change.Id, change.Status, verificationSummary: report.Summary);
+        }
+
+        _logger.LogInformation(
+            "Verification after step: {Outcome} at rung {Rung} in {Duration:F0} ms",
+            report.Passed ? "passed" : "FAILED",
+            report.FailedRung ?? report.HighestRungReached,
+            report.DurationMs);
+
+        string message = report.Passed
+            ? $"Automatic verification of your change passed (reached {report.HighestRungReached}).\n{report.Summary}"
+            : $"Automatic verification of your change FAILED at {report.FailedRung}.\n{report.Summary}\n" +
+              "The change is written but does not verify. Fix the reported problems before continuing.";
+
+        return new StepVerification(
+            new StepVerificationRecord(
+                report.Passed,
+                report.HighestRungReached.ToString(),
+                report.FailedRung?.ToString(),
+                report.DurationMs,
+                report.Summary,
+                report.Critique?.EstimatedCostUsd ?? 0m),
+            message);
+    }
+
+    /// <summary>Renders the step's edits as diffs for the critique rung - "it edited Pager.cs" is not refutable.</summary>
+    private string DescribeChanges(IReadOnlyList<CodeChange> applied)
+    {
+        StringBuilder text = new();
+        foreach (CodeChange change in applied)
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"--- {change.Path}");
+            foreach (DiffLine line in change.Diff())
+            {
+                text.AppendLine(line.ToString());
+            }
+
+            if (text.Length >= _verification.MaxChangeCharacters)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture,
+                    $"[truncated at {_verification.MaxChangeCharacters} characters]");
+                break;
+            }
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>
     /// Asks the pipeline what constrained decoding will actually attach to a request, so the
     /// transcript records the arm's decoding settings rather than the caller's intent.
     /// </summary>
@@ -288,7 +449,8 @@ public sealed class AgentLoop : IAgentLoop
         IReadOnlyList<ToolInvocation> invocations,
         TimeSpan modelLatency,
         string outcome,
-        string? error) =>
+        string? error,
+        StepVerificationRecord? verification = null) =>
         _stepLogger.LogStep(new StepRecord
         {
             RunId = step.Request.RunId,
@@ -311,6 +473,7 @@ public sealed class AgentLoop : IAgentLoop
             ContextCompacted = step.Context?.Compacted ?? false,
             Outcome = outcome,
             Error = error,
+            Verification = verification,
             Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
 
@@ -360,6 +523,9 @@ public sealed class AgentLoop : IAgentLoop
                 }
         }
     }
+
+    /// <summary>One climb's outcome: what to log, and what to tell the model.</summary>
+    private sealed record StepVerification(StepVerificationRecord Record, string Message);
 
     /// <summary>Per-step scratch state, kept out of the loop body so it stays readable.</summary>
     private sealed record StepContext(

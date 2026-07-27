@@ -1,0 +1,404 @@
+using System.ComponentModel;
+using GlassCoder.Core.Agent;
+using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Verification;
+using GlassCoder.Models.Configuration;
+using GlassCoder.TestSupport;
+using GlassCoder.Tools;
+using GlassCoder.Tools.Build;
+using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Execution;
+using GlassCoder.Tools.FileSystem;
+using GlassCoder.Tools.Guardrails;
+using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Verification;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
+
+namespace GlassCoder.Core.Tests;
+
+/// <summary>
+/// The loop climbs the verification ladder after every step that applied a change (workplan
+/// task 36). The properties that matter: a read-only step never climbs, a failed climb reaches
+/// the model as an observation rather than killing the run, the outcome is tied to the change
+/// that produced it, and the critique rung's spend is billed at the critic's own prices.
+/// </summary>
+public sealed class AgentLoopVerificationTests
+{
+    [Fact]
+    public async Task A_step_that_applies_a_change_climbs_the_ladder()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate", new Dictionary<string, object?> { ["content"] = "public class C { }" }),
+            FakeChatClient.Text("done"));
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        VerificationRequest request = harness.Ladder.Requests.ShouldHaveSingleItem();
+        request.FilePath.ShouldBe("src/C.cs");
+        request.FileText.ShouldBe("public class C { }");
+        request.Goal.ShouldBe("Do the thing.");
+        request.CriticRole.ShouldBe("critic-remote");
+        request.ChangeDescription.ShouldNotBeNull();
+        request.ChangeDescription.ShouldContain("src/C.cs");
+
+        // The clean bill is an observation too - otherwise the model spends its next step
+        // calling build to learn what the harness already knows.
+        harness.Client.Requests[1].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("passed"));
+    }
+
+    [Fact]
+    public async Task A_read_only_step_never_climbs()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("echo"), FakeChatClient.Text("done"));
+
+        await harness.RunAsync();
+
+        harness.Ladder.Requests.ShouldBeEmpty();
+        harness.StepLogger.Steps[0].Verification.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_failed_climb_is_fed_back_to_the_model_and_the_run_carries_on()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        // The failure policy is correction, not abortion: the model gets the summary and the
+        // loop keeps going.
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        harness.Client.Requests[1].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null &&
+                m.Text.Contains("FAILED at Compile") && m.Text.Contains("CS0103"));
+    }
+
+    [Fact]
+    public async Task The_outcome_is_tied_to_the_change_that_produced_it()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        await harness.RunAsync();
+
+        CodeChange change = harness.Changes.All().ShouldHaveSingleItem();
+        change.Status.ShouldBe(ChangeStatus.Applied);
+        change.VerificationSummary.ShouldNotBeNull();
+        change.VerificationSummary.ShouldContain("CS0103");
+    }
+
+    [Fact]
+    public async Task The_climb_lands_in_the_step_record()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        await harness.RunAsync();
+
+        StepVerificationRecord verification = harness.StepLogger.Steps[0].Verification.ShouldNotBeNull();
+        verification.Passed.ShouldBeFalse();
+        verification.FailedRung.ShouldBe(nameof(VerificationRung.Compile));
+        verification.Summary.ShouldContain("CS0103");
+        harness.StepLogger.Steps[1].Verification.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Critique_spend_is_billed_at_the_critic_roles_prices()
+    {
+        // The worker role prices at zero here, so any cost on the result is the critic's -
+        // the second price table RunBudget owed whoever wired rung 6 into the loop.
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(CritiquedReport(0.42m));
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.EstimatedCostUsd.ShouldBe(0.42m);
+        harness.StepLogger.Steps[0].Verification.ShouldNotBeNull().CritiqueCostUsd.ShouldBe(0.42m);
+    }
+
+    [Fact]
+    public async Task Ladder_outcomes_move_the_recovery_metrics()
+    {
+        // Break, then fix: the round trip is exactly what recovery rate counts, and before
+        // task 36 it could only be counted when the model called build itself.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.ToolCall("mutate", callId: "call-2"),
+            FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(FailedReport());
+        harness.Ladder.Enqueue(PassedReport());
+
+        await harness.RunAsync();
+
+        Metrics.RunMetrics metrics = harness.Metrics.Last.ShouldNotBeNull();
+        metrics.Builds.ShouldBe(2);
+        metrics.BuildFailures.ShouldBe(1);
+        metrics.RecoveryOpportunities.ShouldBe(1);
+        metrics.Recoveries.ShouldBe(1);
+        metrics.TestRuns.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_climb_where_every_rung_skipped_says_nothing()
+    {
+        // No sandbox and not a C# file: silence is more honest than a hollow "verified".
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(SkippedReport());
+
+        await harness.RunAsync();
+
+        harness.Ladder.Requests.ShouldHaveSingleItem();
+        harness.StepLogger.Steps[0].Verification.ShouldBeNull();
+        harness.Client.Requests[1].Messages.Count(m => m.Role == ChatRole.User).ShouldBe(1, "only the goal");
+    }
+
+    [Fact]
+    public async Task Verification_can_be_switched_off()
+    {
+        Harness harness = new(
+            new VerificationLadderOptions { VerifyAppliedChanges = false },
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"));
+
+        await harness.RunAsync();
+
+        harness.Ladder.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_broken_ladder_does_not_break_the_run()
+    {
+        // The harness failing to verify is not the model failing to code.
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"))
+        {
+            LadderOverride = new ThrowingLadder(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        harness.StepLogger.Steps[0].Verification.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_real_edit_climbs_the_real_ladder()
+    {
+        // End to end with the real pieces: EditFileTool applies a change the in-memory check
+        // accepts, and the real ladder then catches what only a full build can see.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "C:\\repo\\src\\Pager.cs(1,1): error CS0103: broken [C:\\repo\\src\\Proj.csproj]");
+
+        PathGuard guard = workspace.Guard("src");
+        IOptions<VerificationOptions> verification = Options.Create(new VerificationOptions());
+        IOptions<SandboxOptions> sandbox = Options.Create(new SandboxOptions());
+        RoslynCodeAnalyzer analyzer = new(guard, verification);
+        DiagnosticSummarizer summarizer = new(verification);
+        ChangeLog changes = new();
+
+        FakeChatClient client = new(
+            FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
+            {
+                ["path"] = "src/Pager.cs",
+                ["oldText"] = "int X => 1",
+                ["newText"] = "int X => 2",
+            }),
+            FakeChatClient.Text("done"));
+
+        VerificationLadder ladder = new(
+            analyzer,
+            summarizer,
+            new BuildTool(executor, guard, summarizer, sandbox),
+            new RunTestsTool(executor, guard, sandbox),
+            new CriticPanel(
+                new FakeChatClientFactory(client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
+                Options.Create(new CritiqueOptions())),
+            Options.Create(new VerificationLadderOptions()));
+
+        RecordingStepLogger stepLogger = new();
+        RecordingMetricsRecorder metrics = new();
+        AgentLoop loop = new(
+            new FakeChatClientFactory(client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
+            new ToolRegistry([new EditFileTool(guard, analyzer, summarizer, verification, changes)]),
+            stepLogger,
+            TestContextAssembler.Create(),
+            metrics,
+            Options.Create(new AgentOptions()),
+            verifier: ladder,
+            changes: changes,
+            verificationOptions: Options.Create(new VerificationLadderOptions()));
+
+        AgentRunResult result = await loop.RunAsync(
+            new AgentRunRequest { TaskId = "task-1", Goal = "Bump X." });
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+
+        // The climb happened: syntax in memory, then the scripted build, and no test after
+        // the red build.
+        executor.Commands.ShouldHaveSingleItem().Arguments[0].ShouldBe("build");
+        StepVerificationRecord climbed = stepLogger.Steps[0].Verification.ShouldNotBeNull();
+        climbed.Passed.ShouldBeFalse();
+        climbed.FailedRung.ShouldBe(nameof(VerificationRung.Compile));
+
+        // The model heard about it, the change log carries it, and the metrics counted it.
+        client.Requests[1].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("CS0103"));
+        changes.All().ShouldHaveSingleItem().VerificationSummary.ShouldNotBeNull();
+        Metrics.RunMetrics run = metrics.Last.ShouldNotBeNull();
+        run.Edits.ShouldBe(1);
+        run.Builds.ShouldBe(1);
+        run.BuildFailures.ShouldBe(1);
+        run.EditsWithCompileErrors.ShouldBe(1);
+        run.RecoveryOpportunities.ShouldBe(1);
+    }
+
+    private static VerificationReport PassedReport() => new(
+        true,
+        VerificationRung.UnitTests,
+        null,
+        [
+            new RungResult(VerificationRung.Syntax, true, "Syntax ok.", 1),
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(VerificationRung.UnitTests, true, "3 tests passed.", 1),
+        ],
+        3);
+
+    private static VerificationReport FailedReport() => new(
+        false,
+        VerificationRung.Compile,
+        VerificationRung.Compile,
+        [
+            new RungResult(VerificationRung.Syntax, true, "Syntax ok.", 1),
+            new RungResult(VerificationRung.Compile, false, "error CS0103: broken", 1),
+        ],
+        2);
+
+    private static VerificationReport CritiquedReport(decimal costUsd) => new(
+        true,
+        VerificationRung.Critique,
+        null,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(VerificationRung.Critique, true, "3/3 critics accepted the change.", 1)
+            {
+                Critique = new CritiqueResult(false, [], 0, "accepted") { EstimatedCostUsd = costUsd },
+            },
+        ],
+        2);
+
+    private static VerificationReport SkippedReport() => new(
+        true,
+        VerificationRung.None,
+        null,
+        [
+            new RungResult(VerificationRung.Syntax, true, "Not a C# file.", 0, Skipped: true),
+            new RungResult(VerificationRung.Compile, true, "No sandbox.", 0, Skipped: true),
+            new RungResult(VerificationRung.UnitTests, true, "No sandbox.", 0, Skipped: true),
+        ],
+        0);
+
+    /// <summary>A ladder that replays scripted reports and records what it was asked to verify.</summary>
+    private sealed class RecordingLadder : IVerificationLadder
+    {
+        private readonly Queue<VerificationReport> _scripted = new();
+
+        public List<VerificationRequest> Requests { get; } = [];
+
+        public void Enqueue(VerificationReport report) => _scripted.Enqueue(report);
+
+        public Task<VerificationReport> VerifyAsync(
+            VerificationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request);
+            return Task.FromResult(_scripted.Count > 0 ? _scripted.Dequeue() : PassedReport());
+        }
+    }
+
+    private sealed class ThrowingLadder : IVerificationLadder
+    {
+        public Task<VerificationReport> VerifyAsync(
+            VerificationRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("the sandbox exploded");
+    }
+
+    /// <summary>Wires the loop over a scripted client, a change-writing tool and a scripted ladder.</summary>
+    private sealed class Harness
+    {
+        private readonly VerificationLadderOptions _options;
+
+        public Harness(params ChatResponse[] responses)
+            : this(new VerificationLadderOptions(), responses)
+        {
+        }
+
+        public Harness(VerificationLadderOptions options, params ChatResponse[] responses)
+        {
+            _options = options;
+            Client = new FakeChatClient(responses);
+        }
+
+        public FakeChatClient Client { get; }
+
+        public RecordingLadder Ladder { get; } = new();
+
+        public IVerificationLadder? LadderOverride { get; init; }
+
+        public ChangeLog Changes { get; } = new();
+
+        public RecordingStepLogger StepLogger { get; } = new();
+
+        public RecordingMetricsRecorder Metrics { get; } = new();
+
+        public Task<AgentRunResult> RunAsync(CancellationToken cancellationToken = default)
+        {
+            AgentLoop loop = new(
+                new FakeChatClientFactory(Client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
+                new ToolRegistry([new MutatingTools(Changes)]),
+                StepLogger,
+                TestContextAssembler.Create(),
+                Metrics,
+                Options.Create(new AgentOptions()),
+                verifier: LadderOverride ?? Ladder,
+                changes: Changes,
+                verificationOptions: Options.Create(_options));
+
+            return loop.RunAsync(
+                new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing.", CriticRole = "critic-remote" },
+                cancellationToken);
+        }
+    }
+
+    private sealed class MutatingTools : IToolSet
+    {
+        private readonly IChangeLog _changes;
+
+        public MutatingTools(IChangeLog changes) => _changes = changes;
+
+        [GlassCoderTool("mutate", Order = 1)]
+        [Description("Applies a change to the workspace, for tests.")]
+        public ToolObservation<MutateData> Mutate(
+            [Description("New content for the file.")] string content = "public class C { }")
+        {
+            CodeChange change = _changes.Propose("src/C.cs", "mutate", string.Empty, content);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            return Observation.Ok("mutate", new MutateData(change.Id), "applied");
+        }
+
+        [GlassCoderTool("echo", Order = 2)]
+        [Description("Echoes text back, for tests.")]
+        public ToolObservation<MutateData> Echo([Description("Text to echo back.")] string text = "hello") =>
+            Observation.Ok("echo", new MutateData(text), "echoed");
+    }
+
+    public sealed record MutateData([property: Description("Identifier or echoed text.")] string Value);
+}

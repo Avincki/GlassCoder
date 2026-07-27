@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Registry;
 
 namespace GlassCoder.Core.Metrics;
@@ -66,6 +67,7 @@ public sealed class RunMetricsCollector
         switch (invocation.ToolName)
         {
             case "edit_file":
+            case "create_file":
                 if (invocation.Status == ToolCallStatus.Succeeded)
                 {
                     Edits++;
@@ -92,6 +94,56 @@ public sealed class RunMetricsCollector
     {
         DiagnosticsReported += reported;
         DiagnosticsShown += shown;
+    }
+
+    /// <summary>
+    /// Folds a verification-ladder climb into the same counters the build and test tools feed
+    /// (workplan task 36). A run whose oracles the harness drove must measure like one whose
+    /// oracles the model called itself, or recovery rate would depend on who pressed the button.
+    /// </summary>
+    public void ObserveVerification(VerificationReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        foreach (RungResult rung in report.Results)
+        {
+            if (rung.Skipped)
+            {
+                continue;
+            }
+
+            switch (rung.Rung)
+            {
+                case VerificationRung.Syntax when !rung.Passed:
+                    // A syntax error in the working tree is a broken state even though no
+                    // build ran to prove it - the compile rung it blocked would only agree.
+                    if (Edits > 0)
+                    {
+                        EditsWithCompileErrors++;
+                    }
+
+                    if (!_broken)
+                    {
+                        _broken = true;
+                        RecoveryOpportunities++;
+                        _editsSinceBreak = 0;
+                    }
+
+                    break;
+
+                case VerificationRung.Compile:
+                    ObserveBuildOutcome(rung.Passed);
+                    break;
+
+                case VerificationRung.UnitTests:
+                case VerificationRung.FullSuite:
+                    ObserveTestOutcome(rung.Passed);
+                    break;
+
+                default:
+                    break;
+            }
+        }
     }
 
     /// <summary>Builds the record for a finished run.</summary>
@@ -134,11 +186,14 @@ public sealed class RunMetricsCollector
 
     private void ObserveBuild(JsonElement? data)
     {
-        Builds++;
-
-        bool succeeded = Flag(data, "succeeded") ?? false;
         int errors = Count(data, "totalErrors");
         ObserveDiagnostics(errors, Math.Min(errors, CountedEntries(data)));
+        ObserveBuildOutcome(Flag(data, "succeeded") ?? false);
+    }
+
+    private void ObserveBuildOutcome(bool succeeded)
+    {
+        Builds++;
 
         if (succeeded)
         {
@@ -169,11 +224,13 @@ public sealed class RunMetricsCollector
         }
     }
 
-    private void ObserveTests(JsonElement? data)
+    private void ObserveTests(JsonElement? data) => ObserveTestOutcome(Flag(data, "ok") ?? false);
+
+    private void ObserveTestOutcome(bool ok)
     {
         TestRuns++;
 
-        if (Flag(data, "ok") ?? false)
+        if (ok)
         {
             if (_broken)
             {

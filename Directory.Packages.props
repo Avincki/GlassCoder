@@ -20,6 +20,9 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="OpenAI" Version="2.12.0" />
+    <!-- The official Anthropic SDK, for roles whose wire format is /v1/messages rather than
+         /v1/chat/completions (workplan task 37). -->
+    <PackageVersion Include="Anthropic" Version="12.39.0" />
   </ItemGroup>
 
   <ItemGroup Label="DI / configuration / hosting">

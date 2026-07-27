@@ -169,7 +169,15 @@
                       <TextBox Text="{Binding Options.Endpoint, UpdateSourceTrigger=PropertyChanged}" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="The OpenAI-compatible base URL, for example http://localhost:8001/v1. Which server answers it - local or hosted - is configuration, never architecture." />
+                               Text="The base URL. OpenAI transport: ends in /v1, for example http://localhost:8001/v1. Anthropic transport: the host root, for example https://api.anthropic.com. Which server answers it - local or hosted - is configuration, never architecture." />
+                    <DockPanel Style="{StaticResource Field}">
+                      <TextBlock Style="{StaticResource Label}" Text="Transport" />
+                      <ComboBox ItemsSource="{Binding DataContext.Transports, RelativeSource={RelativeSource AncestorType=Window}}"
+                                SelectedItem="{Binding Options.Transport}" />
+                    </DockPanel>
+                    <TextBlock Style="{StaticResource Hint}"
+                               Text="The wire format the endpoint speaks: OpenAI is /v1/chat/completions, Anthropic is /v1/messages. Anthropic-transport roles never send sampling parameters - current Anthropic models reject them." />
+
                     <DockPanel Style="{StaticResource Field}">
                       <TextBlock Style="{StaticResource Label}" Text="Served model alias" />
                       <TextBox Text="{Binding Options.ModelAlias}" />
@@ -565,6 +573,19 @@
                   <TextBlock Style="{StaticResource Label}" Text="Extra reference directories" />
                   <TextBox Style="{StaticResource Multiline}" Text="{Binding ExtraReferenceDirectories}" />
                 </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Verify after write" />
+                  <CheckBox Content="Climb the ladder after every step that applies a change"
+                            IsChecked="{Binding Settings.VerificationLadder.VerifyAppliedChanges}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Syntax, compile and tests run automatically after each applied change, and the first failure goes back to the model. A rung that cannot run is skipped, never failed." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Test filter (rung 4)" />
+                  <TextBox Text="{Binding Settings.VerificationLadder.TestFilter}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Passed to dotnet test --filter so the per-step test rung stays cheaper than the full suite. Empty runs every test." />
                 <DockPanel Style="{StaticResource Field}">
                   <TextBlock Style="{StaticResource Label}" Text="Analyzers (rung 3)" />
                   <CheckBox Content="Run analyzers - they report, they never gate"

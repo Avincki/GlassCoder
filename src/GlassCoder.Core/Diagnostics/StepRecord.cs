@@ -29,6 +29,21 @@ public sealed record ToolCallRecord(
     string? Result,
     string? Error);
 
+/// <summary>What one automatic verification climb concluded (workplan task 36).</summary>
+/// <param name="Passed">Whether every gating rung that ran passed.</param>
+/// <param name="HighestRungReached">The last rung that ran.</param>
+/// <param name="FailedRung">The rung that stopped the climb, when one did.</param>
+/// <param name="DurationMs">Wall-clock for the whole climb.</param>
+/// <param name="Summary">What the model was told.</param>
+/// <param name="CritiqueCostUsd">What rung 6 spent, at the critic role's own prices.</param>
+public sealed record StepVerificationRecord(
+    bool Passed,
+    string HighestRungReached,
+    string? FailedRung,
+    double DurationMs,
+    string Summary,
+    decimal CritiqueCostUsd);
+
 /// <summary>
 /// The per-step log schema (CLAUDE.md §9, workplan task 5).
 /// <para>
@@ -95,6 +110,12 @@ public sealed record StepRecord
 
     /// <summary>What the loop did next: continued, completed, or the limit that stopped it.</summary>
     public required string Outcome { get; init; }
+
+    /// <summary>
+    /// What automatic verification concluded about this step's changes, when the step applied
+    /// any (workplan task 36). Null when nothing was verified.
+    /// </summary>
+    public StepVerificationRecord? Verification { get; init; }
 
     /// <summary>Error detail when the step failed.</summary>
     public string? Error { get; init; }

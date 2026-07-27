@@ -11,4 +11,7 @@ public interface IStepLogger
 
     /// <summary>Records the run that those iterations belonged to.</summary>
     void LogRun(RunRecord record);
+
+    /// <summary>Records the second opinion on a finished run (workplan task 37).</summary>
+    void LogReview(ReviewRecord record);
 }

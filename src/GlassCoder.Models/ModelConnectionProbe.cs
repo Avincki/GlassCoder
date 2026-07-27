@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Anthropic;
+using Anthropic.Exceptions;
 using GlassCoder.Models.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -116,7 +118,11 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         CancellationToken cancellationToken)
     {
         long started = Stopwatch.GetTimestamp();
-        Uri url = new(settings.Endpoint.TrimEnd('/') + "/models");
+
+        // The two transports keep their model lists in different places: /models next to an
+        // OpenAI endpoint that already ends in /v1, /v1/models under an Anthropic host root.
+        Uri url = new(settings.Endpoint.TrimEnd('/') +
+            (settings.Transport == ModelTransport.Anthropic ? "/v1/models" : "/models"));
 
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(timeout);
@@ -124,7 +130,16 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         try
         {
             using HttpRequestMessage request = new(HttpMethod.Get, url);
-            if (!string.IsNullOrEmpty(apiKey))
+            if (settings.Transport == ModelTransport.Anthropic)
+            {
+                // Anthropic-style auth is a header pair, not a bearer token.
+                request.Headers.Add("anthropic-version", "2023-06-01");
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    request.Headers.Add("x-api-key", apiKey);
+                }
+            }
+            else if (!string.IsNullOrEmpty(apiKey))
             {
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             }
@@ -208,19 +223,10 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         limit.CancelAfter(timeout);
 
-        OpenAIClientOptions clientOptions = new()
-        {
-            Endpoint = new Uri(settings.Endpoint),
-            NetworkTimeout = timeout,
-            UserAgentApplicationId = "GlassCoder",
-        };
-
         // Deliberately the bare transport: no constrained decoding, no telemetry stage. This
         // step answers "can this endpoint, key and alias produce a completion", and a server
         // that rejects a guided-decoding property is a different problem with a different fix.
-        using IChatClient client = new OpenAIClient(new ApiKeyCredential(apiKey ?? "local-no-auth"), clientOptions)
-            .GetChatClient(settings.ModelAlias)
-            .AsIChatClient();
+        using IChatClient client = BuildBareClient(settings, apiKey, timeout);
 
         try
         {
@@ -230,7 +236,9 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
                 {
                     ModelId = settings.ModelAlias,
                     MaxOutputTokens = 16,
-                    Temperature = settings.Temperature,
+                    // Current Anthropic models reject sampling parameters with a 400, so the
+                    // probe would fail on exactly the thing it is not checking.
+                    Temperature = settings.Transport == ModelTransport.Anthropic ? null : settings.Temperature,
                 },
                 limit.Token).ConfigureAwait(false);
 
@@ -265,10 +273,45 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
                 $"The server refused the completion ({ex.Status}): {Clip(ex.Message, 200)}",
                 started);
         }
+        catch (AnthropicApiException ex)
+        {
+            return Step(
+                "Completion",
+                ConnectionCheckOutcome.Failed,
+                $"The server refused the completion: {Clip(ex.Message, 200)}",
+                started);
+        }
         catch (HttpRequestException ex)
         {
             return Step("Completion", ConnectionCheckOutcome.Failed, $"The call failed: {ex.Message}", started);
         }
+    }
+
+    /// <summary>The unadorned client for the completion step, in whichever shape the role speaks.</summary>
+    private static IChatClient BuildBareClient(ModelRoleOptions settings, string? apiKey, TimeSpan timeout)
+    {
+        if (settings.Transport == ModelTransport.Anthropic)
+        {
+            AnthropicClient anthropic = new()
+            {
+                ApiKey = apiKey ?? "local-no-auth",
+                BaseUrl = settings.Endpoint,
+                Timeout = timeout,
+            };
+
+            return anthropic.AsIChatClient(settings.ModelAlias, defaultMaxOutputTokens: 16);
+        }
+
+        OpenAIClientOptions clientOptions = new()
+        {
+            Endpoint = new Uri(settings.Endpoint),
+            NetworkTimeout = timeout,
+            UserAgentApplicationId = "GlassCoder",
+        };
+
+        return new OpenAIClient(new ApiKeyCredential(apiKey ?? "local-no-auth"), clientOptions)
+            .GetChatClient(settings.ModelAlias)
+            .AsIChatClient();
     }
 
     /// <summary>Reads the <c>data[].id</c> aliases out of an OpenAI-shaped model list.</summary>

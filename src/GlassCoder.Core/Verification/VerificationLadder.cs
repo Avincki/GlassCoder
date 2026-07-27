@@ -46,7 +46,15 @@ public sealed record RungResult(
     bool Passed,
     string Summary,
     double DurationMs,
-    bool Skipped = false);
+    bool Skipped = false)
+{
+    /// <summary>
+    /// The panel's verdict, when this rung was the critique rung and it actually ran. Carried
+    /// because the critique's spend is priced at the critic role's rates, and a caller that
+    /// only saw a summary string could not bill it.
+    /// </summary>
+    public CritiqueResult? Critique { get; init; }
+}
 
 /// <summary>The outcome of climbing the ladder.</summary>
 /// <param name="Passed">Whether every gating rung that ran passed.</param>
@@ -66,6 +74,9 @@ public sealed record VerificationReport(
         FailedRung is null
             ? string.Join(Environment.NewLine, Results.Where(r => !r.Skipped).Select(r => r.Summary))
             : Results.First(r => r.Rung == FailedRung).Summary;
+
+    /// <summary>The critique verdict, when rung 6 ran, so the loop can bill the critic's spend.</summary>
+    public CritiqueResult? Critique => Results.FirstOrDefault(r => r.Critique is not null)?.Critique;
 }
 
 /// <summary>Everything the ladder needs to know about what it is verifying.</summary>
@@ -300,7 +311,7 @@ public sealed class VerificationLadder : IVerificationLadder
                 // Whether a refutation blocks or merely warns is configuration: a critic is a
                 // model, and a model gating a compiler-verified change is a strong claim.
                 bool passed = !critique.Refuted || !_options.CritiqueGates;
-                return new RungResult(rung, passed, critique.Summary, Elapsed(start));
+                return new RungResult(rung, passed, critique.Summary, Elapsed(start)) { Critique = critique };
             }
 
             default:
@@ -320,8 +331,32 @@ public sealed class VerificationLadderOptions
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "GlassCoder:VerificationLadder";
 
+    /// <summary>
+    /// Whether the controller loop climbs the ladder after every step that applied a change
+    /// (workplan task 36). On by default: this is the harness's central reliability mechanism,
+    /// and a rung that cannot run - no sandbox, not a C# file - skips rather than fails, so
+    /// switching it on cannot make an environment worse than switching it off.
+    /// </summary>
+    public bool VerifyAppliedChanges { get; set; } = true;
+
     /// <summary>Whether rung 3 runs at all. It never gates either way.</summary>
     public bool RunAnalyzers { get; set; } = true;
+
+    /// <summary>
+    /// Filter for the unit-test rung of the in-loop climb, so it stays cheaper than the full
+    /// suite. Null runs every test - which makes rung 4 the full suite already, and
+    /// <see cref="RunFullSuite"/> redundant until a filter narrows it.
+    /// </summary>
+    public string? TestFilter { get; set; }
+
+    /// <summary>Whether the in-loop climb finishes with the full suite (rung 5).</summary>
+    public bool RunFullSuite { get; set; }
+
+    /// <summary>
+    /// Cap on the diff text the in-loop climb hands to the critique rung, so one large edit
+    /// cannot fill the critic's window.
+    /// </summary>
+    public int MaxChangeCharacters { get; set; } = 20_000;
 
     /// <summary>
     /// Whether a refuted critique blocks the change. Off by default: the critique rung's value

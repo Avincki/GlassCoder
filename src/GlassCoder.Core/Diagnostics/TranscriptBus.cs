@@ -20,6 +20,9 @@ public interface ITranscriptBus
     /// <summary>Raised when a run finishes.</summary>
     event EventHandler<RunRecord>? RunRecorded;
 
+    /// <summary>Raised when a finished run's second opinion is recorded (workplan task 37).</summary>
+    event EventHandler<ReviewRecord>? ReviewRecorded;
+
     /// <summary>Drops everything held, for the start of a new session.</summary>
     void Clear();
 }
@@ -63,6 +66,9 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     public event EventHandler<RunRecord>? RunRecorded;
 
     /// <inheritdoc />
+    public event EventHandler<ReviewRecord>? ReviewRecorded;
+
+    /// <inheritdoc />
     public void LogStep(StepRecord record)
     {
         _inner.LogStep(record);
@@ -84,6 +90,13 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     {
         _inner.LogRun(record);
         RunRecorded?.Invoke(this, record);
+    }
+
+    /// <inheritdoc />
+    public void LogReview(ReviewRecord record)
+    {
+        _inner.LogReview(record);
+        ReviewRecorded?.Invoke(this, record);
     }
 
     /// <inheritdoc />

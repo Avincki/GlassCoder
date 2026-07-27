@@ -1,5 +1,7 @@
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Verification;
+using GlassCoder.TestSupport;
 using GlassCoder.Tools.Changes;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -138,10 +140,122 @@ public sealed class RunReviewerTests
         review.Summary.ShouldContain("changed no files");
     }
 
+    [Fact]
+    public async Task A_review_is_persisted_to_the_transcript_verbatim()
+    {
+        // The opinion that shaped a decision must leave a trace (workplan task 37): the full
+        // critique - votes, reasons, cost - goes into the run's transcript, not just the screen.
+        StubCriticPanel critics = new()
+        {
+            Verdict = new CritiqueResult(
+                true,
+                [
+                    new CritiqueVerdict(true, 0.9, "The input array is sorted in place."),
+                    new CritiqueVerdict(false, 0.6, "Looks right to me."),
+                    new CritiqueVerdict(false, 0d, "Critic unavailable: timeout", Available: false),
+                ],
+                1,
+                "1/2 critics refuted the change")
+            {
+                RespondingVotes = 2,
+                UnavailableVotes = 1,
+                InputTokens = 1200,
+                OutputTokens = 90,
+                EstimatedCostUsd = 0.0123m,
+            },
+        };
+
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes, out RecordingStepLogger transcript);
+        Change(changes, "run-1");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed, criticRole: "critic-remote"));
+
+        ReviewRecord record = transcript.Reviews.ShouldHaveSingleItem();
+        record.RunId.ShouldBe("run-1");
+        record.TaskId.ShouldBe("task-1");
+        record.CriticRole.ShouldBe("critic-remote");
+        record.Refuted.ShouldBeTrue();
+        record.Votes.Count.ShouldBe(3);
+        record.Votes[0].Reason.ShouldBe("The input array is sorted in place.");
+        record.Votes[2].Available.ShouldBeFalse("an unreachable critic is recorded as such, never as an acceptance");
+        record.RespondingVotes.ShouldBe(2);
+        record.UnavailableVotes.ShouldBe(1);
+        record.InputTokens.ShouldBe(1200);
+        record.EstimatedCostUsd.ShouldBe(0.0123m);
+    }
+
+    [Fact]
+    public async Task A_run_that_was_not_reviewed_leaves_no_review_record()
+    {
+        // No critique ran, so there is no opinion to persist - an empty record would claim one.
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes, out RecordingStepLogger transcript);
+        Change(changes, "run-1");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.StepLimit));
+
+        transcript.Reviews.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_inconclusive_panel_is_persisted_as_inconclusive()
+    {
+        // "Could not be reached" is a fact worth keeping too - a transcript with a silent gap
+        // where the review should be reads as "nobody asked".
+        StubCriticPanel critics = new()
+        {
+            Verdict = new CritiqueResult(false, [], 0, "Critique inconclusive: only 0 of 3 critics could be reached")
+            { Inconclusive = true },
+        };
+
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes, out RecordingStepLogger transcript);
+        Change(changes, "run-1");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        ReviewRecord record = transcript.Reviews.ShouldHaveSingleItem();
+        record.Inconclusive.ShouldBeTrue();
+        record.Refuted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_retry_is_composed_from_the_findings_that_were_persisted()
+    {
+        // Acceptance for workplan task 37: the retry references the persisted findings - what
+        // went into the transcript is what the next attempt is built from, not a paraphrase.
+        StubCriticPanel critics = new()
+        {
+            Verdict = new CritiqueResult(
+                true,
+                [new CritiqueVerdict(true, 0.9, "The input array is sorted in place.")],
+                1,
+                "1/1 critics refuted the change")
+            { RespondingVotes = 1 },
+        };
+
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes, out RecordingStepLogger transcript);
+        Change(changes, "run-1");
+
+        RunReview review = await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        string persisted = transcript.Reviews.ShouldHaveSingleItem().Votes.ShouldHaveSingleItem().Reason;
+        RunReviewer.ComposeRetryGoal("Sort the values ascending.", review).ShouldContain(persisted);
+    }
+
     private static RunReviewer Reviewer(StubCriticPanel critics, out ChangeLog changes)
     {
         changes = new ChangeLog();
         return new RunReviewer(critics, changes, Options.Create(new RunReviewOptions()));
+    }
+
+    private static RunReviewer Reviewer(
+        StubCriticPanel critics,
+        out ChangeLog changes,
+        out RecordingStepLogger transcript)
+    {
+        changes = new ChangeLog();
+        transcript = new RecordingStepLogger();
+        return new RunReviewer(critics, changes, Options.Create(new RunReviewOptions()), transcript: transcript);
     }
 
     private static void Change(ChangeLog changes, string runId)

@@ -87,6 +87,9 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>Where commands may run.</summary>
     public IReadOnlyList<SandboxMode> SandboxModes { get; } = [SandboxMode.Docker, SandboxMode.Local];
 
+    /// <summary>The wire formats a role's endpoint can speak (workplan task 37).</summary>
+    public IReadOnlyList<ModelTransport> Transports { get; } = [ModelTransport.OpenAI, ModelTransport.Anthropic];
+
     /// <summary>Serilog levels, lowest first.</summary>
     public IReadOnlyList<string> LogLevels { get; } =
         ["Verbose", "Debug", "Information", "Warning", "Error", "Fatal"];

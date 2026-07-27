@@ -1,5 +1,6 @@
 using System.ClientModel;
 using System.Collections.Concurrent;
+using Anthropic;
 using GlassCoder.Models.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -96,6 +97,13 @@ public sealed class ChatClientFactory : IChatClientFactory, IDisposable
     {
         ModelRoleOptions settings = _options.Roles[role];
 
+        return settings.Transport == ModelTransport.Anthropic
+            ? BuildAnthropicClient(settings)
+            : BuildOpenAiClient(role, settings);
+    }
+
+    private IChatClient BuildOpenAiClient(string role, ModelRoleOptions settings)
+    {
         OpenAIClientOptions clientOptions = new()
         {
             Endpoint = new Uri(settings.Endpoint),
@@ -127,6 +135,46 @@ public sealed class ChatClientFactory : IChatClientFactory, IDisposable
     }
 
     /// <summary>
+    /// Builds the pipeline for a role whose endpoint speaks Anthropic's <c>/v1/messages</c>
+    /// (workplan task 37) - the second opinion's transport, typically.
+    /// <para>
+    /// Deliberately absent: the constrained-decoding stage. Its guided-decoding properties are
+    /// a local-server contract that this wire format does not carry, and the critic that rides
+    /// this transport returns JSON by prompt with a text-heuristic fallback.
+    /// </para>
+    /// </summary>
+    private IChatClient BuildAnthropicClient(ModelRoleOptions settings)
+    {
+        AnthropicClient anthropic = new()
+        {
+            // Gateways that speak this wire format may not check the credential, but the
+            // client requires one - same convention as the OpenAI transport.
+            ApiKey = settings.ResolveApiKey() ?? "local-no-auth",
+            BaseUrl = settings.Endpoint,
+            Timeout = TimeSpan.FromSeconds(settings.TimeoutSeconds),
+        };
+
+        IChatClient transport = anthropic.AsIChatClient(
+            settings.ModelAlias,
+            settings.MaxOutputTokens ?? DefaultAnthropicMaxOutputTokens);
+
+        return transport
+            .AsBuilder()
+            .ConfigureOptions(options => ApplyAnthropicRoleDefaults(options, settings))
+            .UseOpenTelemetry(
+                _loggerFactory,
+                _options.TelemetrySourceName,
+                client => client.EnableSensitiveData = _options.EnableSensitiveTelemetryData)
+            .Build();
+    }
+
+    /// <summary>
+    /// A ceiling the wire format requires: <c>max_tokens</c> is mandatory on every request.
+    /// Generous for a critique verdict, which is a sentence or two of JSON.
+    /// </summary>
+    private const int DefaultAnthropicMaxOutputTokens = 4096;
+
+    /// <summary>
     /// Fills in sampling settings the caller left unspecified. Caller-supplied values always
     /// win: an ablation arm that pins a temperature must not be silently overridden.
     /// </summary>
@@ -137,5 +185,23 @@ public sealed class ChatClientFactory : IChatClientFactory, IDisposable
         options.Temperature ??= settings.Temperature;
         options.TopP ??= settings.TopP;
         options.Seed ??= settings.Seed;
+    }
+
+    /// <summary>
+    /// Role defaults for the Anthropic transport.
+    /// <para>
+    /// Sampling parameters are dropped rather than forwarded: current Anthropic models reject
+    /// <c>temperature</c>, <c>top_p</c> and seeds with a 400 rather than ignoring them, so a
+    /// caller's "temperature 0" - the critic panel's habit, and the right one for a local
+    /// critic - would otherwise turn a working role into one that cannot answer at all.
+    /// </para>
+    /// </summary>
+    private static void ApplyAnthropicRoleDefaults(ChatOptions options, ModelRoleOptions settings)
+    {
+        options.ModelId ??= settings.ModelAlias;
+        options.MaxOutputTokens ??= settings.MaxOutputTokens ?? DefaultAnthropicMaxOutputTokens;
+        options.Temperature = null;
+        options.TopP = null;
+        options.Seed = null;
     }
 }

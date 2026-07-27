@@ -4,6 +4,26 @@ using System.Text.Json.Serialization;
 namespace GlassCoder.Models.Configuration;
 
 /// <summary>
+/// The wire format a role's endpoint speaks (workplan task 37). Which shape of client the
+/// factory builds, not where it points - that stays <see cref="ModelRoleOptions.Endpoint"/>.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ModelTransport>))]
+public enum ModelTransport
+{
+    /// <summary>
+    /// OpenAI-compatible: <c>POST {endpoint}/chat/completions</c>. The default, and what every
+    /// local server behind the seam speaks.
+    /// </summary>
+    OpenAI = 0,
+
+    /// <summary>
+    /// Anthropic's own wire format: <c>POST {endpoint}/v1/messages</c>. The endpoint is the
+    /// host root (for example <c>https://api.anthropic.com</c>) - the client appends the path.
+    /// </summary>
+    Anthropic = 1,
+}
+
+/// <summary>
 /// One served role behind the seam (CLAUDE.md §6). Everything here is configuration: swapping
 /// a local server for a hosted API, or a 8B worker for a 200B drafter, must never be a code
 /// change - that is exactly what the ablation harness depends on.
@@ -11,11 +31,18 @@ namespace GlassCoder.Models.Configuration;
 public sealed class ModelRoleOptions
 {
     /// <summary>
-    /// OpenAI-compatible base endpoint, for example <c>http://localhost:8001/v1</c>.
-    /// Never hardcoded anywhere in the harness.
+    /// Base endpoint. For the OpenAI transport this ends in <c>/v1</c>, for example
+    /// <c>http://localhost:8001/v1</c>; for the Anthropic transport it is the host root, for
+    /// example <c>https://api.anthropic.com</c>. Never hardcoded anywhere in the harness.
     /// </summary>
     [Required]
     public string Endpoint { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which wire format the endpoint speaks. OpenAI-compatible unless said otherwise, so every
+    /// existing configuration keeps meaning what it meant.
+    /// </summary>
+    public ModelTransport Transport { get; set; } = ModelTransport.OpenAI;
 
     /// <summary>
     /// The <em>served-model alias</em> to address (for example <c>worker</c>), never a

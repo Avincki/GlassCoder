@@ -107,6 +107,53 @@ public sealed class TranscriptReplayTests : IDisposable
         transcript.Run!.StopReason.ShouldBe("Completed");
     }
 
+    [Fact]
+    public async Task A_persisted_review_replays_with_its_run()
+    {
+        // Workplan task 37: the second opinion is part of the transcript, so it must survive the
+        // same round trip the steps and the run record do.
+        LoggingOptions logging = new() { Directory = _directory, Console = false };
+        using (Serilog.Core.Logger serilog = SerilogBootstrap.CreateLogger(logging))
+        using (ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddSerilog(serilog)))
+        {
+            StepLogger stepLogger = new(factory.CreateLogger<StepLogger>(), Options.Create(logging));
+
+            AgentLoop loop = new(
+                new FakeChatClientFactory(new FakeChatClient(FakeChatClient.Text("Done."))),
+                new ToolRegistry([new EchoTools()]),
+                stepLogger,
+                TestContextAssembler.Create(),
+                new RecordingMetricsRecorder(),
+                Options.Create(new AgentOptions()));
+
+            AgentRunResult result = await loop.RunAsync(
+                new AgentRunRequest { TaskId = "replay-task", Goal = "Echo hello." });
+
+            stepLogger.LogReview(new ReviewRecord
+            {
+                RunId = result.RunId,
+                TaskId = "replay-task",
+                CriticRole = "critic-remote",
+                Refuted = true,
+                Inconclusive = false,
+                Summary = "1/1 critics refuted the change: the sort is in place.",
+                Votes = [new ReviewVoteRecord(true, 0.9, "The input array is sorted in place.", true)],
+                RespondingVotes = 1,
+                EstimatedCostUsd = 0.0123m,
+                DurationMs = 42,
+                RecordedAt = DateTimeOffset.UtcNow,
+            });
+        }
+
+        RunTranscript transcript = TranscriptReader.ReadDirectory(_directory).ShouldHaveSingleItem();
+        ReviewRecord review = transcript.Review.ShouldNotBeNull();
+        review.CriticRole.ShouldBe("critic-remote");
+        review.Refuted.ShouldBeTrue();
+        review.Votes.ShouldHaveSingleItem().Reason.ShouldContain("sorted in place");
+        review.EstimatedCostUsd.ShouldBe(0.0123m);
+        transcript.ToText().ShouldContain("review by critic-remote");
+    }
+
     private async Task<AgentRunResult> RunThroughSerilogAsync()
     {
         LoggingOptions logging = new() { Directory = _directory, Console = false };

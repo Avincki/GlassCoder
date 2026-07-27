@@ -9,6 +9,141 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — The critic's transport, and the review on the record (workplan task 37)
+
+**Shipped.** A per-role `Transport` setting: `critic-remote` now speaks Anthropic's
+`/v1/messages` against `api.anthropic.com` (model `claude-opus-5`) out of the box,
+with the OpenAI-compatible shape still one config switch away. The post-run
+review is persisted verbatim into the JSONL transcript as a `ReviewRecord` —
+role, every vote with its reason and availability, tokens, cost, duration — and
+replays with its run. The connection check probes both transports. 272 tests
+green, build clean. Workplan task 37 is closed; only 38 remains open.
+
+**Decided**
+
+- **The transport is the official Anthropic SDK, not a hand-rolled client.** The
+  `Anthropic` package ships a first-party `IChatClient` adapter
+  (`AsIChatClient`), so the whole thing is a second branch in
+  `ChatClientFactory` rather than a wire format we would own the parsing of.
+  The SDK also brings retries, typed errors and the versioned `anthropic-version`
+  header for free.
+- **Anthropic-transport endpoints are host roots, not `/v1` bases.** The SDK
+  appends `/v1/messages` itself, so `https://api.anthropic.com` is the whole
+  endpoint. The settings hint and the config comments say which convention each
+  transport uses, because a `/v1` suffix here would produce `/v1/v1/...` and a
+  404 that looks like an outage.
+- **Sampling parameters are dropped, never forwarded.** Current Anthropic models
+  reject `temperature` and `top_p` with a 400 rather than ignoring them, and the
+  critic panel pins temperature 0 — the right habit for a local critic and a
+  fatal one here. The transport's role defaults null them out, so which oracle a
+  role addresses stays a config choice instead of a crash.
+- **A refusal is an empty answer, not an exception.** The API's safety
+  classifiers can decline a request with a successful HTTP 200, `stop_reason`
+  "refusal" and no content. Through the critic panel's existing parse that reads
+  as "the critic returned nothing" — a failure to judge, a non-vote, outside the
+  quorum. The fake server has a refusal case so this stays true by test rather
+  than by luck.
+- **The review is its own transcript record, not a field on the run record.**
+  `RunRecord` closes before the review runs — the review judges the finished
+  run, so it cannot ride the record of the run it judges. `ReviewRecord` is a
+  third record type beside steps and runs, routed and redacted the same way
+  (a critic quotes the diff it judged, so its words fall under the content
+  switch), parsed back by `TranscriptReader`, and rendered by `ToText`.
+- **Persistence lives in `RunReviewer`, not the view model.** Whoever asks for a
+  review — the desktop app today, the console host tomorrow — gets the record
+  written, because the component that produced the opinion is the one that
+  records it. Early-outs (review off, limit-stopped run, no changes) persist
+  nothing: no critique ran, and an empty record would claim one had.
+- **The critique rung's config keeps meaning what it meant.** Existing roles
+  default to `Transport: OpenAI`, so no configuration changes behavior silently;
+  the shipped `critic-remote` opts into the new transport explicitly.
+
+**Open**
+
+- **`docs/NewFeatures/claude-second-opinion.html` still describes the transport
+  as missing.** The design note predates this session; its "what would have to
+  land" section is now history and should be rewritten as a description, the way
+  it was after the 2026-07-24 session.
+- The review strip shows the review it always showed; it does not yet indicate
+  that the critique is on the record, nor is there a UI to browse past reviews.
+  The transcript view reads step records only — `ReviewRecorded` is on the bus
+  for whoever adds that.
+- The in-loop critique (rung 6, task 36) records its verdict in the step's
+  verification summary but not as a full vote-by-vote record. If measurement in
+  task 38 makes rung 6 interesting, it deserves the same `ReviewRecord`
+  treatment.
+- Task 38 — enabling and measuring the dormant capabilities — is now unblocked
+  on both of its prerequisites.
+
+---
+
+## 2026-07-27 — The ladder in the loop (workplan task 36)
+
+**Shipped.** The controller loop now climbs the verification ladder after every
+step that applied a change: syntax on the changed file, compile, analyzers,
+tests, and rung 6 when critique is enabled. The report goes back to the model
+as an observation, lands in the step record, is stamped onto the change-log
+entries that caused it, and moves the recovery and compile-error metrics.
+`RunBudget` gained its second price table. 263 tests green, build clean.
+Workplan task 36 (added today, with 37 and 38) is closed.
+
+**Decided**
+
+- **The failure policy is correction, not rejection.** A failed climb does not
+  fail the step, revert the change, or summon a human; the summary goes back as
+  a user-role observation and the loop carries on. The write tools already
+  refuse what the in-memory check can prove broken — what the ladder catches
+  here is *applied* work (a red test, a break in another project), and silently
+  reverting applied work would leave the model reasoning about a working tree
+  that no longer matches what it was told. Correction after prompt feedback is
+  the recovery-rate hypothesis; now it can actually be measured.
+- **A clean bill is reported too.** Otherwise the model spends its next step
+  calling `build` to learn what the harness already knows.
+- **A climb where every rung skipped says nothing.** Not a C# file, no sandbox:
+  silence is more honest than a hollow "verified", so no message is sent and no
+  verification is recorded for the step.
+- **Ladder outcomes feed the same metric counters as model-called builds and
+  tests.** Recovery rate must not depend on who pressed the button, so
+  `RunMetricsCollector.ObserveVerification` maps the compile rung onto the build
+  counters and the test rungs onto the test counters. A post-write syntax
+  failure counts as a broken state even though no build ran — the build it
+  blocked would only have agreed. `create_file` now also counts as an edit;
+  it was added after the collector and had been invisible to edits-to-green.
+- **The critic's spend arrives pre-priced, and critic tokens stay out of the
+  token counts.** `RunBudget.EstimatedCostUsd` adds
+  `CritiqueResult.EstimatedCostUsd` as computed at the critic role's own
+  prices, so `MaxCostUsd` can now trip on a hosted critic — the debt the old
+  comment named. `MaxTotalTokens` still counts only worker tokens, because it
+  guards the worker's context window, which the critic never occupies.
+- **A single-file step gets the syntax rung on exactly what changed; a
+  multi-file step starts at the compile rung**, which covers every file at
+  once.
+- **A harness failure to verify is logged and skipped, not reported to the
+  model.** The harness failing to verify is not the model failing to code, and
+  an error the model cannot act on is context spent making it stupider.
+- **The change log is the trigger.** The loop watches its run's slice of
+  `IChangeLog` for newly Applied entries rather than hardcoding which tools
+  mutate, so a future mutating tool is verified the day it exists.
+
+**Open**
+
+- **Nothing forces a final green climb before `Completed`.** The model can
+  still declare done with a red tree; the failure is visible in the change
+  log's `VerificationSummary` and the metrics, but nothing gates completion on
+  it. Whether it should is a policy question worth deciding against data from
+  task 38 rather than instinct.
+- **Rung 6 now runs inside the loop whenever critique is enabled**, which
+  makes cost-per-solved-task with a hosted critic a real number nobody has
+  measured. Task 38's job.
+- The in-loop `RunFullSuite` switch is redundant until a `TestFilter` narrows
+  rung 4 — with no filter, rung 4 already runs every test. Said in the options
+  and the config comments; a smarter default filter is future work.
+- The new settings (`VerifyAppliedChanges`, `TestFilter`) are in the dialog's
+  Verification tab, and like every setting they apply on restart only.
+- Task 37 (the critic transport and review persistence) is unchanged by this.
+
+---
+
 ## 2026-07-24 — The second-opinion critic
 
 **Shipped.** A critic role chosen per run rather than per process, a post-run
