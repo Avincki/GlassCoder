@@ -9,6 +9,60 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — Every saved setting was being discarded at startup
+
+**Shipped.** A one-character-class bug with a wide blast radius: saved settings
+were layered *underneath* `appsettings.json` instead of over it, so everything
+the settings dialog and the workspace pane ever wrote was read and then
+overruled. Reported as "the project points at `bin\Debug\net10.0-windows`, and
+choosing the right folder does not survive a restart". 333 tests green.
+
+**What was wrong**
+
+`AddGlassCoderUserSettings` inserted the user settings file ahead of the *first*
+`EnvironmentVariablesConfigurationSource` it found. `HostApplicationBuilder`
+registers **two**: the `DOTNET_`-prefixed host source, which sits *before*
+`appsettings.json`, and the unprefixed application source after it. The scan
+stopped at the first, so saved settings landed at index 1 and `appsettings.json`
+at index 4 — and later sources win. Every saved value that `appsettings.json`
+also mentions was silently discarded; only keys absent from it (and the API
+keys, arriving through a sibling in-memory source) ever took effect.
+
+The workspace root made it visible because `appsettings.json` says `"."`, which
+`PathGuard` resolves against the *process working directory* — the executable's
+own folder for a double-clicked window.
+
+**Decided**
+
+- **Scan backwards for the last environment source.** That restores the
+  documented intent — saved settings beat `appsettings.json`, lose to
+  environment variables and `--config` — and it is now stated in the doc
+  comment as load-bearing rather than incidental.
+- **The old test could not have caught this.** It built a hand-rolled
+  `ConfigurationBuilder` with one environment source at the end, a shape that
+  does not exist in production. The replacement drives the real
+  `Host.CreateApplicationBuilder` with a real `appsettings.json` and a real
+  saved file; reverting the fix fails it and nothing else.
+- **`"."` stays working-directory for the console host and is discovered for
+  the desktop.** `cd` into the repo then run is the right contract for a CLI
+  and the wrong one for a window nobody launches from a shell. So
+  `WorkspaceRootLocator` walks up from the executable for `.git` or a solution
+  file, and the WPF app applies it *only* when no layer supplied a real root —
+  anything chosen, saved or exported still wins. Outside a checkout it finds
+  nothing and says so rather than guessing.
+- **Both front ends now log the workspace root at startup.** The generic host
+  announces its content root and nothing announced this one, which is exactly
+  how a root silently resolving to build output survived unnoticed in an
+  application whose first-class claim is instrumentation.
+
+**Open**
+
+- Worth auditing whether any behaviour previously attributed to configuration
+  was really this bug — every dialog-saved endpoint, budget and sandbox mode
+  was inert until now.
+
+---
+
 ## 2026-07-27 — Git tools, step 3: pull requests and the manual path (workplan task 42)
 
 **Shipped.** `create_pull_request` opens a GitHub PR for the current branch

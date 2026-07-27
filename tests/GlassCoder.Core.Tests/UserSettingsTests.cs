@@ -3,6 +3,7 @@ using GlassCoder.Core.Configuration;
 using GlassCoder.Models.Configuration;
 using GlassCoder.TestSupport;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace GlassCoder.Core.Tests;
 
@@ -109,6 +110,115 @@ public sealed class UserSettingsTests
             Environment.SetEnvironmentVariable("GlassCoder__Agent__MaxSteps", null);
         }
     }
+
+    [Fact]
+    public void A_saved_setting_beats_appsettings_under_the_real_host_builder()
+    {
+        // The regression this file previously missed. A hand-rolled ConfigurationBuilder has one
+        // environment source, at the end; HostApplicationBuilder has two, and the first sits
+        // *before* appsettings.json. Inserting ahead of that one buried every saved setting that
+        // appsettings.json also mentions - which was nearly all of them.
+        using TempWorkspace application = new();
+        using TempWorkspace settings = new();
+        using TempWorkspace project = new();
+
+        application.WriteFile("appsettings.json", """
+            { "GlassCoder": { "Workspace": { "RepoRoot": "." }, "Agent": { "MaxSteps": 30 } } }
+            """);
+
+        UserSettingsStore store = new(new DpapiSecretProtector(), settings.Root);
+        GlassCoderSettings saved = Settings();
+        saved.Workspace.RepoRoot = project.Root;
+        saved.Agent.MaxSteps = 42;
+        store.Save(saved);
+
+        HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            ContentRootPath = application.Root,
+        });
+
+        builder.Configuration.AddGlassCoderUserSettings(store);
+
+        builder.Configuration["GlassCoder:Workspace:RepoRoot"].ShouldBe(
+            project.Root, "the folder chosen in the workspace pane must survive a restart");
+        builder.Configuration["GlassCoder:Agent:MaxSteps"].ShouldBe(
+            "42", "every saved setting outranks appsettings.json, not just the workspace root");
+    }
+
+    [Fact]
+    public void An_environment_variable_still_wins_under_the_real_host_builder()
+    {
+        using TempWorkspace application = new();
+        using TempWorkspace settings = new();
+
+        application.WriteFile("appsettings.json", """{ "GlassCoder": { "Agent": { "MaxSteps": 30 } } }""");
+
+        UserSettingsStore store = new(new DpapiSecretProtector(), settings.Root);
+        GlassCoderSettings saved = Settings();
+        saved.Agent.MaxSteps = 42;
+        store.Save(saved);
+
+        Environment.SetEnvironmentVariable("GlassCoder__Agent__MaxSteps", "77");
+        try
+        {
+            HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                ContentRootPath = application.Root,
+            });
+
+            builder.Configuration.AddGlassCoderUserSettings(store);
+
+            builder.Configuration["GlassCoder:Agent:MaxSteps"].ShouldBe(
+                "77", "an ablation arm stated on the command line must not be overridden by a saved setting");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("GlassCoder__Agent__MaxSteps", null);
+        }
+    }
+
+    [Fact]
+    public void The_workspace_root_is_discovered_by_walking_up_to_the_repository()
+    {
+        using TempWorkspace repository = new();
+        repository.CreateDirectory(".git");
+        string deep = repository.CreateDirectory("src/GlassCoder.Wpf/bin/Debug/net10.0-windows");
+
+        // Exactly the walk a double-clicked desktop launch makes from its own build output.
+        WorkspaceRootLocator.Find(deep).ShouldBe(repository.Root);
+    }
+
+    [Fact]
+    public void A_solution_file_marks_a_repository_root_too()
+    {
+        using TempWorkspace repository = new();
+        repository.WriteFile("Thing.sln", "solution");
+        string deep = repository.CreateDirectory("src/bin/Debug");
+
+        WorkspaceRootLocator.Find(deep).ShouldBe(repository.Root);
+    }
+
+    [Fact]
+    public void Nothing_is_discovered_outside_a_repository()
+    {
+        using TempWorkspace elsewhere = new();
+
+        // Null rather than a guess: the saved setting is then the only way to say where the work
+        // is, which is the honest answer for an installed copy.
+        WorkspaceRootLocator.Find(elsewhere.CreateDirectory("app")).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(".")]
+    [InlineData(" . ")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void The_placeholder_root_counts_as_unset(string? configured) =>
+        WorkspaceRootLocator.IsUnset(configured).ShouldBeTrue();
+
+    [Fact]
+    public void A_chosen_root_is_never_treated_as_unset() =>
+        WorkspaceRootLocator.IsUnset(@"C:\repos\GlassCoder").ShouldBeFalse();
 
     [Fact]
     public void A_list_setting_does_not_grow_every_time_the_dialog_is_opened()

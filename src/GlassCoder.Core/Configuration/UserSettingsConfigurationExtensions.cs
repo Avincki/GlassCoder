@@ -19,6 +19,15 @@ public static class UserSettingsConfigurationExtensions
     /// somebody had once opened the dialog. Saved settings therefore beat <c>appsettings.json</c>
     /// and lose to everything a run states explicitly.
     /// </para>
+    /// <para>
+    /// The scan runs <b>backwards</b>, and that detail is load-bearing.
+    /// <see cref="Microsoft.Extensions.Hosting.HostApplicationBuilder"/> registers
+    /// <em>two</em> environment-variable sources: the <c>DOTNET_</c>-prefixed host one before
+    /// <c>appsettings.json</c>, and the unprefixed application one after it. Stopping at the
+    /// first put saved settings underneath <c>appsettings.json</c>, so every saved value that
+    /// also appears there - which is nearly all of them - was silently discarded at startup.
+    /// The last environment source is the one this must land in front of.
+    /// </para>
     /// </summary>
     public static IConfigurationBuilder AddGlassCoderUserSettings(
         this IConfigurationBuilder builder,
@@ -28,7 +37,7 @@ public static class UserSettingsConfigurationExtensions
         ArgumentNullException.ThrowIfNull(store);
 
         int index = builder.Sources.Count;
-        for (int i = 0; i < builder.Sources.Count; i++)
+        for (int i = builder.Sources.Count - 1; i >= 0; i--)
         {
             if (builder.Sources[i] is EnvironmentVariablesConfigurationSource)
             {

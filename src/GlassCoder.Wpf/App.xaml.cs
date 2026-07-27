@@ -1,8 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Threading;
+using GlassCoder.Core.Configuration;
 using GlassCoder.Core.Hosting;
 using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Guardrails;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using GlassCoder.Wpf.Services;
 using GlassCoder.Wpf.ViewModels;
 using GlassCoder.Wpf.Views;
@@ -28,6 +33,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         HostApplicationBuilder builder = GlassCoderHost.CreateBuilder(e?.Args);
+        UseDiscoveredWorkspaceWhenUnset(builder);
 
         // The UI's own registrations sit on top of the shared bootstrap: view models, the
         // dispatcher they marshal onto, and the interactive approval gate that replaces the
@@ -64,9 +70,42 @@ public partial class App : Application
         _host = builder.Build();
         _host.Start();
 
+        // Which repository the agent rooted itself in, said out loud - the diagnostic whose
+        // absence let a workspace root of "." quietly mean the app's own build output.
+        _host.Services.GetRequiredService<ILogger<App>>().LogInformation(
+            "Workspace root: {RepoRoot}", _host.Services.GetRequiredService<IPathGuard>().RepoRoot);
+
         _host.Services.GetRequiredService<MainWindow>().Show();
 
         base.OnStartup(e!);
+    }
+
+    /// <summary>
+    /// Roots the desktop app in the repository rather than in its own build output.
+    /// <para>
+    /// <c>"."</c> means the process working directory, which for a double-clicked window is the
+    /// folder the executable sits in. Nobody wants the agent working on <c>bin\Debug</c>, so when
+    /// <em>no</em> layer supplied a real root the app discovers one by walking up from the
+    /// executable. This is appended, and therefore outranks the <c>"."</c> in
+    /// <c>appsettings.json</c> - but it only runs when the resolved value was that placeholder,
+    /// so anything actually chosen, saved or exported still wins.
+    /// </para>
+    /// </summary>
+    private static void UseDiscoveredWorkspaceWhenUnset(HostApplicationBuilder builder)
+    {
+        const string key = "GlassCoder:Workspace:RepoRoot";
+
+        if (!WorkspaceRootLocator.IsUnset(builder.Configuration[key]))
+        {
+            return;
+        }
+
+        if (WorkspaceRootLocator.Find() is not { } discovered)
+        {
+            return;
+        }
+
+        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { [key] = discovered });
     }
 
     /// <inheritdoc />

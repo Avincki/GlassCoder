@@ -53,6 +53,12 @@ try
     using IHost host = builder.Build();
     await host.StartAsync(cancellation.Token).ConfigureAwait(false);
 
+    // Which repository the harness rooted itself in, said out loud. The generic host announces
+    // its content root and nothing announced this, which is how a workspace root silently
+    // resolving to the build output went unnoticed.
+    host.Services.GetRequiredService<ILogger<Program>>().LogInformation(
+        "Workspace root: {RepoRoot}", host.Services.GetRequiredService<IPathGuard>().RepoRoot);
+
     int exitCode = command.Verb switch
     {
         "tools" => ListTools(host),
