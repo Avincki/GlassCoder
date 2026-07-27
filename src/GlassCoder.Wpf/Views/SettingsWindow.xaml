@@ -717,6 +717,109 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- ============================== Git ============================== -->
+      <TabItem Header="Git">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="The git tools">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Enable" />
+                  <CheckBox Content="Advertise git_status, git_commit, git_sync, git_push and create_pull_request"
+                            IsChecked="{Binding Settings.Git.Enabled}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default. Git runs on this machine rather than in the sandbox, because the container has neither the network nor the credentials a push needs. GlassCoder holds no token of its own: authentication stays with the credential manager you already signed in to." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Git executable" />
+                  <TextBox Text="{Binding Settings.Git.GitExecutable}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="A bare name is resolved through PATH." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Command timeout (seconds)" />
+                  <TextBox Text="{Binding Settings.Git.CommandTimeoutSeconds}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Run commit hooks" />
+                  <CheckBox Content="Let pre-commit hooks run"
+                            IsChecked="{Binding Settings.Git.AllowHooks}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default: a hook is arbitrary code executing on this machine, outside the sandbox, and it may be code the agent has just written. Turn it on only where you own the hooks." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Commits">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Provenance trailer" />
+                  <TextBox Text="{Binding Settings.Git.CommitTrailer}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Appended to every commit message as its own paragraph, so an agent commit is recognisable as one. Empty disables it." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Files listed per result" />
+                  <TextBox Text="{Binding Settings.Git.MaxListedFiles}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Caps the paths in one observation so a large commit cannot flood the context window. The counts stay truthful whatever this is set to." />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="git_commit stages only files inside the writable path set on the Workspace tab. With that list empty nothing is writable and committing is refused." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Publishing">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Approve every push" />
+                  <CheckBox Content="Ask before anything leaves this machine"
+                            IsChecked="{Binding Settings.Approval.RequireApprovalForPush}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="On by default, unlike approval for writes: a write can be reverted from the change log, a push has already left. Silence counts as refusal, and the console host - which cannot ask anyone - refuses outright." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Remote" />
+                  <TextBox Text="{Binding Settings.Git.Remote}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Where git_sync pulls from and git_push pushes to. The model is never offered a force flag or a free-form refspec, so this and the two branch lists are the whole policy." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Pushable branches" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding PushableBranches}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="One per line. Empty means any branch may be pushed." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Protected branches" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding ProtectedBranches}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="One per line, refused whatever the pushable list says and before anyone is asked to approve. Listing your default branch here is how agent work is made to flow through feature branches." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Commits listed per push" />
+                  <TextBox Text="{Binding Settings.Git.MaxListedCommits}" />
+                </DockPanel>
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Pull requests">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="GitHub CLI" />
+                  <TextBox Text="{Binding Settings.Git.GitHubExecutable}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="create_pull_request shells out to gh rather than calling the REST API, so 'gh auth login' holds the credentials and this application never stores a GitHub token." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Base branch" />
+                  <TextBox Text="{Binding PullRequestBaseBranch}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}" Text="Empty targets the repository's default branch." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <!-- ======================== Logging and metrics ======================== -->
       <TabItem Header="Logging">
         <ScrollViewer VerticalScrollBarVisibility="Auto">

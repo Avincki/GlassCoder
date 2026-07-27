@@ -9,6 +9,54 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — The git settings, in the dialog
+
+**Shipped.** A Git tab in the settings dialog with every `GitOptions` value
+editable — enable, executable, timeout, hooks, commit trailer, remote, both
+branch lists, the gh CLI and the pull-request base branch — plus the push
+approval switch, which had been added to `ApprovalOptions` in task 41 and never
+given a control. 338 tests green. Prompted by "only 8 tools are mentioned at
+the bottom of the window": correct, because the tools are opt-in and there was
+no way to opt in short of hand-editing `appsettings.json`.
+
+**Decided**
+
+- **`GitOptions` joins `GlassCoderSettings` rather than getting a parallel
+  editable copy.** That aggregate is deliberately built from the *real* options
+  classes, so a section becomes saveable the day it is added and only its editor
+  has to be written. Adding one property was the whole of the persistence work.
+- **Push approval lives on the Git tab, not in the Approval group.** Approval
+  for writes sits with the sandbox because that is where writes are governed;
+  someone configuring a push looks for it under Git. Discoverability decided it,
+  since the complaint that started this was discoverability.
+- **Git settings are validated only while the tools are enabled.** A remote of
+  `--mirror` should block a save when git can act on it and should be nobody's
+  problem when it cannot. The checks mirror `IsSafeRefName` in the tool, so a
+  name git would read as an option is refused in the dialog rather than
+  surfacing later as a puzzling tool failure. An allow-list wholly contained in
+  the deny-list is refused too — it can only ever mean "nothing may be pushed".
+- **Both branch lists are deduplicated on read**, joining the existing set. The
+  binder appends to a list that already holds defaults, so without it a list
+  doubles on every visit to the dialog. Ours default empty and would not have
+  grown yet; they will the moment anyone gives them a default.
+
+**Verified**
+
+The dialog was opened through UI Automation and its tabs enumerated — Models,
+Workspace, Agent, Verification, Sandbox, **Git**, Logging, Telemetry — so the
+tab genuinely renders rather than merely compiling. A settings file carrying
+`Git:Enabled` was then fed to the console host, which advertised all five git
+tools: the whole chain from saved file to registered tool, not just the halves.
+
+**Open**
+
+- `Sandbox:EnableBashTool` is still unreachable from the dialog, and for a
+  worse reason than git was: it is read straight from configuration with
+  `GetValue` and is not a property on `SandboxOptions` at all, so it cannot
+  round-trip until it becomes one.
+
+---
+
 ## 2026-07-27 — Every saved setting was being discarded at startup
 
 **Shipped.** A one-character-class bug with a wide blast radius: saved settings

@@ -192,6 +192,34 @@ public sealed class SettingsViewModel : ViewModelBase
         set { Replace(Settings.Telemetry.AdditionalSources, value); OnPropertyChanged(); }
     }
 
+    /// <summary>Branches <c>git_push</c> may touch, one per line. Empty means any branch.</summary>
+    public string PushableBranches
+    {
+        get => Join(Settings.Git.PushableBranches);
+        set { Replace(Settings.Git.PushableBranches, value); OnPropertyChanged(); }
+    }
+
+    /// <summary>Branches never pushed, one per line. Wins over the pushable list.</summary>
+    public string ProtectedBranches
+    {
+        get => Join(Settings.Git.ProtectedBranches);
+        set { Replace(Settings.Git.ProtectedBranches, value); OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Base branch for pull requests. Empty means the repository default, which the options
+    /// object spells as null - a text box cannot, so the two are translated here.
+    /// </summary>
+    public string PullRequestBaseBranch
+    {
+        get => Settings.Git.PullRequestBaseBranch ?? string.Empty;
+        set
+        {
+            Settings.Git.PullRequestBaseBranch = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>Validates and saves.</summary>
     public RelayCommand SaveCommand { get; }
 

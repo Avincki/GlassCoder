@@ -9,6 +9,7 @@ using GlassCoder.Models.Configuration;
 using GlassCoder.Tools;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
+using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Configuration;
@@ -58,6 +59,9 @@ public sealed class GlassCoderSettings
     /// <summary>Human-in-the-loop gating (<c>GlassCoder:Approval</c>).</summary>
     public ApprovalOptions Approval { get; init; } = new();
 
+    /// <summary>Version control (<c>GlassCoder:Git</c>).</summary>
+    public GitOptions Git { get; init; } = new();
+
     /// <summary>Critic panel (<c>GlassCoder:Critique</c>).</summary>
     public CritiqueOptions Critique { get; init; } = new();
 
@@ -96,6 +100,7 @@ public sealed class GlassCoderSettings
             VerificationLadder = Section<VerificationLadderOptions>(configuration, VerificationLadderOptions.SectionName),
             Sandbox = Section<SandboxOptions>(configuration, SandboxOptions.SectionName),
             Approval = Section<ApprovalOptions>(configuration, ApprovalOptions.SectionName),
+            Git = Section<GitOptions>(configuration, GitOptions.SectionName),
             Critique = Section<CritiqueOptions>(configuration, CritiqueOptions.SectionName),
             Orchestration = Section<OrchestrationOptions>(configuration, OrchestrationOptions.SectionName),
             Provenance = Section<ProvenanceOptions>(configuration, ProvenanceOptions.SectionName),
@@ -160,8 +165,64 @@ public sealed class GlassCoderSettings
             failures.Add($"{TelemetryOptions.SectionName}:OtlpEndpoint '{Telemetry.OtlpEndpoint}' is not an absolute URI.");
         }
 
+        failures.AddRange(ValidateGit());
+
         return failures;
     }
+
+    /// <summary>
+    /// Git settings are only checked when the tools are switched on: a name that would be
+    /// unusable is not worth blocking a save over while nothing can call git anyway.
+    /// </summary>
+    private IEnumerable<string> ValidateGit()
+    {
+        if (!Git.Enabled)
+        {
+            yield break;
+        }
+
+        if (string.IsNullOrWhiteSpace(Git.GitExecutable))
+        {
+            yield return $"{GitOptions.SectionName}:GitExecutable is required when the git tools are enabled.";
+        }
+
+        // The tools refuse a remote or branch that git would read as an option, so a name that
+        // can never work should be caught here rather than as a puzzling tool failure later.
+        if (!IsUsableName(Git.Remote))
+        {
+            yield return $"{GitOptions.SectionName}:Remote '{Git.Remote}' must be a name without spaces or a leading '-'.";
+        }
+
+        foreach (string branch in Git.PushableBranches.Concat(Git.ProtectedBranches))
+        {
+            if (!IsUsableName(branch))
+            {
+                yield return $"{GitOptions.SectionName}: branch '{branch}' must be a name without spaces or a leading '-'.";
+            }
+        }
+
+        if (Git.PullRequestBaseBranch is { } baseBranch && !IsUsableName(baseBranch))
+        {
+            yield return
+                $"{GitOptions.SectionName}:PullRequestBaseBranch '{baseBranch}' must be a name without spaces or a leading '-'.";
+        }
+
+        if (Git.CommandTimeoutSeconds < 1)
+        {
+            yield return $"{GitOptions.SectionName}:CommandTimeoutSeconds must be at least 1.";
+        }
+
+        // Every branch is refused when the allow-list and the deny-list agree on nothing.
+        if (Git.PushableBranches.Count > 0 &&
+            Git.PushableBranches.All(b => Git.ProtectedBranches.Contains(b, StringComparer.Ordinal)))
+        {
+            yield return
+                $"{GitOptions.SectionName}: every pushable branch is also protected, so nothing could ever be pushed.";
+        }
+    }
+
+    private static bool IsUsableName(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name[0] != '-' && !name.Any(char.IsWhiteSpace);
 
     private static T Section<T>(IConfiguration configuration, string sectionName)
         where T : class, new() =>
@@ -188,6 +249,8 @@ public sealed class GlassCoderSettings
         Deduplicate(Provenance.SourceExtensions);
         Deduplicate(Logging.RedactedPropertyNames);
         Deduplicate(Telemetry.AdditionalSources);
+        Deduplicate(Git.PushableBranches);
+        Deduplicate(Git.ProtectedBranches);
     }
 
     private static void Deduplicate(IList<string> values)

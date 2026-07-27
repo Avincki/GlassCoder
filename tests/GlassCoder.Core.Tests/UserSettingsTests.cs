@@ -2,6 +2,7 @@ using GlassCoder.Core.Agent;
 using GlassCoder.Core.Configuration;
 using GlassCoder.Models.Configuration;
 using GlassCoder.TestSupport;
+using GlassCoder.Tools.Git;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 
@@ -219,6 +220,88 @@ public sealed class UserSettingsTests
     [Fact]
     public void A_chosen_root_is_never_treated_as_unset() =>
         WorkspaceRootLocator.IsUnset(@"C:\repos\GlassCoder").ShouldBeFalse();
+
+    [Fact]
+    public void Git_settings_round_trip_through_the_settings_file()
+    {
+        // Until the Git section joined GlassCoderSettings the dialog could not reach it at all,
+        // so the tools could only be switched on by hand-editing appsettings.json.
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        GlassCoderSettings saved = Settings();
+        saved.Git.Enabled = true;
+        saved.Git.Remote = "upstream";
+        saved.Git.AllowHooks = true;
+        saved.Git.CommitTrailer = "Co-Authored-By: Someone <someone@example.invalid>";
+        saved.Git.PushableBranches.Add("feature/pager");
+        saved.Git.ProtectedBranches.Add("main");
+        saved.Git.PullRequestBaseBranch = "develop";
+        saved.Git.GitHubExecutable = @"C:\tools\gh.exe";
+        store.Save(saved);
+
+        GitOptions reloaded = GlassCoderSettings.ReadFrom(Configuration(store)).Git;
+
+        reloaded.Enabled.ShouldBeTrue();
+        reloaded.Remote.ShouldBe("upstream");
+        reloaded.AllowHooks.ShouldBeTrue();
+        reloaded.CommitTrailer.ShouldBe("Co-Authored-By: Someone <someone@example.invalid>");
+        reloaded.PushableBranches.ShouldBe(["feature/pager"]);
+        reloaded.ProtectedBranches.ShouldBe(["main"]);
+        reloaded.PullRequestBaseBranch.ShouldBe("develop");
+        reloaded.GitHubExecutable.ShouldBe(@"C:\tools\gh.exe");
+    }
+
+    [Fact]
+    public void The_branch_lists_do_not_grow_on_every_visit_to_the_dialog()
+    {
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        GlassCoderSettings settings = Settings();
+        settings.Git.Enabled = true;
+        settings.Git.ProtectedBranches.Add("main");
+
+        for (int visit = 0; visit < 3; visit++)
+        {
+            store.Save(settings);
+            settings = GlassCoderSettings.ReadFrom(Configuration(store));
+        }
+
+        settings.Git.ProtectedBranches.ShouldBe(["main"]);
+    }
+
+    [Fact]
+    public void An_unusable_remote_is_refused_before_it_becomes_a_puzzling_tool_failure()
+    {
+        GlassCoderSettings settings = Settings();
+        settings.Git.Enabled = true;
+        settings.Git.Remote = "--mirror";
+
+        settings.Validate().ShouldContain(f => f.Contains("GlassCoder:Git:Remote", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_branch_policy_that_refuses_everything_is_refused_itself()
+    {
+        GlassCoderSettings settings = Settings();
+        settings.Git.Enabled = true;
+        settings.Git.PushableBranches.Add("main");
+        settings.Git.ProtectedBranches.Add("main");
+
+        settings.Validate().ShouldContain(f => f.Contains("nothing could ever be pushed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Git_settings_are_not_validated_while_the_tools_are_switched_off()
+    {
+        // Nothing can call git, so a name that would be unusable is not worth blocking a save on.
+        GlassCoderSettings settings = Settings();
+        settings.Git.Enabled = false;
+        settings.Git.Remote = "--mirror";
+
+        settings.Validate().ShouldNotContain(f => f.Contains("GlassCoder:Git", StringComparison.Ordinal));
+    }
 
     [Fact]
     public void A_list_setting_does_not_grow_every_time_the_dialog_is_opened()
