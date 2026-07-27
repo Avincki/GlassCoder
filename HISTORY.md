@@ -9,6 +9,73 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-27 — The window that never opened
+
+**Shipped.** A fix for a startup deadlock, the desktop composition root pulled
+out of `App.OnStartup` so it can be built by something other than the
+application, and `tests/GlassCoder.Wpf.Tests` to build it. 348 tests green.
+Reported as "when I launch the app from the debugger, the application hangs" —
+and it hung outside the debugger too; the debugger was incidental.
+
+**What it was.** Enabling the git tools closed a cycle in the graph:
+`ChangesViewModel` takes `GitTool` so it can decide whether to show its git
+controls, `GitTool` takes `IApprovalGate` so a push still asks a human, and
+`WpfApprovalGate` took `ChangesViewModel` to ask with. It appeared the moment
+the previous session's Git tab was used to switch the tools on — the settings
+file grew `Git:Enabled: true` three minutes after that commit, and from then on
+the window never appeared.
+
+**Decided**
+
+- **The cycle is broken at the gate, which takes `Func<ChangesViewModel>`.**
+  Of the three edges that is the one that is genuinely late: the gate needs the
+  view only when something is waiting on a decision, whereas the change view
+  needs to know at construction whether to show its buttons, and `GitTool`
+  needs a gate it can rely on. Breaking a different edge would have made a
+  constructor lie about when its dependency is really used.
+- **The composition root moved to `AddGlassCoderDesktop`.** Registrations that
+  live inside `OnStartup` can only be exercised by starting the application,
+  which is why a defect this total went out. `App.OnStartup` is now the shared
+  bootstrap plus that one call, and the test makes the same two calls.
+- **The test resolves under a timeout, on an STA thread.** This class of bug
+  does not throw. `Microsoft.Extensions.DependencyInjection` detects cycles
+  while building call sites, and a factory registration is opaque to that — so
+  instead of `InvalidOperationException` the resolver recursed, its `StackGuard`
+  handed the work to a thread pool thread, and that thread blocked on the
+  singleton lock the resolving thread still held. Silent, at 0% CPU, with
+  nothing in the log. A test calling `GetRequiredService` directly would have
+  hung the run rather than failed a case, so `UiThread.Run` gives the graph 30
+  seconds on a background STA thread and fails with a `TimeoutException` that
+  names the likely cause.
+- **`ValidateOnBuild` would not have caught this** and was not reached for. It
+  builds call sites, and the cycle is invisible at that level for the same
+  reason cycle detection is.
+- **Tests resolve view models, never windows.** A `Window` wants a running
+  `Application`, and none of this is about rendering.
+
+**Verified**
+
+The diagnosis came from a stack, not a reading: `dotnet-stack` against the hung
+process showed the UI thread recursing through the `ChangesViewModel` factory —
+five turns of the loop visible — and a second thread parked in
+`Monitor.Enter_Slowpath` inside `VisitRootCache`, which is the other half of the
+deadlock. Confirmed by launching with `GlassCoder__Git__Enabled=false`, which
+opened the window.
+
+The regression test was then checked against the bug rather than merely run: the
+`Func<ChangesViewModel>` registration was temporarily made to resolve eagerly,
+recreating the exact cycle. The git-enabled case failed on timeout, the
+git-disabled case passed, and the change was reverted. A test for a hang that
+has never been watched to fail is a test that might be asserting nothing.
+
+**Still open**
+
+The approval flow is covered as far as the graph and no further — that the gate
+and the shell share one `ChangesViewModel`, not that a request reaches the strip
+and a decision comes back. That needs a pumped dispatcher.
+
+---
+
 ## 2026-07-27 — The git settings, in the dialog
 
 **Shipped.** A Git tab in the settings dialog with every `GitOptions` value
