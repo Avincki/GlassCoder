@@ -106,23 +106,40 @@
       </Grid>
     </Border>
 
-    <ListBox DockPanel.Dock="Left" Width="150" Margin="0" BorderThickness="0,0,1,0"
-             ItemsSource="{Binding Surfaces}" SelectedItem="{Binding SelectedSurface}">
-      <ListBox.ItemContainerStyle>
-        <Style TargetType="ListBoxItem">
-          <Setter Property="Padding" Value="14,10" />
-          <Setter Property="FontSize" Value="14" />
-        </Style>
-      </ListBox.ItemContainerStyle>
-    </ListBox>
+    <!-- The centre of the shell is a Grid rather than more docking for one reason: the
+         workspace pane is user-resizable, and a GridSplitter only works between columns. -->
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="150" />
+        <!-- MinWidths so neither side can be dragged out of existence: a content area or a
+             pane squeezed to zero pixels reads as a feature that vanished, not one resized. -->
+        <ColumnDefinition Width="*" MinWidth="300" />
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="280" MinWidth="160" />
+      </Grid.ColumnDefinitions>
 
-    <!-- The workspace pane (workplan task 39). Shell-level like the review strip, not a
-         surface: which folder the agent is in and what this session did to it stay visible
-         whichever surface is selected. -->
-    <Border DockPanel.Dock="Right" Width="280" BorderBrush="#DDDDDD" BorderThickness="1,0,0,0">
-      <views:WorkspacePane DataContext="{Binding Workspace}" />
-    </Border>
+      <ListBox Grid.Column="0" Margin="0" BorderThickness="0,0,1,0"
+               ItemsSource="{Binding Surfaces}" SelectedItem="{Binding SelectedSurface}">
+        <ListBox.ItemContainerStyle>
+          <Style TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="FontSize" Value="14" />
+          </Style>
+        </ListBox.ItemContainerStyle>
+      </ListBox>
 
-    <ContentControl Content="{Binding CurrentView}" />
+      <ContentControl Grid.Column="1" Content="{Binding CurrentView}" />
+
+      <!-- Doubles as the pane's left border, so no separate separator is needed. -->
+      <GridSplitter Grid.Column="2" Width="5" Background="#DDDDDD"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
+                    ToolTip="Drag to resize the workspace pane." />
+
+      <!-- The workspace pane (workplan task 39). Shell-level like the review strip, not a
+           surface: which folder the agent is in and what this session did to it stay visible
+           whichever surface is selected. -->
+      <views:WorkspacePane Grid.Column="3" DataContext="{Binding Workspace}" />
+    </Grid>
   </DockPanel>
 </Window>

@@ -53,8 +53,9 @@ it the root in force. 280 tests green, build clean.
   separate task if restart friction ever matters.
 - Edits made outside the agent are invisible to the tree until Refresh; a
   `FileSystemWatcher` was deliberately left out of v1.
-- Directory nodes do not roll up their children's counts, and the pane's width
-  is fixed — both easy adds if wanted.
+- Directory nodes do not roll up their children's counts — an easy add if
+  wanted. (The pane's fixed width, noted here first, became a splitter the
+  same day: the shell's centre is now a Grid so the pane edge drags.)
 
 ---
 
