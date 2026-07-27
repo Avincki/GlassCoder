@@ -76,6 +76,18 @@ public sealed class SandboxOptions
     /// <summary>Maximum processes inside the container. Zero leaves it unlimited.</summary>
     public long ProcessLimit { get; set; } = 512;
 
+    /// <summary>
+    /// Whether the <c>bash</c> tool is advertised at all (CLAUDE.md §7, workplan task 34). Off by
+    /// default: it is the last capability the harness gains and exactly as privileged as a build,
+    /// which is to say completely.
+    /// <para>
+    /// A real property rather than a bare configuration key, so it round-trips through the
+    /// settings file like every other option. Read as a key it could be set but never saved, and
+    /// the settings dialog could not offer it at all.
+    /// </para>
+    /// </summary>
+    public bool EnableBashTool { get; set; }
+
     /// <summary>Environment variables passed into the container as <c>NAME=value</c>.</summary>
     public IList<string> Environment { get; } =
     [

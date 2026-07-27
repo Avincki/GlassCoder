@@ -222,6 +222,21 @@ public sealed class UserSettingsTests
         WorkspaceRootLocator.IsUnset(@"C:\repos\GlassCoder").ShouldBeFalse();
 
     [Fact]
+    public void The_bash_switch_round_trips_through_the_settings_file()
+    {
+        // It was read straight from configuration and was not a property at all, so the dialog
+        // could not offer it and a save could not carry it.
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        GlassCoderSettings saved = Settings();
+        saved.Sandbox.EnableBashTool = true;
+        store.Save(saved);
+
+        GlassCoderSettings.ReadFrom(Configuration(store)).Sandbox.EnableBashTool.ShouldBeTrue();
+    }
+
+    [Fact]
     public void Git_settings_round_trip_through_the_settings_file()
     {
         // Until the Git section joined GlassCoderSettings the dialog could not reach it at all,

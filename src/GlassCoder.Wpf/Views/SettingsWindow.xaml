@@ -698,6 +698,20 @@
               </StackPanel>
             </GroupBox>
 
+            <GroupBox Header="The bash tool">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Enable" />
+                  <CheckBox Content="Advertise bash to the model"
+                            IsChecked="{Binding Settings.Sandbox.EnableBashTool}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="The last capability the harness gains, and exactly as privileged as running a build. It refuses outright unless the mode above is Docker, or unsandboxed execution has been permitted - there is no 'just this once' path onto the host." />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Prefer the dedicated tools wherever one fits: read_file, grep, glob, edit_file, build and run_tests are safer and give the agent better observations to reason about." />
+              </StackPanel>
+            </GroupBox>
+
             <GroupBox Header="Approval">
               <StackPanel>
                 <DockPanel Style="{StaticResource Field}">

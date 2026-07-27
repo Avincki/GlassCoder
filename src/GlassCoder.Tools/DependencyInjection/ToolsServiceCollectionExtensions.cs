@@ -73,14 +73,15 @@ public static class ToolsServiceCollectionExtensions
         AddPhase1Tools(services);
 
         // bash arrives last and only behind the sandbox (CLAUDE.md §7, workplan task 34).
-        if (configuration.GetValue(SandboxOptions.SectionName + ":EnableBashTool", false))
+        // Keyed off the property name so the switch cannot drift from the option it reads.
+        if (configuration.GetValue($"{SandboxOptions.SectionName}:{nameof(SandboxOptions.EnableBashTool)}", false))
         {
             AddBashTool(services);
         }
 
         // Version control is opt-in like bash, but runs on the host: the sandbox has neither
         // the credentials nor the network that the later push step is for (workplan task 40).
-        if (configuration.GetValue(GitOptions.SectionName + ":Enabled", false))
+        if (configuration.GetValue($"{GitOptions.SectionName}:{nameof(GitOptions.Enabled)}", false))
         {
             AddGitTools(services);
         }

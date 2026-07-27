@@ -48,12 +48,26 @@ tab genuinely renders rather than merely compiling. A settings file carrying
 `Git:Enabled` was then fed to the console host, which advertised all five git
 tools: the whole chain from saved file to registered tool, not just the halves.
 
-**Open**
+**Then, the same day: the bash switch too.**
 
-- `Sandbox:EnableBashTool` is still unreachable from the dialog, and for a
-  worse reason than git was: it is read straight from configuration with
-  `GetValue` and is not a property on `SandboxOptions` at all, so it cannot
-  round-trip until it becomes one.
+`Sandbox:EnableBashTool` became a real property on `SandboxOptions` and got a
+checkbox in the Sandbox tab, beside the guardrails that decide whether bash can
+run at all. It had been read straight from configuration with `GetValue` and
+existed nowhere as a property, so it could be set but never saved.
+
+- **Both opt-in keys are now built from `nameof`.** `$"{SandboxOptions.
+  SectionName}:{nameof(SandboxOptions.EnableBashTool)}"` cannot drift from the
+  property the settings file writes; the two literal strings could, silently,
+  and the failure mode is a capability that quietly does not appear.
+- **`ToolRegistrationTests` is new, and covers a gap that predates all of
+  this**: nothing had ever asserted which tools are advertised, or that either
+  opt-in key is spelled the way the settings file spells it. It fakes
+  `ICommandExecutor` first so `TryAddSingleton` leaves it alone and no test
+  reaches for a Docker daemon.
+- Verified the same way as the git tab: the Sandbox tab was opened through UI
+  Automation and its checkboxes enumerated (the new one among them), then a
+  settings file carrying the switch was fed to the console host, which
+  advertised `bash`.
 
 ---
 
