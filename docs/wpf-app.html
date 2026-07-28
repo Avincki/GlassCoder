@@ -963,6 +963,14 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
       </p>
 
       <p>
+        Its footer also has <b>Save to project</b>, which writes the repository-shaped sections
+        into <code>.glasscoder.json</code> at the workspace root so each project carries its own
+        paths and branch rules, and <b>Export…</b> / <b>Import…</b>, which move a whole
+        configuration between machines with the API keys re-encrypted under a passphrase. Neither
+        the project file nor a passphrase-less export ever contains a key.
+      </p>
+
+      <p>
         Each role also has a <b>Test connection</b> button, which is the fastest way to answer the
         question this whole section is really about: is anything listening, does it accept the key,
         does it serve this alias, and can it actually generate. Four steps, because those four

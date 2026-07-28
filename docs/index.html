@@ -732,6 +732,17 @@ metrics/metrics.jsonl            <span class="c"># one line per run</span></code
         <a href="settings.html">The settings guide</a> covers the layering and every tab.
       </p>
 
+      <p>
+        Settings can also live in two places that are not your machine. <b>Save to project</b>
+        writes the sections that name things inside a repository — workspace paths, context files,
+        reference directories, branch rules — into <code>.glasscoder.json</code> at the repo root,
+        so each project carries its own guardrails instead of inheriting whichever ones you last
+        typed. That file sits between your saved settings and the environment, and never contains a
+        key. <b>Export…</b> writes everything to one <code>.glassconfig</code> file for another
+        machine, with the keys re-encrypted under a passphrase — DPAPI ciphertext is bound to one
+        Windows account, so this is the only way a stored key travels.
+      </p>
+
       <h3>The sections</h3>
 
       <div class="scroller">
@@ -855,6 +866,22 @@ set GlassCoder__Logging__LogSourceContent=false</code></pre>
 
 <pre><code>glasscoder run --config config/phase0.json --goal "..."
 glasscoder run --config config/phase1.json --goal "..."</code></pre>
+
+      <p>
+        A file exported from the desktop app works here too. It keeps the single
+        <code>GlassCoder</code> root the binder reads and parks its protected keys on a sibling
+        property the binder ignores, so an export is a valid arm without being imported anywhere.
+      </p>
+
+      <div class="note">
+        <span class="tag">A project file arrives with a <code>git pull</code></span>
+        <p>
+          <code>.glasscoder.json</code> is the one configuration layer somebody else can add to
+          your machine. It is meant to be committed — that is the point of it — but it means a
+          setting that changes when you switch branch or pull is worth looking for there before
+          the environment.
+        </p>
+      </div>
     </section>
 
     <!-- ============ 4 ============ -->

@@ -593,14 +593,16 @@
     <div class="eyebrow">Settings guide</div>
     <h1>Settings, keys, and "does it work?"</h1>
     <p class="standfirst">
-      Every endpoint, alias, budget, limit and guardrail the harness has, editable in one dialog and
-      stored per user — and the four-step check that answers the only question worth asking before a
-      first run, which is whether anything is actually listening on the other side of the seam.
+      Every endpoint, alias, budget, limit and guardrail the harness has, editable in one dialog —
+      stored per user, or carried by the project it describes, or exported to a file another machine
+      can read — and the four-step check that answers the only question worth asking before a first
+      run, which is whether anything is actually listening on the other side of the seam.
     </p>
     <div class="specstrip">
       <div><b>Opens from</b> Settings… in the header</div>
       <div><b>Settings</b> %APPDATA%\GlassCoder\settings.json</div>
       <div><b>Keys</b> secrets.json · DPAPI, current user</div>
+      <div><b>Per project</b> .glasscoder.json in the repository</div>
       <div><b>Applies</b> on restart</div>
     </div>
     <div class="backlinks">
@@ -640,25 +642,42 @@
       <p>
         Nothing about the harness is hardcoded — no endpoint, no alias, no budget, no limit. That
         has always been true; what was missing was somewhere to put a change that is <em>yours</em>
-        rather than the repository's. <b>Settings…</b> in the header writes to two files under your
-        own application data directory:
+        rather than the repository's. There are now three answers, because "yours" turns out to mean
+        three different things: yours as an operator, yours as a project, and yours to carry
+        somewhere else.
       </p>
 
       <div class="scroller">
         <table>
-          <thead><tr><th>File</th><th class="m">Path</th><th>Contents</th></tr></thead>
+          <thead><tr><th>File</th><th class="m">Path</th><th>Contents</th><th>Keys</th></tr></thead>
           <tbody>
             <tr>
               <td>Settings</td>
               <td class="m">%APPDATA%\GlassCoder\settings.json</td>
               <td>Every section, in the same shape as <code>appsettings.json</code> and in the
                   clear. A configuration file you cannot read is one you cannot debug.</td>
+              <td>No</td>
             </tr>
             <tr>
               <td>Keys</td>
               <td class="m">%APPDATA%\GlassCoder\secrets.json</td>
               <td>One DPAPI blob per role, at <code>CurrentUser</code> scope. Nothing else is ever
                   written here.</td>
+              <td>DPAPI</td>
+            </tr>
+            <tr>
+              <td>Project</td>
+              <td class="m">&lt;repository&gt;\.glasscoder.json</td>
+              <td>Only the sections that name things inside a repository. Written by <b>Save to
+                  project</b>, and meant to be committed.</td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td>Export</td>
+              <td class="m">anywhere\*.glassconfig</td>
+              <td>Every section, for carrying to another machine. Written by <b>Export…</b>, read
+                  by <b>Import…</b>.</td>
+              <td>Passphrase</td>
             </tr>
           </tbody>
         </table>
@@ -696,10 +715,139 @@
         </p>
       </div>
 
+      <h3>Settings that belong to the project, not to you</h3>
+
       <p>
-        <b>Open folder</b> in the footer opens that directory, creating it if the dialog has never
-        saved. <b>Reset</b> deletes both files and drops you back to whatever
-        <code>appsettings.json</code> says — it is enabled only when there is something to delete.
+        Some settings are not yours at all. <code>Workspace:WritablePaths</code>,
+        <code>Context:RootContextFiles</code>, <code>Verification:ExtraReferenceDirectories</code>
+        and <code>Git:PushableBranches</code> all name things <em>inside</em> one repository, so a
+        single machine-wide copy of them is correct for exactly one project and wrong for every
+        other. <b>Save to project</b> writes those sections into the repository itself, where they
+        travel with it.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Goes in the project file</th><th>Stays on the machine</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>Workspace</code> · <code>Context</code> · <code>Verification</code> ·
+                  <code>VerificationLadder</code> · <code>Git</code> · <code>Provenance</code></td>
+              <td><code>Models</code> · <code>Sandbox</code> · <code>Agent</code> ·
+                  <code>Approval</code> · <code>Critique</code> · <code>Orchestration</code> ·
+                  <code>Tools</code> · <code>Logging</code> · <code>Metrics</code> ·
+                  <code>Telemetry</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The split is one rule, not a taste: a section belongs to the project when its values name
+        paths, files or branches that exist in the repository. Everything else describes the machine
+        or the experiment — which servers are reachable, where commands may run, how much to spend —
+        and one copy of that serves every project you open.
+      </p>
+
+      <div class="note">
+        <span class="tag">A project file never contains a key, and not by policy</span>
+        <p>
+          The removal is unconditional. <code>.glasscoder.json</code> is one <code>git add</code>
+          away from being public, so the store strips every <code>ApiKey</code> on the way out
+          whether one was set or not — there is no caller that could opt back in, and therefore no
+          caller that could get it wrong.
+        </p>
+        <p>
+          It also omits <code>Workspace:RepoRoot</code>. The file's own location <em>is</em> the
+          root, so writing an absolute path into it would only be a way for the file to be wrong
+          after somebody clones the project somewhere else. The configuration layer supplies the
+          containing directory instead.
+        </p>
+      </div>
+
+      <h3>Carrying a configuration to another machine</h3>
+
+      <p>
+        Copying <code>settings.json</code> by hand has always worked, because it is plain JSON with
+        a single <code>GlassCoder</code> root. What copying cannot do is carry the keys: DPAPI
+        ciphertext is bound to one Windows account, so <code>secrets.json</code> arrives on the
+        second machine decrypting to nothing. <b>Export…</b> exists for that one problem.
+      </p>
+
+      <p>
+        It writes every section to a single <code>.glassconfig</code> file and asks for a
+        passphrase. The keys are re-encrypted under it with AES-GCM, using a key derived by
+        PBKDF2-HMAC-SHA256 — so they leave DPAPI under something you know rather than something
+        this machine holds. <b>Import…</b> reads the file back, decrypts them, and loads the result
+        into the dialog for review; the ordinary <b>Save</b> is what puts them back under DPAPI
+        locally.
+      </p>
+
+      <div class="note">
+        <span class="tag">There is no option that writes a key in the clear</span>
+        <p>
+          Leaving the passphrase empty exports the settings <em>without</em> the keys. That is the
+          only other choice on offer. A file that quietly contains a usable credential is how keys
+          reach places nobody meant to send them, and an export is precisely the kind of file that
+          gets attached to a message.
+        </p>
+        <p>
+          Forgetting the passphrase is unrecoverable by design — there is no escrow and nothing to
+          reset. The settings still import; the keys are entered again by hand. AES-GCM
+          authenticates, so a wrong passphrase is <em>reported</em> rather than quietly producing a
+          configuration with no keys that fails later as a puzzling 401.
+        </p>
+      </div>
+
+      <p>
+        The workspace root is the one setting an import does not bring across. It is intrinsically
+        local — a path from the machine the file came from almost certainly names nothing here — so
+        it stays whatever the workspace pane chose.
+      </p>
+
+      <div class="note">
+        <span class="tag">An export is also a valid <code>--config</code> file</span>
+        <p>
+          The protected keys hang off a sibling <code>Secrets</code> property rather than being
+          folded into the settings, so the <code>GlassCoder</code> root is untouched and the binder
+          reads the file like any other. An exported configuration can be handed straight to
+          <code>--config</code> as an ablation arm without being imported anywhere; the binder
+          ignores the sibling property.
+        </p>
+      </div>
+
+      <h3>The footer</h3>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Footer.png"
+               alt="The settings dialog footer. A line of grey text reads: Save to project writes C:\repos\Sorter\.glasscoder.json, carrying Workspace, Context, Verification, VerificationLadder, Git, Provenance and never an API key. The project then brings its own paths and branches wherever it is cloned. Below it, from the left: Open folder, a greyed-out Reset, Import…, Export…, Save to project, then the status text 'Loaded the effective configuration.', and on the right Save and restart, Save and Cancel.">
+        </div>
+        <figcaption>
+          The footer, with no settings yet saved on this machine — which is why <b>Reset</b> is
+          greyed out and the summary line describes what <b>Save to project</b> <em>would</em>
+          write rather than what is in force. The eight tab screenshots elsewhere on this page
+          predate <b>Import…</b>, <b>Export…</b> and <b>Save to project</b>; this is the current
+          footer.
+        </figcaption>
+      </figure>
+
+      <p>
+        <b>Open folder</b> opens the settings directory, creating it if the dialog has never saved.
+        <b>Reset</b> deletes both per-user files and drops you back to whatever
+        <code>appsettings.json</code> says — it is enabled only when there is something to delete,
+        and it does not touch the project file. <b>Import…</b> and <b>Export…</b> carry a whole
+        configuration in and out. <b>Save to project</b> writes the project-shaped sections into the
+        repository, and is enabled only once a real workspace root has been chosen. The line above
+        the buttons names the exact file each of them would write, and says whether one is already
+        in force.
+      </p>
+
+      <p>
+        Import and <b>Save to project</b> both <em>populate</em> rather than apply. An import loads
+        the file into the dialog for review and writes nothing until you press <b>Save</b>; that is
+        also what puts the imported keys back under DPAPI, through the same path every other save
+        takes rather than a second one that would have to get the same thing right twice.
       </p>
     </section>
 
@@ -725,20 +873,27 @@
             <tr>
               <td>2 · Saved settings</td>
               <td class="m">%APPDATA%\GlassCoder\*.json</td>
-              <td>The shipped defaults. This is what the dialog writes.</td>
+              <td>The shipped defaults. This is what <b>Save</b> writes.</td>
             </tr>
             <tr>
-              <td>3 · Environment</td>
+              <td>3 · The project</td>
+              <td class="m">&lt;repository&gt;\.glasscoder.json</td>
+              <td>Your machine-wide settings, for this project only. The machine cannot know one
+                  project's writable paths from another's, so the project gets the last word on
+                  the sections that describe it.</td>
+            </tr>
+            <tr>
+              <td>4 · Environment</td>
               <td class="m">GlassCoder__Agent__MaxSteps=50</td>
-              <td>Saved settings. Double underscore separates the levels.</td>
+              <td>Saved settings, and the project. Double underscore separates the levels.</td>
             </tr>
             <tr>
-              <td>4 · Command line</td>
+              <td>5 · Command line</td>
               <td class="m">--GlassCoder:Agent:MaxSteps=50</td>
               <td>The environment.</td>
             </tr>
             <tr>
-              <td>5 · The arm</td>
+              <td>6 · The arm</td>
               <td class="m">--config config/phase1.json</td>
               <td>Everything above it. An ablation arm is added last, on purpose.</td>
             </tr>
@@ -749,11 +904,13 @@
       <div class="note">
         <span class="tag">Position is the load-bearing decision</span>
         <p>
-          The two saved-settings sources are inserted <em>ahead of</em> the environment-variable
-          source rather than appended to the end. Appending them would have been one line shorter
-          and would have let a preference saved once, on one machine, redefine what
-          <code>config/phase1.json</code> means. Arms have to mean the same thing everywhere, or no
-          measurement taken in one applies to another.
+          The saved-settings sources — and the project file with them — are inserted <em>ahead
+          of</em> the environment-variable source rather than appended to the end. Appending them
+          would have been one line shorter and would have let a preference saved once, on one
+          machine, redefine what <code>config/phase1.json</code> means. Arms have to mean the same
+          thing everywhere, or no measurement taken in one applies to another. A project file is a
+          saved preference like any other, so it occupies the same band and takes the same bargain:
+          it beats the machine, it loses to the arm.
         </p>
         <p>
           Which environment source, exactly, turned out to matter as much as the rule.
@@ -770,7 +927,9 @@
         The practical consequence: if a value refuses to change, something above layer 2 is setting
         it. Check the environment first — an exported <code>GlassCoder__…</code> variable outlives
         the shell that set it, and the dialog will keep showing its value no matter how many times
-        you save.
+        you save. Then check the project: a <code>.glasscoder.json</code> committed by somebody else
+        is a layer you did not put there, and it is the one layer that arrives with a
+        <code>git pull</code>.
       </p>
 
       <h3>Saving does not apply</h3>
@@ -935,6 +1094,13 @@
         Prefer the environment variable for a hosted arm you intend to run in CI, and the stored key
         for a workstation. Both work; only one of them survives being copied to another machine, and
         that is the point of each.
+      </p>
+
+      <p>
+        A stored key can still be <em>moved</em> to another machine, but only deliberately:
+        <b>Export…</b> re-encrypts it under a passphrase you type, because the DPAPI blob itself is
+        bound to this Windows account and cannot travel. See
+        <a href="#where">carrying a configuration to another machine</a>.
       </p>
 
       <div class="note">
@@ -1151,6 +1317,34 @@ the model server is running and serving this endpoint.</code></pre>
           this exact setting. It saves like any other setting and offers a restart, because the
           path guard, the sandbox mounts and the context all bind their root once at startup —
           re-rooting only the tree would show you a folder the agent is not in.
+        </p>
+      </div>
+
+      <h3>The rest of this tab is per project, and used not to be</h3>
+
+      <p>
+        Readable paths, writable paths and denied globs all name directories inside <em>one</em>
+        repository. Stored per user, they followed you to the next project: choosing a new root
+        changed the root and left the previous project's writable set in force over it. Nothing
+        announced this, and the writable set is the one setting where being wrong means writing
+        somewhere nobody agreed to.
+      </p>
+
+      <p>
+        <b>Save to project</b> in the footer is the answer. It writes this tab — with Context,
+        Verification, the ladder, Git and Provenance — into <code>.glasscoder.json</code> at the
+        repository root, so each project carries its own guardrails and picks them up again the
+        next time it is opened. The line above the footer buttons says whether the current project
+        already has one.
+      </p>
+
+      <div class="note">
+        <span class="tag">Empty still means nothing, per project</span>
+        <p>
+          A project file does not soften the rule that an empty writable list permits no writes at
+          all. It only means each project gets to state its own list, rather than inheriting
+          whichever one you last typed somewhere else. A project that says nothing about writable
+          paths falls through to your machine-wide setting, exactly as before.
         </p>
       </div>
 
@@ -1657,14 +1851,40 @@ the model server is running and serving this endpoint.</code></pre>
                   and validated in the same words the startup validators use.</td>
             </tr>
             <tr>
+              <td class="m">SettingsDocument</td>
+              <td class="m">Core/Configuration</td>
+              <td>The shape settings take on disk, and the <em>one</em> implementation of lifting
+                  the keys out of a document. Three files now carry settings; a second copy of that
+                  step would be a second chance to leave a key in one.</td>
+            </tr>
+            <tr>
               <td class="m">UserSettingsStore</td>
               <td class="m">Core/Configuration</td>
-              <td>Writes both files atomically, and lifts the keys out of the document on the way.</td>
+              <td>Writes both per-user files atomically, protecting the keys with DPAPI.</td>
+            </tr>
+            <tr>
+              <td class="m">ProjectSettingsStore</td>
+              <td class="m">Core/Configuration</td>
+              <td>Writes <code>.glasscoder.json</code>, narrowed to the project-shaped sections and
+                  stripped of every key and of the repository root.</td>
+            </tr>
+            <tr>
+              <td class="m">SettingsTransfer</td>
+              <td class="m">Core/Configuration</td>
+              <td>Export and import. Reports a wrong passphrase rather than importing settings that
+                  silently have no keys.</td>
             </tr>
             <tr>
               <td class="m">DpapiSecretProtector</td>
               <td class="m">Core/Configuration</td>
               <td>Encrypts at rest, and reports honestly when it cannot.</td>
+            </tr>
+            <tr>
+              <td class="m">PassphraseSecretProtector</td>
+              <td class="m">Core/Configuration</td>
+              <td>The portable counterpart: AES-GCM under a PBKDF2-derived key. GCM because it
+                  authenticates — a truncated or edited export fails to decrypt rather than
+                  yielding a plausible wrong key.</td>
             </tr>
             <tr>
               <td class="m">ModelConnectionProbe</td>
@@ -1689,9 +1909,34 @@ the model server is running and serving this endpoint.</code></pre>
 
       <p>
         The configuration sources are added in <code>GlassCoderHost</code>, the one bootstrap both
-        front ends share — so the console host reads the same saved settings and the same keys as the
-        desktop app. Two front ends binding different configuration would slowly become two different
-        agents, and no measurement taken in one would apply to the other.
+        front ends share — so the console host reads the same saved settings, the same project file
+        and the same keys as the desktop app. Two front ends binding different configuration would
+        slowly become two different agents, and no measurement taken in one would apply to the other.
+      </p>
+
+      <div class="note">
+        <span class="tag">Why the project file's provider is built by hand</span>
+        <p>
+          <code>AddJsonFile</code> given an absolute path resolves a
+          <code>PhysicalFileProvider</code> with <code>ExclusionFilters.Sensitive</code>, which
+          refuses to serve any <em>dot-prefixed</em> file. A project file named like every other
+          project file — <code>.glasscoder.json</code>, in the manner of
+          <code>.editorconfig</code> — was therefore skipped, and skipped in silence, because the
+          source is optional.
+        </p>
+        <p>
+          The provider is constructed explicitly with <code>ExclusionFilters.None</code> for that
+          reason. It is the kind of default that produces no error, no log line and no file: the
+          feature simply does nothing, which is the hardest failure to notice.
+        </p>
+      </div>
+
+      <p>
+        The project layer is added twice, and deliberately. <code>GlassCoderHost</code> adds it
+        during the shared bootstrap, which is enough for the console host — that is run from the
+        repository it works on, so an unset root really does mean "here". The desktop app adds it
+        again after it has discovered a root, because for a double-clicked window "here" is the
+        folder the executable lives in and the project is somewhere else entirely.
       </p>
 
       <div class="note">
@@ -1717,8 +1962,39 @@ the model server is running and serving this endpoint.</code></pre>
             <tr>
               <td>A value snaps back after saving</td>
               <td>Something above layer 2 is setting it — almost always a leftover
-                  <code>GlassCoder__…</code> environment variable, or the <code>--config</code> arm
-                  the app was launched with.</td>
+                  <code>GlassCoder__…</code> environment variable, the project's own
+                  <code>.glasscoder.json</code>, or the <code>--config</code> arm the app was
+                  launched with.</td>
+            </tr>
+            <tr>
+              <td>A setting changes when you switch project</td>
+              <td>Working as intended, if that project carries a <code>.glasscoder.json</code>. The
+                  line above the footer buttons says whether one is in force. Delete the file to
+                  drop back to your machine-wide settings.</td>
+            </tr>
+            <tr>
+              <td>A project file appears to do nothing</td>
+              <td>Check it is at the workspace root the pane shows, not at the solution root or a
+                  parent. The file is found by location, never by search — one directory, no walking
+                  up, so there is never a question of which of two files won.</td>
+            </tr>
+            <tr>
+              <td>"That passphrase does not open this file's API keys"</td>
+              <td>The passphrase is wrong, and nothing was imported. AES-GCM authenticates, so this
+                  is a certainty rather than a guess. Import without a passphrase to bring the
+                  settings across and enter the keys by hand.</td>
+            </tr>
+            <tr>
+              <td>An import brought no keys</td>
+              <td>Either the file was exported without a passphrase — in which case it never had
+                  any — or you left the passphrase empty on the way in. The status line says how
+                  many stayed behind.</td>
+            </tr>
+            <tr>
+              <td>An imported configuration points at the wrong repository</td>
+              <td>It should not: the workspace root is deliberately <em>not</em> imported, because a
+                  path from another machine names nothing here. If the root is wrong, it was already
+                  wrong — set it in the workspace pane.</td>
             </tr>
             <tr>
               <td>Save did nothing, and red text appeared</td>
@@ -1792,8 +2068,10 @@ the model server is running and serving this endpoint.</code></pre>
             </tr>
             <tr>
               <td>You want the shipped configuration back</td>
-              <td><b>Reset</b> deletes both files. The next start falls back to
-                  <code>appsettings.json</code>.</td>
+              <td><b>Reset</b> deletes both per-user files. The next start falls back to
+                  <code>appsettings.json</code> — unless the project carries a
+                  <code>.glasscoder.json</code>, which <b>Reset</b> does not touch. Delete that
+                  yourself; it belongs to the repository, not to the dialog.</td>
             </tr>
           </tbody>
         </table>

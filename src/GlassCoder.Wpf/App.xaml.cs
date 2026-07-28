@@ -31,6 +31,10 @@ public partial class App : Application
         HostApplicationBuilder builder = GlassCoderHost.CreateBuilder(e?.Args);
         UseDiscoveredWorkspaceWhenUnset(builder);
 
+        // Again, now that the root is known: the first call inside CreateBuilder ran while the
+        // root was still the placeholder, which for a window means the executable's own folder.
+        GlassCoderHost.UseProjectSettings(builder);
+
         // The UI's own registrations sit on top of the shared bootstrap. They live in
         // AddGlassCoderDesktop so the graph the app builds is the graph a test can build.
         builder.Services.AddGlassCoderDesktop(Dispatcher);

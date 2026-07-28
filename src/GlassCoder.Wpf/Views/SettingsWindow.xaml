@@ -81,10 +81,22 @@
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
+        <TextBlock Text="{Binding ProjectSummary}" Foreground="#546E7A" FontSize="11"
+                   TextWrapping="Wrap" Margin="0,0,0,8" />
+
         <DockPanel>
           <Button DockPanel.Dock="Left" Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,6,0" />
-          <Button DockPanel.Dock="Left" Content="Reset" Command="{Binding ResetCommand}"
+          <Button DockPanel.Dock="Left" Content="Reset" Command="{Binding ResetCommand}" Margin="0,0,6,0"
                   ToolTip="Delete the saved settings and fall back to appsettings.json." />
+          <Button DockPanel.Dock="Left" Content="Import…" Command="{Binding ImportCommand}" Margin="0,0,6,0"
+                  AutomationProperties.AutomationId="ImportButton"
+                  ToolTip="Load a configuration file exported from another machine. Nothing is saved until you press Save." />
+          <Button DockPanel.Dock="Left" Content="Export…" Command="{Binding ExportCommand}" Margin="0,0,6,0"
+                  AutomationProperties.AutomationId="ExportButton"
+                  ToolTip="Write everything to one portable file. A passphrase encrypts the API keys so they can be read on another machine." />
+          <Button DockPanel.Dock="Left" Content="Save to project" Command="{Binding SaveToProjectCommand}"
+                  AutomationProperties.AutomationId="SaveToProjectButton"
+                  ToolTip="Write the workspace, context, verification, git and provenance settings into this project's own .glasscoder.json. Never includes an API key." />
           <!-- IsCancel, not a command: closing a modal dialog with Escape is the window's own
                job, and routing it through a command as well would set DialogResult twice. -->
           <Button DockPanel.Dock="Right" Content="Cancel" IsCancel="True" Margin="6,0,0,0" />

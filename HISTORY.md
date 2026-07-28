@@ -9,6 +9,92 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-07-28 — Settings that travel: per project, and between machines
+
+**Shipped.** Three files now carry settings instead of one pair. The per-user
+`settings.json` / `secrets.json` are unchanged; a project can carry
+`.glasscoder.json` at its root; and `Export…` / `Import…` move a whole
+configuration as a `.glassconfig` file with the API keys re-encrypted under a
+passphrase. 361 tests green.
+
+**Decided**
+
+- **Copying settings never needed a feature; carrying the keys did.** The
+  settings folder was already openable and `settings.json` is already plain
+  JSON, so an export button over that is a wrapper around Explorer. The thing
+  file-copying cannot do is the keys: DPAPI ciphertext is bound to one Windows
+  account, so a copied `secrets.json` arrives decrypting to nothing. That is the
+  whole justification for the export format, and it is why the passphrase is not
+  optional decoration.
+- **There is no "include keys in plain text" option.** Empty passphrase means
+  the keys are left out. An export is exactly the kind of file that gets
+  attached to a message, and a file that quietly contains a usable credential is
+  how keys reach places nobody meant to send them.
+- **AES-GCM rather than CBC, and PBKDF2 at 600k iterations.** GCM authenticates,
+  so a wrong passphrase is *reported* rather than yielding a plausible wrong key
+  that only fails later at the endpoint as a puzzling 401. All values failing to
+  decrypt is therefore a certainty about the passphrase, not a guess.
+- **A section belongs to the project when its values name things inside the
+  repository.** Workspace, Context, Verification, VerificationLadder, Git,
+  Provenance. Everything else — the served roles, the sandbox, budgets, sinks —
+  describes the machine or the experiment and stays where one copy serves every
+  project. One rule, not a taste, so the next section added has an obvious home.
+- **The project file never carries a key, unconditionally.** Not "only when one
+  is set" — the strip runs whether or not there is anything to strip, because
+  `.glasscoder.json` is one `git add` from being public and a conditional is a
+  thing a caller could get wrong.
+- **It omits `Workspace:RepoRoot` too.** The file's location *is* the root, so an
+  absolute path inside it would only be a way to be wrong after somebody clones
+  the project elsewhere. The configuration layer supplies the containing
+  directory instead.
+- **The project layer sits in the same band as saved settings** — above the
+  machine, below the environment and `--config`. A project is a saved preference
+  like any other and must not redefine what an arm means.
+- **Import populates, it does not apply.** The imported keys go back under DPAPI
+  through the ordinary `Save`, not through a second write path that would have
+  to get the same thing right twice. The workspace root is deliberately not
+  imported: a path from another machine names nothing here.
+- **`SettingsDocument` exists so that lifting keys out of a document has exactly
+  one implementation.** Three writers now produce settings files; a second copy
+  of that step would be a second chance to leave a key in one.
+
+**The bug worth remembering**
+
+`AddJsonFile` given an absolute path resolves a `PhysicalFileProvider` with
+`ExclusionFilters.Sensitive`, which **refuses to serve dot-prefixed files**. So
+`.glasscoder.json` was skipped — and skipped in silence, because the source is
+optional. No error, no log line, no file: the feature simply did nothing. The
+provider is now constructed explicitly with `ExclusionFilters.None`.
+
+This was caught only because the layering test asserted the project value
+actually won, rather than that the file had been written. A test that stopped at
+"the file exists" would have passed.
+
+**Verified**
+
+Beyond the 13 new unit tests, the dialog was driven in the real window through
+UI Automation: `Save to project` wrote a file whose sections were exactly
+`Workspace, Context, Verification, VerificationLadder, Git, Provenance` with no
+`Models`, no `ApiKey` and no `RepoRoot`; `Export…` produced `aes-gcm-pbkdf2` at
+600000 iterations with no plaintext key; and that app-produced file was then
+imported back to the exact key the app held — confirming the passphrase typed
+into the `PasswordBox` is the one that opens it.
+
+**Open**
+
+- The eight tab screenshots in `docs/settings.html` predate the three new footer
+  buttons. A separate footer figure documents them; regenerating all eight would
+  mean re-tuning roughly thirty hand-placed callout percentages.
+- `--config` is still ignored by the WPF app. The console host parses it
+  (`CommandLine.cs`); `App.xaml.cs` passes `e.Args` but never a `configPath`.
+  Pre-existing, and a one-line fix.
+- Removing a *default* list entry still does not survive a reload — the binder
+  appends to lists, so `appsettings.json` reasserts it and the deduplicating
+  reader can only collapse duplicates. Pre-existing; it affects import the same
+  way it already affects save.
+
+---
+
 ## 2026-07-27 — Dark chrome around the content
 
 **Shipped.** The surface list and the workspace pane are now dark blue

@@ -1,5 +1,6 @@
 using GlassCoder.Core.Configuration;
 using GlassCoder.Core.DependencyInjection;
+using GlassCoder.Tools.Guardrails;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -42,6 +43,10 @@ public static class GlassCoderHost
         UserSettingsStore userSettings = new(protector);
         builder.Configuration.AddGlassCoderUserSettings(userSettings);
 
+        // The project's own settings, if it has any. Layered here rather than in one front end so
+        // a console run and a window opened on the same repository still agree about it.
+        UseProjectSettings(builder);
+
         if (!string.IsNullOrWhiteSpace(configPath))
         {
             builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
@@ -49,9 +54,33 @@ public static class GlassCoderHost
 
         builder.Services.AddSingleton<ISecretProtector>(protector);
         builder.Services.AddSingleton<IUserSettingsStore>(userSettings);
+        builder.Services.AddSingleton<IProjectSettingsStore, ProjectSettingsStore>();
+        builder.Services.AddSingleton<ISettingsTransfer, SettingsTransfer>();
         builder.Services.AddGlassCoderLogging(builder.Configuration);
         builder.Services.AddGlassCoder(builder.Configuration);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Layers the project's <c>.glasscoder.json</c> over whatever the configuration says so far.
+    /// <para>
+    /// Called once during <see cref="CreateBuilder"/>, which is enough for the console host - it
+    /// is run from the repository it works on, so the unset root really does mean "here". The
+    /// desktop app calls it a second time after it has discovered a root, because for a
+    /// double-clicked window "here" is the folder the executable lives in and the project file is
+    /// somewhere else entirely.
+    /// </para>
+    /// </summary>
+    public static void UseProjectSettings(HostApplicationBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        string? configured = builder.Configuration[$"{WorkspaceOptions.SectionName}:RepoRoot"];
+        string root = WorkspaceRootLocator.IsUnset(configured)
+            ? Directory.GetCurrentDirectory()
+            : configured!;
+
+        builder.Configuration.AddGlassCoderProjectSettings(root);
     }
 }
