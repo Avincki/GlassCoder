@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Design proposal: a solution tool set that lets the agent create, list, add to and remove from a .sln — using dotnet sln as the engine while routing every write through GlassCoder's change log, approval gate and path guard.">
+<title>GlassCoder — Proposal: solution configuration</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  /* ---------- sections ---------- */
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  /* ---------- lesson framing ---------- */
+
+  .do {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    border-radius: 0 4px 4px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.3rem;
+    max-width: var(--measure);
+  }
+
+  .do .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+
+  .do p:last-child { margin-bottom: 0; }
+  .do .typed { font-family: var(--mono); font-size: 0.86rem; color: var(--ink); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  /* ---------- WPF window mockups ----------
+     Deliberately fixed light colours: these reproduce the real WPF window, which is
+     light-themed regardless of what theme this page is being read in. Values are taken
+     from MainWindow.xaml, the three views and DiffConverters.cs. */
+
+  .ui {
+    border: 1px solid var(--rule-strong);
+    border-radius: 5px;
+    overflow: hidden;
+    background: #FFFFFF;
+    color: #131A1F;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin: 0 0 0.6rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.13);
+  }
+
+  .ui-bar { background: #1F2933; padding: 0.55rem 0.7rem; display: flex; gap: 0.5rem; align-items: center; }
+  .ui-bar .brand { color: #FFFFFF; font-weight: 700; font-size: 0.92rem; margin-right: 0.4rem; white-space: nowrap; }
+
+  .ui-main { display: flex; align-items: stretch; }
+
+  .ui-nav { flex: 0 0 8.5rem; border-right: 1px solid #C9D1D5; background: #FFFFFF; padding: 0.15rem 0; }
+  .ui-nav div { padding: 0.42rem 0.7rem; font-size: 0.82rem; }
+  .ui-nav div.sel { background: #CCE4F7; }
+
+  .ui-content { flex: 1; min-width: 0; padding: 0.55rem 0.6rem; }
+
+  .ui-label { font-weight: 700; font-size: 0.78rem; margin: 0.55rem 0 0.25rem; }
+  .ui-sub { color: #444444; font-size: 0.75rem; margin: 0 0 0.35rem; }
+
+  .ui-status {
+    background: #ECEFF1;
+    color: #263238;
+    padding: 0.38rem 0.7rem;
+    border-top: 1px solid #C9D1D5;
+    font-size: 0.76rem;
+  }
+
+  /* approval banner — ChangesView.xaml */
+  .ui-approval {
+    background: #FFF8E1;
+    border: 1px solid #E0B200;
+    border-radius: 4px;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .ui-approval .hdr { font-weight: 700; font-size: 0.78rem; }
+  .ui-approval .sub { color: #5D4C00; font-size: 0.75rem; margin: 0.1rem 0 0.4rem; }
+  .ui-approval .acts { margin-top: 0.45rem; display: flex; gap: 0.45rem; }
+
+  .ui-btn {
+    background: linear-gradient(#FCFCFD, #E6EAEC);
+    border: 1px solid #A6AFB5;
+    border-radius: 3px;
+    padding: 0.2rem 0.85rem;
+    color: #1A1A1A;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  /* diff lines — DiffConverters.cs */
+  .dl {
+    display: grid;
+    grid-template-columns: 2.3rem 2.3rem minmax(0, 1fr);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+  }
+
+  .dl .n { color: #808080; text-align: right; padding-right: 0.45rem; }
+  .dl .t { white-space: pre; overflow-x: auto; }
+  .dl.add { background: #E8F5E9; }
+  .dl.add .t { color: #1B5E20; }
+  .dl.del { background: #FFEBEE; }
+  .dl.del .t { color: #B00020; }
+  .dl.ctx .t { color: #333333; }
+
+  .diffbox { border: 1px solid #E3E8EA; border-radius: 2px; overflow: hidden; margin: 0 0 0.6rem; }
+
+  figcaption {
+    font-size: 0.8rem;
+    color: var(--faint);
+    margin: 0 0 1.5rem;
+    font-family: var(--mono);
+  }
+
+  figure { margin: 0; }
+
+  /* ---------- tables ---------- */
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    .ui-nav { flex-basis: 6.5rem; }
+    .ui-bar { flex-wrap: wrap; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Proposal · not built</div>
+    <h1>Solution configuration</h1>
+    <p class="standfirst">
+      A tool set that lets the agent shape the <code>.sln</code> it is working in — create one,
+      list it, add a project, remove a project — using <code>dotnet sln</code> as the engine while
+      every write still passes through the change log, the approval gate and the path guard that
+      make an <code>edit_file</code> honest.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> proposal</div>
+      <div><b>Engine</b> dotnet sln</div>
+      <div><b>Runs on</b> the host, like git</div>
+      <div><b>Writes through</b> the change log</div>
+      <div><b>Oracle</b> build .</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="claude-second-opinion.html">Design note: a second opinion →</a>
+      <a href="mcp-retrieval.html">Proposal: retrieval over MCP →</a>
+      <a href="harness-advisor.html">Proposal: the harness advisor →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#gap">0 · The gap this closes</a></li>
+      <li><a href="#verbs">1 · Four verbs</a></li>
+      <li><a href="#gated">2 · Keeping the write visible</a></li>
+      <li><a href="#guard">3 · Guardrails and validation</a></li>
+      <li><a href="#host">4 · Why the host, not the sandbox</a></li>
+      <li><a href="#oracle">5 · build is the oracle</a></li>
+      <li><a href="#config">6 · Configuration and registration</a></li>
+      <li><a href="#edges">7 · slnx and the edges</a></li>
+      <li><a href="#work">8 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note refuse">
+      <span class="tag">This describes something that does not exist</span>
+      <p>
+        Nothing here is implemented. Where this page quotes the repository, that is current code.
+        Proposed configuration keys, verbs and schema fields are marked as proposed.
+      </p>
+    </div>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="gap">
+      <div class="part-head"><span class="num">00</span><h2>The gap this closes</h2></div>
+
+      <p>
+        GlassCoder can read, grep, glob, create, edit, build and test. What it cannot do is change
+        the <em>shape</em> of the solution it is working in. A <code>.sln</code> is where projects
+        are wired together, and the agent has no verb for it: it can write a new
+        <code>Widget.csproj</code> with <code>create_file</code> and then have no way to tell the
+        solution the project exists.
+      </p>
+
+      <p>
+        The suite already names this gap. Task&nbsp;6 in the task suite is
+        <em>“wire a new module into the build”</em>, and its oracle is a build that only goes green
+        once the new project is part of the solution. Today the only routes to that are the two
+        this proposal exists to replace:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Route today</th><th>Why it is wrong</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Hand-edit the <code>.sln</code> with <code>edit_file</code></b></td>
+              <td>A <code>.sln</code> is a fragile format — a per-project <code>GUID</code>, a
+                  matching entry in <code>ProjectConfigurationPlatforms</code>, and folder nesting
+                  maps in <code>NestedProjects</code>. Replacing one exact string cannot keep those
+                  three in sync, so the agent corrupts the solution as often as it configures it.</td>
+            </tr>
+            <tr>
+              <td><b>Shell out to <code>dotnet sln</code> with <code>bash</code></b></td>
+              <td>Right engine, wrong seam. <code>bash</code> is opt-in and sandbox-gated, and — the
+                  reason <code>CreateFileTool</code> refuses to be a <code>bash</code> call — it
+                  <em>writes around the change log</em>. The change would never appear in the diff
+                  view or reach the approval gate, so the UI would stop being an honest record of
+                  what the agent did.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">The distinction that matters</span>
+        <p>
+          Editing a project's <em>contents</em> is already <code>edit_file</code>'s job, and
+          building or restoring is <code>build</code>'s. This proposal is only the one thing neither
+          does: editing the <b>membership and structure</b> of a solution, safely enough that it can
+          be a standard tool rather than a privileged one.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="verbs">
+      <div class="part-head"><span class="num">01</span><h2>Four verbs, one tool set</h2></div>
+
+      <p>
+        A single <code>SolutionTool : IToolSet</code> under <code>src/GlassCoder.Tools/Solution/</code>
+        — the folder mirrors <code>Git/</code>, and the tool mirrors <code>GitTool</code>: a set of
+        related verbs that wrap a well-behaved CLI through <code>IProcessRunner</code>. Each verb is
+        a method carrying <code>[GlassCoderTool]</code>, with a <code>[Description]</code> on the
+        method and on every parameter, so the JSON schema is generated from the signature and cannot
+        drift from the executor.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Wire name</th><th class="m">Order</th><th>dotnet</th><th>Does</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">solution_list_projects <span class="pill info">read-only</span></td>
+              <td class="m">90</td>
+              <td class="m">sln &lt;sln&gt; list</td>
+              <td>Returns the projects in a solution, with a truthful count even when the list is
+                  capped. Built first: it proves the argv, the parse and the path guard with zero
+                  write risk.</td>
+            </tr>
+            <tr>
+              <td class="m">create_solution</td>
+              <td class="m">91</td>
+              <td class="m">new sln</td>
+              <td>Creates a new solution. Refuses to overwrite an existing file — creation and
+                  modification stay separate verbs, exactly as <code>create_file</code> does.</td>
+            </tr>
+            <tr>
+              <td class="m">solution_add_project</td>
+              <td class="m">92</td>
+              <td class="m">sln &lt;sln&gt; add</td>
+              <td>Adds a project, optionally nested under a named solution folder. <code>dotnet</code>
+                  assigns the GUID and writes the configuration map.</td>
+            </tr>
+            <tr>
+              <td class="m">solution_remove_project</td>
+              <td class="m">93</td>
+              <td class="m">sln &lt;sln&gt; remove</td>
+              <td>Removes a project and its configuration entries, leaving the project files on
+                  disk.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Each verb returns one typed <code>ToolObservation&lt;T&gt;</code> — a small record with
+        <code>[Description]</code> on every property, like <code>GitCommitResult</code> — carrying
+        the solution path, the action, the new project total and a <code>ChangeId</code> the desktop
+        change view can deep-link to. The <code>Order</code> values start at 90 so these sit after
+        the git verbs and never precede <code>build</code> or <code>run_tests</code> in the
+        advertised list.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="gated">
+      <div class="part-head"><span class="num">02</span><h2>Keeping the write visible and gated</h2></div>
+
+      <p>
+        This is the whole design problem. <code>dotnet sln add</code> writes the file the instant it
+        runs, which would sail straight past the approval gate. The fix is to let
+        <code>dotnet</code> do the edit against a <b>preview copy</b>, review the result, and only
+        then write it for real:
+      </p>
+
+<pre><code><span class="c">// 1. Guard both paths. The .sln must be writable; the project must be readable</span>
+<span class="c">//    and inside the workspace. A rejection short-circuits to path_not_allowed.</span>
+<span class="c">// 2. before = the current .sln text  (empty for create_solution)</span>
+<span class="c">// 3. Copy  GlassCoder.sln → GlassCoder.glasscoder-preview.sln  in the SAME dir,</span>
+<span class="c">//    so the project's relative paths still resolve, then run dotnet against it:</span>
+dotnet sln GlassCoder.glasscoder-preview.sln add src/Widget/Widget.csproj
+<span class="c">// 4. after = the preview's text; delete the preview file</span>
+<span class="c">// 5. change = _changes.Propose(relPath, "solution_add_project", before, after)</span>
+<span class="c">//    → renders as a diff in the change view BEFORE anything real moves</span>
+<span class="c">// 6. _approval.RequestAsync(change) — refused ⇒ mark Rejected, write nothing</span>
+<span class="c">// 7. approved ⇒ File.WriteAllTextAsync(realSln, after); mark Applied</span></code></pre>
+
+      <p>
+        The real solution is never touched until a human — or the auto-gate, when approval is not
+        required — has seen the diff. Steps 5&nbsp;through&nbsp;7 are the same
+        propose&nbsp;→&nbsp;gate&nbsp;→&nbsp;write pipeline <code>create_file</code> and
+        <code>edit_file</code> already run, so a solution change lands in the per-task change log and
+        the diff view for free, with no new UI:
+      </p>
+
+      <figure>
+        <div class="ui">
+          <div class="ui-bar"><span class="brand">GlassCoder</span></div>
+          <div class="ui-main">
+            <div class="ui-nav">
+              <div>Transcript</div>
+              <div class="sel">Changes</div>
+              <div>Metrics</div>
+            </div>
+            <div class="ui-content">
+              <div class="ui-approval">
+                <div class="hdr">Approve solution change?</div>
+                <div class="sub">solution_add_project · GlassCoder.sln · proposed</div>
+                <div class="acts"><span class="ui-btn">Approve</span><span class="ui-btn">Reject</span></div>
+              </div>
+              <div class="ui-label">GlassCoder.sln</div>
+              <div class="ui-sub">1 addition</div>
+              <div class="diffbox">
+                <div class="dl ctx"><span class="n">23</span><span class="n">23</span><span class="t">Global</span></div>
+                <div class="dl add"><span class="n"></span><span class="n">24</span><span class="t">Project("{FAE04EC0-...}") = "Widget", "src\Widget\Widget.csproj", "{9B2E...}"</span></div>
+                <div class="dl add"><span class="n"></span><span class="n">25</span><span class="t">EndProject</span></div>
+                <div class="dl ctx"><span class="n">24</span><span class="n">26</span><span class="t">GlobalSection(SolutionConfigurationPlatforms) = preSolution</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="ui-status">Proposed by solution_add_project — awaiting approval</div>
+        </div>
+        <figcaption>The existing change view, rendering a solution edit like any other diff.</figcaption>
+      </figure>
+
+      <div class="note">
+        <span class="tag">The simpler variant, and why the preview copy wins</span>
+        <p>
+          The alternative is to let <code>dotnet</code> edit the real file and restore the captured
+          <code>before</code> text on a refusal. The net effect is identical, but it dirties the
+          real solution between the command and the decision. The preview copy — a sibling file so
+          relative project paths still resolve — never does, which is the same reversibility
+          instinct that makes <code>git_sync</code> abort a conflicted rebase to leave the tree
+          exactly as it found it.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="guard">
+      <div class="part-head"><span class="num">03</span><h2>Guardrails and validation</h2></div>
+
+      <ul class="prose">
+        <li><b>Path guard on both ends.</b> The <code>.sln</code> is resolved for write and the
+            project for read through <code>IPathGuard</code>. A project outside the workspace, or a
+            solution outside the writable set, is refused with <code>path_not_allowed</code> before
+            <code>dotnet</code> is ever launched.</li>
+        <li><b>No flag smuggling.</b> A <code>solutionFolder</code> or path beginning with
+            <code>-</code> is rejected, reusing the reasoning behind <code>GitTool.IsSafeRefName</code>:
+            a leading dash is the one way a configured or model-supplied value could turn into a
+            <code>dotnet</code> option. User paths are always passed as their own argv elements after
+            the subcommand.</li>
+        <li><b>Errors are observations.</b> A missing <code>dotnet</code>, a duplicate add, a remove
+            of a project that is not there — each becomes a typed <code>ToolObservation</code>
+            failure with a hint (<code>already_exists</code>, <code>not_found</code>), sniffed from
+            <code>dotnet</code>'s own message the way <code>GitTool</code> reads git's output.
+            Nothing throws out of the loop.</li>
+        <li><b>Timeouts are bounded.</b> Like every command tool, a run that overruns
+            <code>CommandTimeoutSeconds</code> comes back as <code>timeout</code>, not a hung
+            step.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="host">
+      <div class="part-head"><span class="num">04</span><h2>Why the host, not the sandbox</h2></div>
+
+      <p>
+        <code>build</code> and <code>bash</code> run inside the container because a build is
+        arbitrary code execution — restore targets, MSBuild tasks, analyzers, all of it repository
+        code. <code>dotnet sln</code> is not that. It parses a solution, rewrites some text, and
+        exits; it compiles nothing and runs no project code. It belongs on the same seam as
+        <code>git</code>: the host, through <code>IProcessRunner</code>, with a fixed argument list
+        and no shell.
+      </p>
+
+      <div class="do">
+        <span class="tag">The privilege argument</span>
+        <p>
+          The tool is <b>no more privileged than <code>edit_file</code></b>, which can already
+          rewrite a <code>.sln</code> by hand. It touches one file inside the writable set, executes
+          no repository code, and gates every write. That is what lets it be a standard write tool
+          rather than an opt-in, sandbox-only one.
+        </p>
+      </div>
+
+      <p>
+        The process is launched with prompts disabled and output capped, exactly as
+        <code>GitTool.RunProcessAsync</code> does, so a misconfigured environment fails fast instead
+        of hanging a loop step.
+      </p>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="oracle">
+      <div class="part-head"><span class="num">05</span><h2>build is the oracle</h2></div>
+
+      <p>
+        There is no Roslyn pre-write rung for a solution, and there should not be. A <code>.sln</code>
+        is not a C# document, so <code>RoslynCodeAnalyzer.Handles</code> returns false for it and the
+        in-memory compile check that guards <code>create_file</code> would no-op anyway. Inventing a
+        <code>.sln</code> linter would be a second oracle to keep correct for no gain.
+      </p>
+
+      <p>
+        The authoritative check a solution edit already has is <code>build .</code>. A project added
+        to the wrong folder, a broken relative path, a solution left inconsistent — all of it
+        surfaces as a build failure through the verification ladder that already exists. So the tool
+        descriptions tell the model to build after changing the solution, and the loop's existing
+        <em>cheapest-oracle-first</em> ladder does the rest. Nothing new to verify; the change is
+        proved by whether the solution still builds.
+      </p>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="config">
+      <div class="part-head"><span class="num">06</span><h2>Configuration and registration</h2></div>
+
+      <p>A <code>SolutionOptions</code> record binding <code>GlassCoder:Solution</code>, shaped like
+        <code>GitOptions</code>:</p>
+
+<pre><code>{
+  <span class="k">"GlassCoder"</span>: {
+    <span class="k">"Solution"</span>: {
+      <span class="k">"Enabled"</span>: true,              <span class="c">// present so it can be switched off</span>
+      <span class="k">"DotnetExecutable"</span>: "dotnet",  <span class="c">// bare name resolves through PATH</span>
+      <span class="k">"CommandTimeoutSeconds"</span>: 120,
+      <span class="k">"MaxListedProjects"</span>: 200        <span class="c">// cap; the count stays truthful</span>
+    }
+  }
+}</code></pre>
+
+      <h3>Where it registers</h3>
+
+      <p>Two defensible placements, and the recommendation is the first:</p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Option</th><th>Argument</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Standard write tool</b> <span class="pill pass">recommended</span></td>
+              <td>Register in <code>AddPhase1Tools</code> alongside create/edit/build/run_tests,
+                  guarded by path-guard and approval only. It is no more privileged than
+                  <code>edit_file</code>, so solution management becomes part of the normal
+                  close-the-loop capability. The <code>Enabled</code> flag still lets an operator
+                  freeze build structure.</td>
+            </tr>
+            <tr>
+              <td><b>Opt-in like git and bash</b></td>
+              <td>An <code>AddSolutionTools</code> extension gated on <code>Enabled</code>, off by
+                  default. Correct if you consider solution structure something the agent should not
+                  touch unless explicitly allowed. More conservative, less consistent with the fact
+                  that <code>edit_file</code> can already do it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Either way the registration follows the house pattern: bound with
+        <code>AddOptions&lt;SolutionOptions&gt;().Bind(...).ValidateOnStart()</code>, and the tool
+        registered both concretely and behind <code>IToolSet</code> so the registry generates its
+        schema.
+      </p>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="edges">
+      <div class="part-head"><span class="num">07</span><h2>slnx, and the edges</h2></div>
+
+      <ul class="prose">
+        <li><b>The XML format, <code>.slnx</code>.</b> <code>dotnet sln</code> handles both classic
+            <code>.sln</code> and the newer XML <code>.slnx</code>, so the tool picks the format from
+            the target path's extension and the whole preview-copy flow is unchanged.
+            <code>WorkspaceRootLocator</code> already treats both as root markers, so a freshly
+            created solution correctly anchors the workspace with no change there.</li>
+        <li><b>Duplicate add, missing remove.</b> Surface <code>dotnet</code>'s own message as a
+            typed <code>already_exists</code> or <code>not_found</code> observation rather than a raw
+            dump, so the model gets a clean signal it can act on.</li>
+        <li><b>What it must not do.</b> No editing of <code>.csproj</code> internals — package
+            references, target frameworks, properties — that is <code>edit_file</code>'s territory
+            and stays there. This tool's subject is membership and structure, nothing else.</li>
+      </ul>
+
+      <div class="note refuse">
+        <span class="tag">Solution folders are not disk folders</span>
+        <p>
+          A solution folder is a grouping inside the <code>.sln</code>, not a directory. The
+          <code>solutionFolder</code> parameter maps only to <code>dotnet</code>'s
+          <code>--solution-folder</code>; it never creates or moves anything on disk, and the path
+          guard would refuse it if it tried.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">08</span><h2>Shape of the work</h2></div>
+
+      <p>
+        Continuing the workplan numbering after the git tools (tasks&nbsp;40–42). Each task is green
+        before the next, per the one-variable-at-a-time rule.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th class="m">#</th><th>Task</th><th class="m">Est.</th><th class="m">Depends on</th></tr></thead>
+          <tbody>
+            <tr><td class="m">43</td><td><code>SolutionOptions</code> and its DI binding, plus a
+                graceful <code>dotnet</code>-missing failure. The scaffolding the verbs hang
+                from.</td><td class="m">0.5d</td><td class="m">8, 17</td></tr>
+            <tr><td class="m">44</td><td><code>solution_list_projects</code> — read-only, so the
+                argv, the parse, the guard and the registry entry are proved with no write risk
+                before any file is touched.</td><td class="m">0.5d</td><td class="m">43</td></tr>
+            <tr><td class="m">45</td><td><code>create_solution</code>,
+                <code>solution_add_project</code>, <code>solution_remove_project</code> through the
+                preview&nbsp;→&nbsp;change-log&nbsp;→&nbsp;approval&nbsp;→&nbsp;write pipeline.</td>
+                <td class="m">1.5d</td><td class="m">28, 35, 44</td></tr>
+            <tr><td class="m">46</td><td><code>SolutionToolTests</code> modelled on
+                <code>GitToolTests</code>: argv per verb, guard rejection, refused-approval writes
+                nothing, approved edit records an <code>Applied</code> change, leading-dash paths
+                rejected. Plus registry assertions.</td><td class="m">1d</td><td class="m">45</td></tr>
+            <tr><td class="m">47</td><td>Turn suite task&nbsp;6 into a real
+                <em>wire-a-module-into-the-build</em> case whose oracle is <code>build .</code> going
+                green after <code>solution_add_project</code> — so the suite measures the model, not
+                a missing tool.</td><td class="m">0.5d</td><td class="m">45, 21</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance</h3>
+
+      <ul class="prose">
+        <li>A project written with <code>create_file</code> can be added to the solution, the
+            solution still builds, and the addition appears in the change log as an
+            <code>Applied</code> diff.</li>
+        <li>A refused approval leaves the real <code>.sln</code> byte-for-byte unchanged.</li>
+        <li>A path outside the workspace, or a folder name beginning with <code>-</code>, is refused
+            before <code>dotnet</code> runs.</li>
+        <li>With <code>Enabled</code> false, none of the four verbs appear in the registry.</li>
+        <li>Suite task&nbsp;6 passes by editing the solution, not by cramming the module into an
+            existing project.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="../index.html">The operator's guide</a> — the tools, guardrails and configuration
+          this proposal builds on.
+          <a href="harness-advisor.html">The harness advisor</a> — the feature designed to notice
+          exactly this class of gap, a capability the agent bumped into and the harness could not
+          provide.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder proposal · solution configuration · not implemented ·
+  companion to <a href="claude-second-opinion.html">a second opinion from Claude</a>,
+  <a href="mcp-retrieval.html">retrieval over MCP</a>,
+  <a href="harness-advisor.html">the harness advisor</a> and the
+  <a href="../index.html">operator's guide</a>
+</footer>
+</body>
+</html>

@@ -1422,7 +1422,7 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
       <h3>Beyond the ladder</h3>
 
       <p>
-        Four documents live under <code>docs/NewFeatures</code>, written against the current
+        Five documents live under <code>docs/NewFeatures</code>, written against the current
         code so the names, configuration keys and estimates are real. None is a prerequisite for
         any phase above; the first has since been built, and its own page has been rewritten from
         a proposal into a description of what shipped.
@@ -1452,6 +1452,14 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
                   cannot do — missing tools, misleading contracts, absent oracles — and emitting
                   proposed workplan tasks with cited evidence.</td>
               <td>Reads JSONL that is already written; needs a backtest before anything else.</td>
+            </tr>
+            <tr>
+              <td><a href="NewFeatures/solution-configuration.html">Solution configuration</a></td>
+              <td>A solution tool set — create, list, add, remove — using <code>dotnet sln</code> as
+                  the engine while every write passes through the change log, the approval gate and
+                  the path guard.</td>
+              <td>Proposal. Wraps a CLI GlassCoder already trusts; turns suite task 6 into a real
+                  wire-a-module case.</td>
             </tr>
             <tr>
               <td><a href="NewFeatures/ccg-preprocessor.html">The context generator as a preprocessor</a></td>
