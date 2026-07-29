@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Internal brainstorming: where GlassCoder sits in the AI-coding 'harness shift', its defensible value, target customers, and a five-year revenue view (conservative and positive-realistic).">
+<title>GlassCoder — Business Model Brainstorm</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 72ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418; --surface: #161C21; --sunk: #1B2329; --ink: #E8EDF0;
+      --muted: #93A3AD; --faint: #6B7A84; --rule: #26313A; --rule-strong: #3A4852;
+      --signal: #63B3DC; --signal-soft: #14262F; --pass: #4FB37A; --warn: #D9A227;
+      --fail: #E4715F; --pass-soft: #14251C; --warn-soft: #26200F; --fail-soft: #2A1815;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0F1418; --surface: #161C21; --sunk: #1B2329; --ink: #E8EDF0;
+    --muted: #93A3AD; --faint: #6B7A84; --rule: #26313A; --rule-strong: #3A4852;
+    --signal: #63B3DC; --signal-soft: #14262F; --pass: #4FB37A; --warn: #D9A227;
+    --fail: #E4715F; --pass-soft: #14251C; --warn-soft: #26200F; --fail-soft: #2A1815;
+  }
+  :root[data-theme="light"] {
+    --ground: #F4F6F7; --surface: #FFFFFF; --sunk: #EAEEF0; --ink: #131A1F;
+    --muted: #5B6B75; --faint: #8A99A3; --rule: #D5DDE1; --rule-strong: #B9C5CB;
+    --signal: #1A6E9E; --signal-soft: #E4EFF6; --pass: #2E7D4F; --warn: #9A6B00;
+    --fail: #B23A2B; --pass-soft: #E6F1EA; --warn-soft: #F7EEDA; --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+  .masthead-inner {
+    max-width: 78rem; margin: 0 auto; padding: 2.75rem 2rem 1.75rem;
+    display: flex; flex-direction: column; gap: 1.25rem;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--signal); margin: 0;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 600; font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08; letter-spacing: -0.015em; margin: 0; text-wrap: balance;
+  }
+  .standfirst {
+    max-width: 60ch; margin: 0; font-size: 1.09rem; color: var(--muted); text-wrap: pretty;
+  }
+  .specstrip {
+    display: flex; flex-wrap: wrap; gap: 0.6rem 2.25rem; padding-top: 0.75rem;
+    border-top: 1px solid var(--rule); font-family: var(--mono);
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .specstrip b {
+    color: var(--faint); font-weight: 400; letter-spacing: 0.08em;
+    text-transform: uppercase; font-size: 0.68rem; display: block;
+  }
+
+  /* ---------- shell ---------- */
+  .shell {
+    max-width: 78rem; margin: 0 auto; padding: 0 2rem 5rem;
+    display: grid; grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem; align-items: start;
+  }
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+  .rail h2 {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--faint); margin: 0 0 0.85rem; font-weight: 400;
+  }
+  .rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; counter-reset: nav; }
+  .rail a {
+    display: block; padding: 0.28rem 0 0.28rem 0.85rem; border-left: 2px solid var(--rule);
+    color: var(--muted); text-decoration: none; font-size: 0.87rem;
+  }
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0; min-width: 0; }
+
+  section { margin: 0 0 3.25rem; scroll-margin-top: 1.5rem; }
+  section > h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.7rem;
+    letter-spacing: -0.01em; margin: 0 0 0.35rem; line-height: 1.15;
+  }
+  .kicker {
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--signal); margin: 0 0 0.75rem;
+  }
+  h3 {
+    font-family: var(--sans); font-weight: 650; font-size: 1.12rem;
+    margin: 1.9rem 0 0.5rem; letter-spacing: -0.005em;
+  }
+  p, li { max-width: var(--measure); }
+  p { margin: 0.75rem 0; }
+  a { color: var(--signal); }
+  strong { font-weight: 650; }
+  ul, ol.body { padding-left: 1.2rem; }
+  ul li, ol.body li { margin: 0.3rem 0; }
+  .lead { font-size: 1.07rem; color: var(--muted); max-width: var(--measure); }
+
+  code {
+    font-family: var(--mono); font-size: 0.86em; background: var(--sunk);
+    padding: 0.1em 0.4em; border-radius: 4px;
+  }
+  .formula {
+    font-family: var(--mono); background: var(--sunk); border: 1px solid var(--rule);
+    border-radius: 8px; padding: 0.9rem 1.1rem; font-size: 0.95rem; color: var(--ink);
+    max-width: var(--measure);
+  }
+
+  /* ---------- callouts ---------- */
+  .callout {
+    border: 1px solid var(--rule); border-left-width: 4px; border-radius: 8px;
+    padding: 1rem 1.25rem; margin: 1.25rem 0; background: var(--surface); max-width: var(--measure);
+  }
+  .callout .tag {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em;
+    text-transform: uppercase; display: block; margin-bottom: 0.35rem;
+  }
+  .callout p:first-of-type { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.rec { border-left-color: var(--pass); background: var(--pass-soft); }
+  .callout.rec .tag { color: var(--pass); }
+  .callout.trap { border-left-color: var(--fail); background: var(--fail-soft); }
+  .callout.trap .tag { color: var(--fail); }
+  .callout.note { border-left-color: var(--signal); background: var(--signal-soft); }
+  .callout.note .tag { color: var(--signal); }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .callout.warn .tag { color: var(--warn); }
+
+  /* ---------- pillar / card grid ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 1.25rem 0; }
+  .card {
+    border: 1px solid var(--rule); border-radius: 10px; padding: 1.1rem 1.2rem;
+    background: var(--surface);
+  }
+  .card h4 {
+    margin: 0 0 0.15rem; font-size: 1.02rem; font-weight: 650;
+    font-family: var(--sans); letter-spacing: -0.005em;
+  }
+  .card .sub { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); margin: 0 0 0.6rem; }
+  .card p { margin: 0.4rem 0 0; font-size: 0.94rem; color: var(--muted); max-width: none; }
+
+  /* ---------- tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 1.25rem 0; border: 1px solid var(--rule); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 34rem; }
+  caption {
+    caption-side: top; text-align: left; font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+    padding: 0.85rem 1rem 0.35rem;
+  }
+  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); font-weight: 400; background: var(--sunk);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+  tfoot td { font-weight: 650; background: var(--sunk); }
+  .total { color: var(--ink); font-weight: 650; }
+
+  .pill {
+    display: inline-block; font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--rule-strong);
+    color: var(--muted);
+  }
+  .pill.cons { color: var(--warn); border-color: var(--warn); }
+  .pill.pos { color: var(--pass); border-color: var(--pass); }
+
+  hr.soft { border: none; border-top: 1px solid var(--rule); margin: 2.5rem 0; }
+
+  footer.doc {
+    max-width: 78rem; margin: 0 auto; padding: 2rem; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 0.75rem; color: var(--faint);
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: 1fr; gap: 0; }
+    .rail { position: static; max-height: none; padding: 1.5rem 0 0; }
+    .rail ol { flex-flow: row wrap; gap: 0.4rem 1rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    main { padding-top: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">Internal Brainstorming · Not for distribution</p>
+    <h1>GlassCoder — Business Model &amp; Five-Year Revenue View</h1>
+    <p class="standfirst">
+      Where GlassCoder sits in the AI-coding <em>"harness shift"</em>, what part of it stays
+      defensible once harnesses commoditize, who buys it, and what revenue looks like — under a
+      conservative case and a more positive-realistic case.
+    </p>
+    <div class="specstrip">
+      <span><b>Status</b> Draft for discussion</span>
+      <span><b>Date</b> 2026-07-29</span>
+      <span><b>Owner</b> alex.vinckier@kintsunai.com</span>
+      <span><b>Horizon</b> 2026 – 2030</span>
+      <span><b>Basis</b> Napkin model — assumptions, not forecast</span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#context">1 · The trigger &amp; the thesis</a></li>
+      <li><a href="#position">2 · Where GlassCoder sits</a></li>
+      <li><a href="#moats">3 · Defensible layers</a></li>
+      <li><a href="#models">4 · Business-model options</a></li>
+      <li><a href="#recommendation">5 · Recommendation</a></li>
+      <li><a href="#trap">6 · The trap to avoid</a></li>
+      <li><a href="#value">7 · Value proposition</a></li>
+      <li><a href="#icp">8 · Target customer</a></li>
+      <li><a href="#finance">9 · Five-year revenue</a></li>
+      <li><a href="#europe">10 · European &amp; Belgium context</a></li>
+      <li><a href="#next">11 · Open questions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- 1 -->
+    <section id="context">
+      <p class="kicker">1 · The trigger</p>
+      <h2>The article that started this: the "harness shift"</h2>
+      <p class="lead">
+        The Next Web, <em>"Cursor price hikes push enterprises to Claude Code, and beyond"</em> (Jul 2026).
+      </p>
+      <p>Three moves the piece describes:</p>
+      <ul>
+        <li><strong>The repricing shock.</strong> Cursor moved most customers to usage-based billing;
+          renewals now land hard. One IT consultancy paid ~$200k for 800 licences one year, then was
+          quoted ~$1.5m for the same usage at renewal.</li>
+        <li><strong>The near-term flight to Claude Code.</strong> Enterprises are shifting spend to
+          Anthropic's model-aligned harness. (Notably, routing-firm Weave's data shows Claude Code
+          bills actually rose <em>more</em> than Cursor's over six months — so this is not purely a cost story.)</li>
+        <li><strong>The real story — the harness shift.</strong> Savvier customers route around both,
+          swapping proprietary tools for open-source <em>harnesses</em> over cheaper / local models,
+          cutting AI-coding bills by as much as <strong>97%</strong>.</li>
+      </ul>
+      <div class="callout note">
+        <span class="tag">The thesis in one line</span>
+        <p>"The most expensive part of AI coding is no longer the model. It is the software wrapped
+        around it." Value — and pricing power — is migrating from the model to the harness. But the
+        same open-source wave is <em>commoditizing the harness itself</em>.</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="position">
+      <p class="kicker">2 · Positioning</p>
+      <h2>GlassCoder is already built for this world</h2>
+      <p>
+        Per its own design docs, GlassCoder is "the <strong>harness</strong> and <strong>measurement</strong>
+        half" of the capability equation — a local-first coding agent that drives any model over an
+        OpenAI-compatible seam. It does no training and no tensor math; everything lives above the HTTP boundary.
+      </p>
+      <div class="formula">capability&nbsp;≈&nbsp;model&nbsp;×&nbsp;<strong>harness</strong>&nbsp;×&nbsp;<strong>context</strong></div>
+      <p>
+        So the strategic question is <em>not</em> "can GlassCoder ride the wave" — it clearly can. It is:
+        <strong>which part of the harness layer stays defensible once the loop itself is a commodity?</strong>
+        GlassCoder's own docs say the controller loop is deliberately ~40 lines and legible — i.e. easy to
+        copy. The value is therefore <em>not</em> in the loop. It is in the three first-class pillars most
+        harnesses lack: robust logging/transparency, transparent code changes, and performance measurement.
+      </p>
+    </section>
+
+    <!-- 3 -->
+    <section id="moats">
+      <p class="kicker">3 · Moats</p>
+      <h2>What is genuinely defensible</h2>
+      <div class="cards">
+        <div class="card">
+          <p class="sub">Moat 1</p>
+          <h4>Measurement / the Lab</h4>
+          <p>Ablation arms, <code>pass@1</code>, cost-per-solved-task, tokens-to-solve, JSONL metrics,
+            cross-run charts. The proof engine for the 97% claim — rare, hard to copy quickly.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Moat 2</p>
+          <h4>Sovereignty / local-first</h4>
+          <p>Source never crosses the network seam; runs on your own GPUs (the DGX Spark setup docs are
+            telling). The buy-reason for firms that legally cannot use cloud coding tools.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Moat 3</p>
+          <h4>Transparency / audit</h4>
+          <p>Every edit is a reviewable diff; every run a reconstructable transcript; secrets redacted.
+            An AI agent you can put in a regulated codebase and still pass an audit.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Moat 4</p>
+          <h4>.NET-native</h4>
+          <p>Roslyn in-process diagnostics, MSBuild, C#. Almost every rival is JS/Python-first. The
+            conservative on-prem buyers who want this live in Microsoft. A niche, not a weakness.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section id="models">
+      <p class="kicker">4 · Options</p>
+      <h2>Business-model options, mapped to the moats</h2>
+      <div class="table-wrap">
+        <table>
+          <caption>Candidate models</caption>
+          <thead>
+            <tr><th>Model</th><th>What you sell</th><th>Why it fits GlassCoder</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Open-core</strong> <span class="pill">base</span></td>
+              <td>Loop + tools open-source; charge for the enterprise skin — SSO/RBAC, fleet mgmt, the Lab dashboards, policy guardrails, air-gapped support.</td>
+              <td>Rides the open-source-harness wave instead of fighting it; monetizes where enterprise dollars concentrate.</td>
+            </tr>
+            <tr>
+              <td><strong>Sovereign / on-prem license</strong></td>
+              <td>Air-gapped, self-hosted coding agent; annual per-org or per-seat + support.</td>
+              <td>Data-sovereignty is the buy reason; .NET-native is the wedge into buyers Cursor can't serve.</td>
+            </tr>
+            <tr>
+              <td><strong>Prove &amp; capture the savings</strong> (value-based)</td>
+              <td>A platform fee justified against the cloud-API bill it displaces; the Lab documents the delta.</td>
+              <td>Directly monetizes the 97% story; the measurement layer is the receipt.</td>
+            </tr>
+            <tr>
+              <td><strong>Observability / eval product</strong></td>
+              <td>"Datadog for coding agents" — benchmark model × harness × context, even for teams on Cursor/Claude Code.</td>
+              <td>The article itself cites routing-firm Weave; measurement is already a funded category.</td>
+            </tr>
+            <tr>
+              <td><strong>Services-led</strong></td>
+              <td>"Downshift your AI-coding spend" engagements: stand up local models + GlassCoder, run the ablations, hand over the harness.</td>
+              <td>Fastest path to revenue + reference logos; the Lab makes the ROI legible to a CFO.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="recommendation">
+      <p class="kicker">5 · Recommendation</p>
+      <h2>Recommended path</h2>
+      <div class="callout rec">
+        <span class="tag">Recommendation</span>
+        <p><strong>Sell the outcome, not the software: "cut your AI-coding bill without cutting quality,
+          on hardware you control, in a way you can audit."</strong></p>
+        <p>Package that as <strong>open-core + a sovereign on-prem license</strong>, with the <strong>Lab
+          as the paid differentiator</strong> that proves the savings are safe. Lead with <strong>paid
+          services</strong> to land two or three regulated .NET lighthouse customers — each engagement
+          produces an ablation report that doubles as the product spec and the sales collateral.</p>
+      </div>
+      <ol class="body">
+        <li><strong>Services first (next ~2 quarters).</strong> Paid "cut your Claude/Cursor bill" pilots.
+          Revenue now, and every pilot yields proof.</li>
+        <li><strong>Productize the Lab.</strong> It is the one thing rivals can't cheaply copy and the thing
+          that de-risks the downshift for a buyer.</li>
+        <li><strong>Open-core the loop, sell the enterprise layer.</strong> Governance, fleet, air-gap, and
+          support on top of a free, copyable core.</li>
+      </ol>
+    </section>
+
+    <!-- 6 -->
+    <section id="trap">
+      <p class="kicker">6 · Anti-pattern</p>
+      <h2>The trap to avoid</h2>
+      <div class="callout trap">
+        <span class="tag">Do not</span>
+        <p><strong>Do not price GlassCoder as "a cheaper Cursor" — a per-seat licence on the agent loop.</strong>
+          That is exactly the layer the article says is collapsing to zero, and GlassCoder's own docs make the
+          loop small and open by design. You cannot out-cheap free, and per-seat pricing on a commodity invites
+          the same renewal-shock backlash that is currently pushing customers <em>off</em> Cursor.</p>
+        <p>Charge instead for the layers that <em>rise</em> in value as the harness commoditizes:
+          <strong>proof (the Lab), sovereignty (on-prem / .NET), and governance (audit &amp; fleet)</strong>.
+          Chasing solo devs and cloud-native JS/Python startups is the same trap in disguise — they will use
+          free harnesses over hosted APIs and never pay you.</p>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section id="value">
+      <p class="kicker">7 · Value</p>
+      <h2>Value proposition, in plain terms</h2>
+      <p>"Proof, sovereignty, governance" is jargon until you say what each does for a buyer:</p>
+
+      <h3>Proof — "Know before you switch."</h3>
+      <p>Everyone wants the 97% savings, but nobody can safely act on it because they can't answer:
+        <em>if I move from Claude to a local model, do I lose quality?</em> The Lab turns that from a leap of
+        faith into a number — same task suite, both models, <code>pass@1</code> and cost-per-solved-task side
+        by side. <strong>You make a six-figure switching decision on data, and the ablation report is the
+        receipt for your CFO.</strong></p>
+
+      <h3>Sovereignty — "Your code never leaves the building."</h3>
+      <p>Cursor and Claude Code send your source to someone else's cloud; for a whole class of company that
+        is a hard legal no. GlassCoder runs the agent against models on your own hardware — the source never
+        crosses the seam. <strong>You get an AI coding agent you are actually allowed to use.</strong></p>
+
+      <h3>Governance — "Every change is auditable and gated."</h3>
+      <p>Every proposed edit is a diff you approve before it lands; every run is a reconstructable transcript;
+        secrets are redacted. <strong>You can put an AI agent into a regulated codebase and still pass an
+        audit — prove exactly what changed, why, and who approved it.</strong></p>
+
+      <div class="callout note">
+        <span class="tag">Pitch line</span>
+        <p>"The AI coding agent regulated .NET teams are <em>allowed</em> to run on their own hardware — and
+          can <em>prove</em> is cheaper without being worse."</p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section id="icp">
+      <p class="kicker">8 · Buyer</p>
+      <h2>Target customer</h2>
+      <p>Common thread: <strong>real code, real compliance exposure, real Microsoft stacks, and either a
+        cloud-AI bill or a cloud-AI ban.</strong></p>
+
+      <h3>Primary ICP — regulated .NET enterprises</h3>
+      <ul>
+        <li><strong>Banks, insurers, capital-markets firms</strong> — large C#/.NET estates, strict
+          data-residency rules, already feeling the renewal shock.</li>
+        <li><strong>Defense, government, and gov-adjacent contractors</strong> — often air-gapped by mandate;
+          cloud coding tools are simply off the table. Sovereignty is the entire buying criterion.</li>
+        <li><strong>Healthcare / pharma</strong> — PHI and IP sensitivity, heavy enterprise-tier .NET.</li>
+      </ul>
+
+      <h3>Secondary ICP — "downshift" buyers (any stack)</h3>
+      <ul>
+        <li>Mid-to-large eng orgs facing a usage-based renewal spike who need the Lab to justify a move to
+          local/cheaper models internally. Here you may sell only the <strong>measurement layer</strong>, not
+          the whole harness.</li>
+      </ul>
+
+      <h3>Buyer map</h3>
+      <div class="table-wrap">
+        <table>
+          <caption>Who to sell to</caption>
+          <thead><tr><th>Role</th><th>Who</th><th>What convinces them</th></tr></thead>
+          <tbody>
+            <tr><td>Champion</td><td>Platform / DevEx lead or eng director handed "cut the AI bill" or "get us a tool that passes security review"</td><td>The Lab report + a working air-gapped pilot</td></tr>
+            <tr><td>Economic buyer</td><td>CIO / CISO</td><td>Sovereignty + audit trail</td></tr>
+            <tr><td>Economic buyer</td><td>CFO</td><td>The renewal-shock line item and the documented savings delta</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout warn">
+        <span class="tag">Not the customer (on purpose)</span>
+        <p>Solo devs, startups, and cloud-native JS/Python shops. They'll use free harnesses over hosted APIs;
+          chasing them drags you back into the commoditized loop.</p>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section id="finance">
+      <p class="kicker">9 · Numbers</p>
+      <h2>Five-year revenue view</h2>
+      <p class="lead">Two scenarios, same business — a conservative case and a more positive-realistic case.
+        Both are napkin models: revenue ≈ (enterprise logos) × (ACV) + services.</p>
+
+      <div class="callout warn">
+        <span class="tag">Read this first</span>
+        <p>GlassCoder is pre-revenue and still being built (the workplan has ~46 days of work across phases
+          0–6). The target buyers have <strong>9–18 month sales cycles</strong>. Neither table is a forecast;
+          both are assumption sets to argue with. The single biggest driver in either scenario is
+          <em>logo count</em>, not price.</p>
+      </div>
+
+      <h3>Shared pricing anchors</h3>
+      <div class="table-wrap">
+        <table>
+          <caption>Deal sizes</caption>
+          <thead><tr><th>Line</th><th class="num">Conservative</th><th class="num">Positive-realistic</th><th>Basis</th></tr></thead>
+          <tbody>
+            <tr><td>On-prem annual license</td><td class="num">$50k → $70k</td><td class="num">$60k → $105k</td><td>Grows as governance / fleet tiers are added</td></tr>
+            <tr><td>Lab / measurement add-on</td><td class="num">$15k</td><td class="num">$15k → $18k</td><td>Attaches to some, not all, logos</td></tr>
+            <tr><td>Services engagement (one-time)</td><td class="num">$50k</td><td class="num">$50k+</td><td>"Downshift" pilot</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3><span class="pill cons">Scenario A</span> &nbsp;Conservative — slow logos, flat ACV, no hockey stick</h3>
+      <div class="table-wrap">
+        <table>
+          <caption>Conservative case (USD)</caption>
+          <thead>
+            <tr><th>Year</th><th class="num">Paying logos</th><th class="num">Avg ACV</th><th class="num">Recurring</th><th class="num">Services</th><th class="num">Total revenue</th><th class="num">Exit ARR</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1 · 2026</td><td class="num">0–1</td><td class="num">—</td><td class="num">~$0</td><td class="num">$50k</td><td class="num total">~$50k</td><td class="num">~$25k</td></tr>
+            <tr><td>2 · 2027</td><td class="num">3</td><td class="num">$55k</td><td class="num">$165k</td><td class="num">$100k</td><td class="num total">~$265k</td><td class="num">~$180k</td></tr>
+            <tr><td>3 · 2028</td><td class="num">7</td><td class="num">$60k</td><td class="num">$420k</td><td class="num">$100k</td><td class="num total">~$520k</td><td class="num">~$450k</td></tr>
+            <tr><td>4 · 2029</td><td class="num">12</td><td class="num">$65k</td><td class="num">$780k</td><td class="num">$100k</td><td class="num total">~$880k</td><td class="num">~$800k</td></tr>
+            <tr><td>5 · 2030</td><td class="num">18</td><td class="num">$70k</td><td class="num">$1.26M</td><td class="num">$150k</td><td class="num total">~$1.4M</td><td class="num">~$1.3M</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td>Cumulative</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">~$3.1M</td><td class="num">$1.3M ARR</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <p>A healthy, fundable niche business — not a rocket. The honest read for an on-prem tool serving a
+        deliberately narrow market.</p>
+
+      <h3><span class="pill pos">Scenario B</span> &nbsp;Positive-realistic — the motion works, still not fantasy</h3>
+      <p>Assumes services-led proof shortens the sales cycle, logos compound, ACV rises with governance/fleet
+        tiers, the Lab attaches to more accounts, and existing customers expand. No paid-marketing hockey stick.</p>
+      <div class="table-wrap">
+        <table>
+          <caption>Positive-realistic case (USD)</caption>
+          <thead>
+            <tr><th>Year</th><th class="num">Paying logos</th><th class="num">Avg ACV</th><th class="num">Recurring + Lab</th><th class="num">Services</th><th class="num">Total revenue</th><th class="num">Exit ARR</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1 · 2026</td><td class="num">2</td><td class="num">$60k</td><td class="num">~$135k</td><td class="num">$100k</td><td class="num total">~$235k</td><td class="num">~$135k</td></tr>
+            <tr><td>2 · 2027</td><td class="num">8</td><td class="num">$70k</td><td class="num">~$635k</td><td class="num">$150k</td><td class="num total">~$785k</td><td class="num">~$635k</td></tr>
+            <tr><td>3 · 2028</td><td class="num">18</td><td class="num">$85k</td><td class="num">~$1.68M</td><td class="num">$200k</td><td class="num total">~$1.88M</td><td class="num">~$1.68M</td></tr>
+            <tr><td>4 · 2029</td><td class="num">32</td><td class="num">$95k</td><td class="num">~$3.36M</td><td class="num">$250k</td><td class="num total">~$3.6M</td><td class="num">~$3.36M</td></tr>
+            <tr><td>5 · 2030</td><td class="num">50</td><td class="num">$105k</td><td class="num">~$5.75M</td><td class="num">$300k</td><td class="num total">~$6.05M</td><td class="num">~$5.75M</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td>Cumulative</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">~$12.6M</td><td class="num">$5.75M ARR</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <p>Exits Year 5 at roughly <strong>$5.75M ARR across ~50 logos</strong> — a credible Series-A-shaped
+        trajectory reachable without a large funded sales team, on the strength of proof + sovereignty.</p>
+
+      <h3>The range, side by side</h3>
+      <div class="table-wrap">
+        <table>
+          <caption>Scenario comparison — Year 5</caption>
+          <thead><tr><th>Scenario</th><th class="num">Logos (Y5)</th><th class="num">Cumulative 5-yr</th><th class="num">Exit ARR</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Downside</strong> — never past services / no PMF; may wind down</td><td class="num">&lt;3</td><td class="num">&lt;$400k</td><td class="num">~$0</td></tr>
+            <tr><td><span class="pill cons">A</span> Conservative</td><td class="num">18</td><td class="num">~$3.1M</td><td class="num">~$1.3M</td></tr>
+            <tr><td><span class="pill pos">B</span> Positive-realistic</td><td class="num">50</td><td class="num">~$12.6M</td><td class="num">~$5.75M</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>What actually moves these numbers</h3>
+      <ol class="body">
+        <li><strong>Logo count, not price.</strong> The entire gap between A and B is "did you land ~18 vs ~50
+          regulated logos." Every dollar of realism is in shortening the sales cycle — which is what the
+          services-led, ablation-report-as-proof motion is <em>for</em>.</li>
+        <li><strong>The sales cycle is the tax.</strong> Two enterprise pilots slipping two quarters wipes out
+          a year. Model cash accordingly.</li>
+        <li><strong>Services is oxygen, not the business.</strong> It funds Year 1–2 and generates proof, but it
+          doesn't compound. The recurring on-prem line is what makes this worth more than a consultancy.</li>
+      </ol>
+    </section>
+
+    <!-- 10 -->
+    <section id="europe">
+      <p class="kicker">10 · Regional lens</p>
+      <h2>European &amp; Belgium context</h2>
+      <p class="lead">Europe doesn't just tweak this plan — it reorders it. The moat ranked as a niche in a
+        US framing (sovereignty) becomes the <strong>primary wedge</strong> in the EU, and Belgium is an
+        unusually good place to start.</p>
+
+      <div class="callout warn">
+        <span class="tag">Verify before quoting</span>
+        <p>The regulatory specifics below (AI Act phase-in, DORA scope, grant programmes) move fast. Treat
+          this as strategic shape, not legal advice — confirm current status before putting any of it in
+          front of a customer.</p>
+      </div>
+
+      <h3>The big shift — sovereignty goes from niche to mainstream</h3>
+      <p>In a US framing, "your code never leaves the building" is mostly a defense/gov story. In the EU it
+        is a first-order enterprise anxiety, and it is being <em>legislated into a buying requirement</em>:</p>
+      <ul>
+        <li><strong>GDPR + Schrems II.</strong> Sending source code (which routinely contains personal data,
+          secrets, and trade secrets) to a US-hosted Claude/Cursor endpoint is a genuine cross-border-transfer
+          headache. The EU–US Data Privacy Framework papers over it but is already under legal challenge.
+          On-prem / EU-resident inference makes the problem disappear.</li>
+        <li><strong>DORA</strong> (financial sector). Firms must actively manage ICT third-party
+          <em>concentration risk</em>. A hard dependency on a US AI SaaS for the engineering workflow is now
+          something a regulator expects a mitigation for — GlassCoder <em>is</em> the mitigation.</li>
+        <li><strong>EU AI Act.</strong> Beyond the obligations themselves, it has created a culture of
+          record-keeping and traceability. GlassCoder's "every run is a reconstructable transcript" becomes
+          <em>documentation infrastructure</em>, not just a dev feature.</li>
+        <li><strong>Digital-sovereignty politics.</strong> GAIA-X, sovereign-cloud mandates, and active
+          pressure to reduce dependence on US hyperscalers. The wind is at your back in a way it is not in the US.</li>
+      </ul>
+
+      <div class="callout note">
+        <span class="tag">EU pitch line</span>
+        <p>"An AI coding agent that keeps your source in the EU, on hardware you control, with the audit trail
+          your regulator already expects."</p>
+      </div>
+
+      <h3>The fully-European sovereign stack — a real narrative</h3>
+      <p>The part that is <em>better</em> in Europe than anywhere: you can assemble an end-to-end sovereign
+        stack — <strong>GlassCoder (harness, .NET) + Mistral (European, open-weight models) + EU-hosted or
+        on-prem GPUs</strong>. No US vendor anywhere in the loop. GlassCoder's model-agnostic seam
+        (<code>/v1</code>, served aliases) makes this a config choice, not a rebuild. For a Belgian bank, an EU
+        institution, or a defense-adjacent contractor, that is the reason the project gets approved.</p>
+
+      <h3>Why Belgium is a genuine beachhead</h3>
+      <div class="cards">
+        <div class="card">
+          <p class="sub">Institutions</p>
+          <h4>Brussels = EU + NATO capital</h4>
+          <p>Dense concentration of public-sector IT, EU agencies, and gov-adjacent contractors — buyers for
+            whom sovereignty is non-negotiable and budgets are real.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Finance infra</p>
+          <h4>SWIFT, Euroclear, the banks</h4>
+          <p>SWIFT (La Hulpe), Euroclear (Brussels), KBC, Belfius, ING/BNPP Fortis — among the most
+            security- and regulation-obsessed shops on earth, heavily Microsoft/.NET in the enterprise tier.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Stack fit</p>
+          <h4>.NET is strong here</h4>
+          <p>Belgian and EU public/enterprise IT is Microsoft-heavy — the exact segment nearly every rival
+            ignores.</p>
+        </div>
+        <div class="card">
+          <p class="sub">Capital</p>
+          <h4>Non-dilutive funding</h4>
+          <p>Horizon Europe, EIC, and Flemish/Walloon regional grants (VLAIO &amp; equivalents) can subsidize
+            the R&amp;D phase — de-risking Year 1 without giving up equity.</p>
+        </div>
+      </div>
+
+      <h3>The honest downsides — don't romanticize it</h3>
+      <ul>
+        <li><strong>Smaller, fragmented market.</strong> Belgium alone is tiny; the real market is "the EU" —
+          27 procurement regimes, multiple languages, no single sales motion.</li>
+        <li><strong>Slow, tender-based procurement.</strong> Public sector and banks are slower than the
+          9–18 month cycle already flagged. Cash planning matters even more.</li>
+        <li><strong>Lower ACVs / more price sensitivity</strong> in parts of the market — partly offset by the
+          sovereignty premium and large public-sector deals.</li>
+        <li><strong>GPU scarcity.</strong> Local inference needs local compute, and the EU is behind on GPU
+          availability — real friction for the "run it on your own hardware" pitch, eased by the
+          smaller-sovereign-model trend.</li>
+        <li><strong>Thinner VC.</strong> European deep-tech capital is shallower than the US — another argument
+          for the grant-funded, services-led, capital-efficient path.</li>
+      </ul>
+
+      <h3>Reordered ICP for the EU</h3>
+      <div class="table-wrap">
+        <table>
+          <caption>EU priority order (sovereignty leads)</caption>
+          <thead><tr><th class="num">Rank</th><th>Segment</th><th>Primary buy-reason</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>EU institutions &amp; Belgian public sector</td><td>Sovereignty mandate + procurement budgets</td></tr>
+            <tr><td class="num">2</td><td>Financial infrastructure (Euroclear, SWIFT, banks)</td><td>DORA concentration risk + data residency</td></tr>
+            <tr><td class="num">3</td><td>Defense / NATO-adjacent contractors</td><td>Air-gap mandate</td></tr>
+            <tr><td class="num">4</td><td>Regulated industry (healthcare, pharma, energy)</td><td>GDPR + IP sensitivity</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Net effect on the strategy &amp; the numbers</h3>
+      <ol class="body">
+        <li><strong>Sovereignty leads; proof and governance close.</strong> The order of the pitch flips
+          relative to the US framing.</li>
+        <li><strong>The positive-realistic case is arguably <em>more</em> reachable in the EU</strong> — the
+          buy-reason is broader and regulator-driven rather than discretionary, even if each deal is slower and
+          ACVs run a touch lower.</li>
+        <li><strong>Grant funding shifts the Year-1 risk profile</strong> that the conservative model treats as
+          near-pure cost.</li>
+      </ol>
+    </section>
+
+    <!-- 11 -->
+    <section id="next">
+      <p class="kicker">11 · Follow-ups</p>
+      <h2>Open questions for the next session</h2>
+      <ul>
+        <li>Which primary-ICP vertical do we attack first — finance (biggest budgets, hardest procurement) or
+          defense/gov (sovereignty is non-negotiable, so the sale is simpler but slower)?</li>
+        <li>Do we open-source now to seed adoption, or stay closed until the Lab is a clear differentiator?</li>
+        <li>Is the Lab strong enough to sell <em>standalone</em> to teams still on Cursor/Claude Code (the
+          secondary ICP), and does that cannibalize or feed the core sale?</li>
+        <li>What is the smallest credible design-partner offer we can put in front of a bank or contractor in
+          the next 90 days?</li>
+        <li>Build the finance model as an editable spreadsheet — logos, ACV, churn, cycle length as inputs —
+          so these tables become live assumptions rather than fixed numbers.</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<footer class="doc">
+  GlassCoder · Internal brainstorming document · Draft 2026-07-29 · Figures are illustrative assumptions, not forecasts or guidance.
+</footer>
+
+</body>
+</html>
