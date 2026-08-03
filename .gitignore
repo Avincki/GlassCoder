@@ -38,6 +38,10 @@ appsettings.Development.json
 appsettings.Local.json
 *.env
 secrets.json
+## Token drops, matched at any depth. Deliberately not "token.*": core.ignorecase
+## is true on Windows, so that pattern would also swallow a future Token.cs.
+token.txt
+token.zip
 
 ## Debug scratch output from launch profiles
 .debug/
