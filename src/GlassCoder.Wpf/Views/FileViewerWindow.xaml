@@ -1,0 +1,72 @@
+﻿<Window x:Class="GlassCoder.Wpf.Views.FileViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="720" Width="1000"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="Cascadia Mono, Consolas" FontSize="12.5">
+
+  <!-- Escape closes. A viewer opened by a double-click should be dismissable without reaching
+       for the mouse again, and there is nothing here to lose by closing it. -->
+  <Window.InputBindings>
+    <KeyBinding Key="Escape" Command="Close" />
+  </Window.InputBindings>
+  <Window.CommandBindings>
+    <CommandBinding Command="Close" Executed="OnClose" />
+  </Window.CommandBindings>
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- What is shown when there is nothing to show: a file that is binary, too large, or gone. -->
+    <TextBlock x:Name="Notice" Grid.Row="0" Visibility="Collapsed"
+               HorizontalAlignment="Center" VerticalAlignment="Center"
+               FontFamily="Segoe UI" FontSize="13" Foreground="#5F6B76"
+               TextWrapping="Wrap" MaxWidth="420" TextAlignment="Center" />
+
+    <Border x:Name="Body" Grid.Row="0" BorderBrush="#D0D7DE" BorderThickness="0,0,0,1">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!--
+          The gutter is scrolled by offsetting it rather than by giving it its own ScrollViewer:
+          one scrollable thing on the window means the numbers cannot drift out of step with the
+          code, which is exactly what two synchronised scrollers eventually do. Clipped, because
+          the offset moves it past its own top edge.
+        -->
+        <Border Grid.Column="0" ClipToBounds="True" Padding="8,0"
+                Background="{StaticResource SyntaxGutterBackground}"
+                BorderBrush="#D0D7DE" BorderThickness="0,0,1,0">
+          <TextBlock x:Name="Gutter" TextAlignment="Right"
+                     Foreground="{StaticResource SyntaxGutter}" />
+        </Border>
+
+        <!--
+          A RichTextBox rather than a TextBlock so the code can be selected and copied, which is
+          most of what a read-only viewer is for. IsReadOnly and IsUndoEnabled="False" keep it
+          from behaving like the editor it resembles.
+        -->
+        <RichTextBox x:Name="Code" Grid.Column="1"
+                     IsReadOnly="True" IsUndoEnabled="False"
+                     BorderThickness="0" Padding="8,0"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     Foreground="{StaticResource SyntaxPlain}" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Background="#ECEFF1" Padding="12,6">
+      <DockPanel>
+        <TextBlock x:Name="Summary" DockPanel.Dock="Right" Foreground="#546E7A"
+                   FontFamily="Segoe UI" FontSize="12" Margin="12,0,0,0" />
+        <TextBlock x:Name="FullPath" Foreground="#263238" FontFamily="Segoe UI" FontSize="12"
+                   TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>

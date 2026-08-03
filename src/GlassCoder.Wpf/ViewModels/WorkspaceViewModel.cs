@@ -87,6 +87,17 @@ public sealed class FileNodeViewModel : ViewModelBase
         LinesAdded = 0;
         LinesRemoved = 0;
     }
+
+    /// <summary>
+    /// The node's name, which is also what accessibility reads.
+    /// <para>
+    /// A TreeViewItem whose header is a data template has no text of its own to expose, so its
+    /// automation peer falls back to the bound object's <see cref="object.ToString"/>. Without
+    /// this override every node in the workspace tree announces itself to a screen reader - and
+    /// to any UI automation driving the app - as "GlassCoder.Wpf.ViewModels.FileNodeViewModel".
+    /// </para>
+    /// </summary>
+    public override string ToString() => Name;
 }
 
 /// <summary>
@@ -154,6 +165,7 @@ public sealed class WorkspaceViewModel : ViewModelBase
         BrowseCommand = new RelayCommand(Browse, () => !_isLoading);
         RestartCommand = new RelayCommand(_shell.Restart, () => HasPendingRoot);
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !_isLoading);
+        OpenFileCommand = new RelayCommand(OpenFile, CanOpenFile);
 
         _ = RefreshAsync();
     }
@@ -195,6 +207,49 @@ public sealed class WorkspaceViewModel : ViewModelBase
 
     /// <summary>Re-reads the tree from disk.</summary>
     public RelayCommand RefreshCommand { get; }
+
+    /// <summary>Opens the double-clicked file in a read-only viewer window.</summary>
+    public RelayCommand OpenFileCommand { get; }
+
+    /// <summary>
+    /// Only files, never directories.
+    /// <para>
+    /// This is what keeps folders behaving like folders. The command is bound to a double-click
+    /// on the tree item, and an <see cref="System.Windows.Input.InputBinding"/> whose command
+    /// cannot execute leaves the event unhandled - so a double-click on a directory falls
+    /// through to the TreeView and expands it, as it did before there was a viewer.
+    /// </para>
+    /// </summary>
+    private static bool CanOpenFile(object? parameter) =>
+        parameter is FileNodeViewModel { IsDirectory: false };
+
+    private void OpenFile(object? parameter)
+    {
+        if (parameter is not FileNodeViewModel node || node.IsDirectory)
+        {
+            return;
+        }
+
+        string relative = node.RelativePath.Replace('/', Path.DirectorySeparatorChar);
+        string full = Path.GetFullPath(Path.Combine(RootPath, relative));
+
+        // The tree is built from the workspace, so this should always hold. It is checked anyway
+        // because the check is one comparison and the alternative is a path built from a node
+        // name reaching the file system unexamined.
+        if (!IsInsideRoot(full))
+        {
+            Status = $"'{node.RelativePath}' is outside the workspace.";
+            return;
+        }
+
+        _shell.OpenFileViewer(full, node.RelativePath);
+    }
+
+    private bool IsInsideRoot(string fullPath)
+    {
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath));
+        return fullPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
 
     private void Browse()
     {

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using GlassCoder.Wpf.ViewModels;
 using GlassCoder.Wpf.Views;
 
 namespace GlassCoder.Wpf.Services;
@@ -17,6 +18,17 @@ public interface IDesktopShell
 {
     /// <summary>Opens a folder in the file browser, creating it if it does not exist yet.</summary>
     void OpenFolder(string path);
+
+    /// <summary>
+    /// Opens a read-only viewer on a file from the workspace.
+    /// <para>
+    /// Modeless, and one window per call: reading a file is not a decision the shell is waiting
+    /// on, and comparing two files means having both open at once.
+    /// </para>
+    /// </summary>
+    /// <param name="fullPath">Absolute path to read.</param>
+    /// <param name="displayPath">Repo-relative path, for the title bar.</param>
+    void OpenFileViewer(string fullPath, string displayPath);
 
     /// <summary>
     /// Restarts the application. Settings are bound once at startup through
@@ -69,6 +81,19 @@ public sealed class DesktopShell : IDesktopShell
         {
             // Not being able to open a folder is not worth taking the application down for.
         }
+    }
+
+    /// <inheritdoc />
+    public void OpenFileViewer(string fullPath, string displayPath)
+    {
+        // Read before the window exists, so a file that cannot be read becomes the window's
+        // message rather than an exception thrown mid-construction.
+        FileViewerWindow window = new(FileViewerViewModel.Load(fullPath, displayPath))
+        {
+            Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive),
+        };
+
+        window.Show();
     }
 
     /// <inheritdoc />

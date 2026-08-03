@@ -82,7 +82,20 @@
       </TreeView.ItemContainerStyle>
       <TreeView.ItemTemplate>
         <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-          <StackPanel Orientation="Horizontal">
+          <!-- Transparent so the gaps between the name and its counts are hit-testable too; a
+               null background is not, and a double-click that lands between two words would
+               otherwise do nothing. -->
+          <StackPanel Orientation="Horizontal" Background="Transparent">
+            <!-- Double-click, not single: selection moves with the arrow keys as well as the
+                 mouse, and opening a window on every selection change would make the tree
+                 unnavigable. OpenFileCommand declines directories, which leaves their
+                 double-click to the TreeView's own expand. -->
+            <StackPanel.InputBindings>
+              <MouseBinding MouseAction="LeftDoubleClick"
+                            CommandParameter="{Binding}"
+                            Command="{Binding DataContext.OpenFileCommand,
+                                              RelativeSource={RelativeSource AncestorType=TreeView}}" />
+            </StackPanel.InputBindings>
             <TextBlock Text="{Binding Name}">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">

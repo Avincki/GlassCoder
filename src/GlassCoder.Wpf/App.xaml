@@ -55,5 +55,23 @@
         <SolidColorBrush x:Key="PaneAdded" Color="#7FD18B" />
         <SolidColorBrush x:Key="PaneRemoved" Color="#F09C9C" />
 
+        <!--
+          Source colouring for the file viewer. These are Visual Studio's light-theme values,
+          taken rather than invented on purpose: the point of colouring code is that a reader
+          already knows what the colours mean, and a palette nobody has seen before has to be
+          learned before it helps. Against white, like the other content surfaces.
+        -->
+        <SolidColorBrush x:Key="SyntaxPlain" Color="#1E1E1E" />
+        <SolidColorBrush x:Key="SyntaxKeyword" Color="#0000FF" />
+        <SolidColorBrush x:Key="SyntaxComment" Color="#008000" />
+        <SolidColorBrush x:Key="SyntaxString" Color="#A31515" />
+        <SolidColorBrush x:Key="SyntaxNumber" Color="#098658" />
+        <SolidColorBrush x:Key="SyntaxPreprocessor" Color="#808080" />
+        <SolidColorBrush x:Key="SyntaxTag" Color="#800000" />
+        <SolidColorBrush x:Key="SyntaxAttribute" Color="#FF0000" />
+        <!-- The gutter has to be legible without competing with the code beside it. -->
+        <SolidColorBrush x:Key="SyntaxGutter" Color="#8C8C8C" />
+        <SolidColorBrush x:Key="SyntaxGutterBackground" Color="#F5F5F5" />
+
     </Application.Resources>
 </Application>
