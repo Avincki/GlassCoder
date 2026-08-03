@@ -13,10 +13,17 @@ namespace GlassCoder.Wpf.ViewModels;
 /// <summary>One step, shaped for the transcript list.</summary>
 public sealed class StepRowViewModel
 {
+    private readonly DateTimeOffset _runStartedAt;
+
     /// <summary>Creates the row from a step record.</summary>
-    public StepRowViewModel(StepRecord record)
+    /// <param name="record">The step to show.</param>
+    /// <param name="runStartedAt">
+    /// When the run this step belongs to began - the origin the elapsed column counts from.
+    /// </param>
+    public StepRowViewModel(StepRecord record, DateTimeOffset runStartedAt)
     {
         Record = record;
+        _runStartedAt = runStartedAt;
         Tools = record.ToolCalls.Count == 0
             ? "-"
             : string.Join(", ", record.ToolCalls.Select(c => c.Name));
@@ -50,6 +57,29 @@ public sealed class StepRowViewModel
 
     /// <summary>Model latency for this step.</summary>
     public string Latency => Record.ModelLatencyMs.ToString("F0", CultureInfo.InvariantCulture) + " ms";
+
+    /// <summary>
+    /// How far into the run this step started. Latency answers "how long did this step take";
+    /// this answers "when did it happen", which is what makes a slow patch in the middle of an
+    /// otherwise brisk run visible at a glance.
+    /// </summary>
+    public string Elapsed => FormatElapsed(Record.StartedAt - _runStartedAt);
+
+    /// <summary>
+    /// <c>m:ss</c> up to an hour, <c>h:mm:ss</c> past it. Clamped at zero: a clock that moved
+    /// between steps should read 0:00 rather than a negative offset.
+    /// </summary>
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+
+        return elapsed.TotalHours >= 1
+            ? elapsed.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture)
+            : elapsed.ToString(@"m\:ss", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>Outcome.</summary>
     public string Outcome => Record.Outcome;
@@ -90,6 +120,7 @@ public sealed class TranscriptViewModel : ViewModelBase
 {
     private readonly ITranscriptBus _bus;
     private readonly Dispatcher _dispatcher;
+    private readonly Dictionary<string, DateTimeOffset> _runStarts = [];
     private string _toolFilter = "All";
     private string _severityFilter = "All";
     private string _search = string.Empty;
@@ -104,7 +135,7 @@ public sealed class TranscriptViewModel : ViewModelBase
 
         foreach (StepRecord record in bus.Steps)
         {
-            Steps.Add(new StepRowViewModel(record));
+            Steps.Add(CreateRow(record));
         }
 
         View = CollectionViewSource.GetDefaultView(Steps);
@@ -115,6 +146,7 @@ public sealed class TranscriptViewModel : ViewModelBase
         {
             _bus.Clear();
             Steps.Clear();
+            _runStarts.Clear();
         });
     }
 
@@ -199,9 +231,32 @@ public sealed class TranscriptViewModel : ViewModelBase
                row.Detail.Contains(Search, System.StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Builds a row, anchoring its elapsed time to the first step seen for that run.
+    /// <para>
+    /// Keyed by run rather than taken from row zero because the bus is session-scoped: two runs
+    /// without a Clear in between share one list, and the second one's clock has to restart. The
+    /// anchor is the earliest step still held - if the bus has already evicted the opening steps
+    /// of a long run, elapsed is measured from the oldest one that survived.
+    /// </para>
+    /// </summary>
+    private StepRowViewModel CreateRow(StepRecord record)
+    {
+        if (!_runStarts.TryGetValue(record.RunId, out DateTimeOffset runStartedAt))
+        {
+            runStartedAt = record.StartedAt;
+            _runStarts[record.RunId] = runStartedAt;
+        }
+
+        return new StepRowViewModel(record, runStartedAt);
+    }
+
     private void OnStepRecorded(object? sender, StepRecord record)
     {
-        // The loop runs on a background thread; the collection is bound to the UI.
-        _dispatcher.BeginInvoke(() => Steps.Add(new StepRowViewModel(record)));
+        // The loop runs on a background thread; the collection is bound to the UI. Building the
+        // row inside the callback keeps _runStarts single-threaded, and dispatcher operations of
+        // equal priority run in the order they were posted, so the first step of a run still
+        // arrives first and still wins the anchor.
+        _dispatcher.BeginInvoke(() => Steps.Add(CreateRow(record)));
     }
 }
