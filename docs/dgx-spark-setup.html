@@ -510,7 +510,7 @@
       <li><a href="#constraint">The binding constraint</a></li>
       <li><a href="#pick">Picking the model</a></li>
       <li><a href="#install">Standing up vLLM</a></li>
-      <li><a href="#roles">Serving the three roles</a></li>
+      <li><a href="#roles">Serving the roles</a></li>
       <li><a href="#why-critic">Why a small model can judge</a></li>
       <li><a href="#wire">Wiring GlassCoder to it</a></li>
       <li><a href="#verify">Verifying it properly</a></li>
@@ -851,13 +851,24 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
 
     <!-- ================= 4 ================= -->
     <section class="part" id="roles">
-      <div class="part-head"><span class="num">04</span><h2>Serving the three roles</h2></div>
+      <div class="part-head"><span class="num">04</span><h2>Serving the roles</h2></div>
 
       <p>
-        GlassCoder addresses three <em>served</em> aliases: <code>worker</code> drives the loop,
-        <code>drafter</code> is there for a larger model on hard sub-problems, and
-        <code>critic</code> runs the refutation pass. You do not need three models to start.
+        GlassCoder ships two <em>served</em> aliases you host yourself: <code>worker</code> drives
+        the loop and <code>critic</code> runs the refutation pass. You do not need two models to
+        start.
       </p>
+
+      <div class="note">
+        <span class="tag">A third alias exists in the source, and is not configured</span>
+        <p>
+          <code>drafter</code> is declared in <code>ModelRoles</code> for a larger model on hard
+          sub-problems, but nothing in the harness calls it. Its entry in
+          <code>appsettings.json</code> is commented out for that reason, so it no longer appears
+          in the settings dialog and no longer fails the connection check. Uncomment it when there
+          is a call site to serve — see <a href="#scale">section 9</a>.
+        </p>
+      </div>
 
       <div class="note">
         <span class="tag">There is a fourth role, and it is not served here</span>
@@ -875,7 +886,7 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
       <h3>One Spark, one model</h3>
 
       <p>
-        Point all three roles at the same endpoint and alias. Phases 0 and 1 only ever use
+        Point both roles at the same endpoint and alias. Phases 0 and 1 only ever use
         <code>worker</code>, so this costs you nothing until Phase 2.
       </p>
 
@@ -1228,11 +1239,10 @@ free -g                                                 <span class="c"># used s
       <div class="note caution">
         <span class="tag">Do not serve a drafter tonight</span>
         <p>
-          <code>drafter</code> is declared as a well-known role and is currently referenced
-          nowhere in the harness outside that declaration — nothing calls it. It is a seam held
-          open for later, not a model you are missing. Serving one would spend memory that
-          nothing requests. Leave the config entry pointing wherever you like and start the second
-          container as the <b>critic</b>, which <a href="#verify">is</a> wired.
+          The second container you start should be the <b>critic</b>, which
+          <a href="#verify">is</a> wired. <code>drafter</code> is a seam held open for later, not a
+          model you are missing, and its config entry is commented out — serving one would spend
+          memory that nothing requests.
         </p>
       </div>
 
@@ -1687,10 +1697,22 @@ glasscoder run --repo /path/to/repo \
       </dl>
 
       <p>
-        Whatever you choose, keep the aliases stable. If a second machine serves
-        <code>drafter</code>, GlassCoder needs one line of configuration and no code change —
-        which is the entire point of the seam.
+        Whatever you choose, keep the aliases stable. Moving a role GlassCoder already calls onto
+        a second machine is one line of configuration and no code change — that is the point of
+        addressing aliases rather than checkpoint paths.
       </p>
+
+      <div class="note caution">
+        <span class="tag">The drafter is the exception, and it is worth being exact about why</span>
+        <p>
+          Standing <code>drafter</code> up on a second machine is <em>not</em> config-only today.
+          Uncommenting its entry in <code>appsettings.json</code> and pointing it at that machine
+          gets you a role the factory will happily build a client for — and nothing that ever asks
+          for one. There is no call site. The seam is open at the configuration layer and not yet
+          at the call layer, so the work is a harness change (decide what a drafter is handed, and
+          when), not an endpoint change.
+        </p>
+      </div>
     </section>
 
     <!-- ================= 10 ================= -->

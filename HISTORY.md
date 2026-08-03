@@ -9,6 +9,78 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-03 — The drafter role, retired to a comment
+
+**Shipped.** `Models:Roles:drafter` is commented out in `config/appsettings.json`
+rather than deleted, and the DGX Spark guide no longer contradicts itself about
+what standing one up would cost. No code changed; 361 tests green.
+
+**Why it was ever there**, because the trace is not obvious from the source and
+took a git archaeology pass to recover. `drafter` entered in the first
+implementation commit (`1382d58`, tasks 1–10) because workplan task 4 said "one
+per served role (`worker`, `drafter`, `critic`)" — and that phrasing came from
+the hardware plan in `LocalAICodingAgent-LearningGuide.md`, where a drafter is a
+real thing: the 480B model that handles planning and hard edits in an 8-GPU
+serving layout. It was a *serving* role that got copied into a *harness* role
+list. `ModelRoles.cs` has exactly one commit in its whole history, and this file
+had never once mentioned the role — that silence, next to `critic-remote`'s four
+entries, is the tell. One was built; the other was only declared.
+
+**Decided**
+
+- **The reason to retire it is the connection check, not the memory.** Clients
+  are built lazily (`GetOrAdd` inside `GetClient`), so a configured-but-uncalled
+  role never opens a socket and never costs a byte. What it did cost was
+  `TestAllAsync`, which probes *every* configured role: with nothing serving
+  :8002, "Test all" reported a standing failure forever. A check that is always
+  partly red is a check that stops being read, which defeats the reason it was
+  built. That is the whole argument — "it wastes memory" was never true.
+- **Commented, not deleted.** The block is the only place a reader learns the
+  intended shape and that :8002 is the port the serving layout reserves, and
+  ladder phase 4 still plans to point the harness at a larger drafter. Deleting
+  it would move that knowledge into prose only. The binder skips comments, so
+  the cost of keeping it is zero.
+- **`ModelRoles.Drafter` stays.** Nothing references it, but it is a documented
+  `const` that costs nothing, and `ModelRoles` already states that config may
+  define any number of roles and that none of these are required. Removing it is
+  a source-breaking change to a public surface that buys nothing.
+- **"Remove it from the UI" turned out not to be a UI task, and that is the
+  design working.** The settings dialog has no hardcoded role list — `BuildRoles`
+  enumerates `Settings.Models.Roles`, and `RoleNames` feeds the three editable
+  combo boxes. Dropping the config entry removed the row and all three dropdown
+  entries with no XAML, ViewModel or test change. Worth writing down because the
+  next role question will sound like a UI change too, and won't be one.
+
+**The thing that will surprise you later**
+
+Editing `appsettings.json` does **not** remove the drafter from a machine that
+has ever saved settings. Configuration layering is additive per key — it merges,
+it never deletes — and saved settings sit *above* `appsettings.json`, while
+`CollectRoles` rewrites the full `Roles` dictionary on every Save. So any
+`settings.json` written before today still carries a complete drafter block and
+will keep showing the row. Clearing it is the dialog's **Remove** button (enabled
+whenever more than one role exists) or **Reset**. This cuts both ways: it is also
+why a user who *wants* the drafter never needed us to ship it configured.
+
+**The guide's contradiction, and what replaced it**
+
+`dgx-spark-setup.html` said in section 4 that a second machine serving `drafter`
+needs "one line of configuration and no code change", and then said in a caution
+six days newer that nothing in the harness calls it. Both were still in the file.
+The claim is true of relocating a role the harness *does* call, and false of this
+one. It now says so explicitly: the seam is open at the configuration layer and
+not at the call layer, so standing up a drafter is a harness change, not an
+endpoint change.
+
+**Open**
+
+What a drafter is actually handed, and when. That is the missing call site and
+the real content of ladder phase 4 — a decision about how work is split between
+a fast worker and a slow strong model, which is exactly the kind of thing the
+metrics exist to answer. Until it is made, the alias stays commented.
+
+---
+
 ## 2026-07-28 — Settings that travel: per project, and between machines
 
 **Shipped.** Three files now carry settings instead of one pair. The per-user
