@@ -6,6 +6,10 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>GlassCoder.Wpf</RootNamespace>
     <UseWPF>true</UseWPF>
+    <!-- Embedded in the executable, which is what Explorer, the taskbar and Alt-Tab read. A WPF
+         Window with no Icon of its own falls back to this too, so the title bars follow without
+         either window having to name the file. -->
+    <ApplicationIcon>Assets\glasscoder.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

@@ -9,6 +9,41 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-03 — An icon, and the generator that made it
+
+**Shipped.** The app had no icon at all - no `.ico`, no `ApplicationIcon`, no `Icon` on any
+window - so every title bar, the taskbar and Alt-Tab showed the default shell icon.
+`src/GlassCoder.Wpf/Assets/glasscoder.ico` now carries the mark at ten sizes, and
+`tools/IconGen` is the source that renders it. 361 tests green.
+
+**Decided**
+
+- **The mark is drawn from the house language rather than invented.** The kintsunai logo is
+  kintsugi: pale ceramic plates joined by gold seams. The icon is a pane of glass whose fracture
+  has been filled with gold, where the seam takes the shape of a terminal prompt, `>_`. Glass
+  because the loop is meant to be visible, gold in the seam for the house, the prompt because
+  without it a bare chevron is read as an arrow - which is not a guess, it is what the first three
+  renderings actually looked like. The rejected passes are written down in the tool's README so the
+  next person does not repeat them.
+- **Each size is rendered, not scaled.** One 256px bitmap downsampled to 16 is a grey smudge. Every
+  size comes from the same unit-square geometry with its own weights, and detail drops out as it
+  shrinks: gloss below 24px, keyline below 32, molten highlight below 96, and the vein taper
+  flattens toward uniform so the tips do not thin to nothing.
+- **`ApplicationIcon` alone, no XAML.** A WPF `Window` with no `Icon` of its own falls back to the
+  executable's, so both windows follow from one line in the csproj and neither has to name the file.
+- **The generator is in the tree but out of the solution.** A committed binary with no source is
+  unmaintainable - no new sizes, no adjustments. But it builds a brand asset that changes about
+  once a year, and putting it in `GlassCoder.sln` would run it through every build and every CI
+  pass for nothing. `GlassCoder.sln` lists projects explicitly, so `tools/` is simply never built.
+
+**Worth knowing**
+
+`System.IO` is *not* in the implicit-using set for a `UseWPF` project, though it is for a plain
+console one. Stripping it as redundant is a build break that only shows up on the WPF-flavoured
+project.
+
+---
+
 ## 2026-08-03 — The drafter role, retired to a comment
 
 **Shipped.** `Models:Roles:drafter` is commented out in `config/appsettings.json`
