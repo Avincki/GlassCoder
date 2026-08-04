@@ -246,6 +246,23 @@ public sealed class ToolArgumentLoggingTests
     }
 
     [Fact]
+    public async Task A_call_that_ran_fine_still_reports_what_it_concluded()
+    {
+        // The ambiguity this closes: Status says whether the *call* ran. A build that compiled
+        // nothing returns ok:true - a failed build is a handled outcome, not a tool fault - and
+        // logged as "build:Succeeded", which reads to every human as a claim about the build.
+        // Nearly missed a real MSB1003 that way.
+        ToolRegistry registry = new([new EchoTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent(
+            "call-1", "echo", new Dictionary<string, object?> { ["text"] = "hello" }));
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded);
+        invocation.ErrorMessage.ShouldBeNull();
+        invocation.Summary.ShouldBe("echoed hello");
+    }
+
+    [Fact]
     public async Task A_failed_call_carries_how_it_failed()
     {
         // The loop needs this to tell one failure from the same failure again.
@@ -270,6 +287,6 @@ public sealed class ToolArgumentLoggingTests
             [System.ComponentModel.Description("Whether to shout.")] bool loud = false) =>
             text == "fail"
                 ? Observation.Fail<string>("echo", ToolErrorCodes.InvalidArgument, "The tool was asked to fail.")
-                : Observation.Ok("echo", text);
+                : Observation.Ok("echo", text, $"echoed {text}");
     }
 }

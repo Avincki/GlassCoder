@@ -80,10 +80,9 @@ public sealed class CreateFileTool : IToolSet
 
     /// <summary>Creates a new file and writes its full contents.</summary>
     [GlassCoderTool(ToolName, Order = 35)]
-    [Description("Write a file's complete contents. Creates it when it does not exist, and with "
-        + "overwrite: true replaces one that does - which is the right tool for replacing a generated stub "
-        + "wholesale, rather than editing it line by line. Missing parent directories are created. The "
-        + "content is syntax- and compile-checked before it is written.")]
+    [Description("Write a file's complete contents. Creates it, or with overwrite: true replaces one that "
+        + "exists - the right tool for replacing a generated stub rather than editing it line by line. "
+        + "Parent directories are created. Syntax- and compile-checked before it is written.")]
     public async Task<ToolObservation<CreateFileResult>> CreateFileAsync(
         [Description("Path for the file, relative to the repository root.")]
         string path,

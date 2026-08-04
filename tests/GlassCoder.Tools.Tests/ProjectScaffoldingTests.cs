@@ -189,6 +189,38 @@ public sealed class ProjectScaffoldingTests
     }
 
     [Fact]
+    public async Task A_solution_path_names_a_file_rather_than_a_folder_to_put_one_in()
+    {
+        // From a run: the agent asked for src/MyMathLib.sln and got a *directory* of that name
+        // holding MyMathLib.sln.slnx - a folder named like a solution containing a solution named
+        // like a folder. It built, by accident, which is how nearly-right survives a whole run.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+
+        await Tool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, "src/MyMathLib.sln");
+
+        List<string> arguments = [.. executor.Commands.Single().Arguments];
+        arguments[arguments.IndexOf("-n") + 1].ShouldBe("MyMathLib", "the .sln belongs to the file, not the name");
+        // ...and it goes in src, not in a new src/MyMathLib.sln folder.
+        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("src");
+    }
+
+    [Fact]
+    public async Task A_solution_asked_for_by_directory_still_works()
+    {
+        // The other calling convention has to keep working: name a folder, get a solution in it
+        // named after the folder.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+
+        await Tool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, "src/Everything");
+
+        List<string> arguments = [.. executor.Commands.Single().Arguments];
+        arguments[arguments.IndexOf("-n") + 1].ShouldBe("Everything");
+        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("Everything");
+    }
+
+    [Fact]
     public async Task A_template_this_tool_does_not_know_is_refused_before_anything_runs()
     {
         using TempWorkspace workspace = new();

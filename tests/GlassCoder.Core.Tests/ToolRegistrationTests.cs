@@ -23,8 +23,8 @@ public sealed class ToolRegistrationTests
     /// </summary>
     private static readonly string[] BaseTools =
     [
-        "update_todos", "read_file", "grep", "glob", "list_projects",
-        "create_file", "edit_file", "build", "dotnet_project", "run_tests",
+        "update_todos", "list_changes", "read_file", "grep", "glob", "list_projects",
+        "create_file", "edit_file", "file_operation", "build", "dotnet_project", "run_tests",
     ];
 
     private static readonly string[] GitTools =

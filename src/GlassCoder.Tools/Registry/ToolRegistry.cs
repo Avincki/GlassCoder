@@ -100,6 +100,7 @@ public sealed class ToolRegistry : IToolRegistry
                 // Carried up so the loop can tell one failure from the same failure again,
                 // without reaching into the observation's payload type.
                 ErrorMessage = ReportsSuccess(result) ? null : DescribeFailure(result),
+                Summary = SummaryOf(result),
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -196,28 +197,42 @@ public sealed class ToolRegistry : IToolRegistry
     /// </summary>
     private static string? DescribeFailure(object? result)
     {
+        (string? code, string? summary) = Read(result);
+        return Combine(code, summary);
+    }
+
+    /// <summary>
+    /// The observation's own one-line account of what it did, whether or not it went well.
+    /// <para>
+    /// Carried up so the transcript's console line can say what happened rather than only whether
+    /// the call ran. A build that compiled nothing logged as <c>build:Succeeded</c> - true of the
+    /// call, and read by every human as a claim about the build.
+    /// </para>
+    /// </summary>
+    private static string? SummaryOf(object? result) => Read(result).Summary;
+
+    /// <summary>Pulls the error code and summary off an observation, whatever shape it arrived in.</summary>
+    private static (string? Code, string? Summary) Read(object? result)
+    {
         if (result is null)
         {
-            return null;
+            return (null, null);
         }
 
         if (result is JsonElement { ValueKind: JsonValueKind.Object } element)
         {
-            string? jsonCode = element.TryGetProperty("error", out JsonElement error) &&
-                error.TryGetProperty("code", out JsonElement code)
-                    ? code.GetString()
-                    : null;
-            string? jsonSummary = element.TryGetProperty("summary", out JsonElement summary)
-                ? summary.GetString()
-                : null;
-
-            return Combine(jsonCode, jsonSummary);
+            return (
+                element.TryGetProperty("error", out JsonElement error) &&
+                    error.TryGetProperty("code", out JsonElement code)
+                        ? code.GetString()
+                        : null,
+                element.TryGetProperty("summary", out JsonElement summary) ? summary.GetString() : null);
         }
 
         Type type = result.GetType();
         object? errorValue = type.GetProperty("Error", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result);
 
-        return Combine(
+        return (
             errorValue?.GetType().GetProperty("Code", BindingFlags.Public | BindingFlags.Instance)
                 ?.GetValue(errorValue) as string,
             type.GetProperty("Summary", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result) as string);

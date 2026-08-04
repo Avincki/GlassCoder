@@ -19,6 +19,16 @@ public sealed record TranscriptMessage(string Role, string? Text, IReadOnlyList<
 /// <param name="DurationMs">Wall-clock spent inside the tool.</param>
 /// <param name="Result">The observation returned to the model, after redaction and truncation.</param>
 /// <param name="Error">Failure detail, when there is one.</param>
+/// <param name="Summary">
+/// The observation's own one-line account of what happened.
+/// <para>
+/// Carried separately from <paramref name="Result"/> rather than read back out of it, for two
+/// reasons. It survives content redaction, which blanks the result entirely. And it is what the
+/// console line needs to stop being ambiguous: <c>Status</c> says whether the <em>call</em> ran,
+/// so a build that compiled nothing still logged as <c>build:Succeeded</c> - true of the call,
+/// and read by every human as a claim about the build.
+/// </para>
+/// </param>
 public sealed record ToolCallRecord(
     string CallId,
     string Name,
@@ -27,7 +37,8 @@ public sealed record ToolCallRecord(
     bool Parsed,
     double DurationMs,
     string? Result,
-    string? Error);
+    string? Error,
+    string? Summary = null);
 
 /// <summary>What one automatic verification climb concluded (workplan task 36).</summary>
 /// <param name="Passed">Whether every gating rung that ran passed.</param>

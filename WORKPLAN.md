@@ -407,29 +407,33 @@ Acceptance: every caller of a method is found in a multi-project tree, or the to
 
 ## 49. delete_file and move_file: let the agent tidy the tree
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 From the outside review (P1), and the item on its list with the most direct evidence behind it. Task 44 taught `list_projects` to report a project nested inside another — the SDK glob then compiles the inner sources into the outer, and every resulting error points at the wrong file. The agent can now *diagnose* that and cannot *fix* it, because moving or removing a file is not something it can do.
 
-- [ ] `delete_file(path)`: writable set only, change log recording before-text to empty so the Changes surface renders it as the removal it is, approval gate before anything leaves the tree.
-- [ ] `move_file(from, to)`: both paths writable. Two change-log entries, not one, because `CodeChange.Path` is singular — a removal and an addition, which is also how a reviewer wants to read it.
-- [ ] Never touch denied globs, and refuse a directory outright rather than recursing. A tool that can empty `bin/` is a tool that can empty something else.
-- [ ] **Out of scope: updating usings and namespaces after a move.** That is a refactor, and pretending a file operation can do it half-correctly is worse than leaving it to the agent's own edits.
+- [x] `delete_file(path)`: writable set only, change log recording before-text to empty so the Changes surface renders it as the removal it is, approval gate before anything leaves the tree.
+- [x] `move_file(from, to)`: both paths writable. Two change-log entries, not one, because `CodeChange.Path` is singular — a removal and an addition, which is also how a reviewer wants to read it.
+- [x] Never touch denied globs, and refuse a directory outright rather than recursing. A tool that can empty `bin/` is a tool that can empty something else.
+- [x] **Out of scope: updating usings and namespaces after a move.** That is a refactor, and pretending a file operation can do it half-correctly is worse than leaving it to the agent's own edits.
 
 Acceptance: the agent can resolve a nested-project layout end to end — move the inner project out, verify, and leave no orphan. Depends on tasks 16, 28, 44.
 
+**Shipped as one tool, not two.** `delete_file` and `move_file` became verbs on `file_operation`, which also carries `revert` from task 50. Tool schemas are re-sent on every call and measure ~300 tokens each against a step-0 conversation of ~130, so a new top-level name costs more than the capability it carries. `PromptBudgetTests` enforces this.
+
 ## 50. list_run_changes and revert_file: let the run see its own work
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 From the outside review (P1). The change log already knows every file this run touched, what it looked like before, and whether the change stuck — and none of it is reachable by the agent, which re-reads files it edited four steps ago to find out what it did to them.
 
-- [ ] The justification is the one `ITodoList` already established (task 24): a plan is durable and visible *because* it survives context compaction. The change log has exactly that property and no tool in front of it. Once a run is long enough to compact, the transcript is no longer a reliable record of the run's own edits; the change log still is.
-- [ ] `list_run_changes()`: path, tool, status and net line counts for this run. Reads `IChangeLog`; never a second source of truth.
-- [ ] `revert_file(path)`: restore the before-text of the earliest applied change for that path in this run, and **record the revert as its own change** so the undo is as visible as the edit was.
-- [ ] Bounded to this run. This is not a general undo of the working tree, and it must not be able to discard work the operator did by hand.
+- [x] The justification is the one `ITodoList` already established (task 24): a plan is durable and visible *because* it survives context compaction. The change log has exactly that property and no tool in front of it. Once a run is long enough to compact, the transcript is no longer a reliable record of the run's own edits; the change log still is.
+- [x] `list_run_changes()`: path, tool, status and net line counts for this run. Reads `IChangeLog`; never a second source of truth.
+- [x] `revert_file(path)`: restore the before-text of the earliest applied change for that path in this run, and **record the revert as its own change** so the undo is as visible as the edit was.
+- [x] Bounded to this run. This is not a general undo of the working tree, and it must not be able to discard work the operator did by hand.
 
 Acceptance: after compaction, the agent can still answer what it has changed, and can undo one file without reconstructing it from memory. Depends on tasks 16, 24, 27.
+
+**`revert_file` shipped as a `file_operation` verb**, `list_run_changes` as `list_changes`. Same reason as task 49.
 
 ## 51. list_tests: discover before running
 

@@ -580,7 +580,8 @@ public sealed class AgentLoop : IAgentLoop
             invocation.IsValid,
             invocation.Duration.TotalMilliseconds,
             Serialise(invocation.Result),
-            invocation.ErrorMessage);
+            invocation.ErrorMessage,
+            invocation.Summary);
 
     private static string? Serialise(object? result)
     {

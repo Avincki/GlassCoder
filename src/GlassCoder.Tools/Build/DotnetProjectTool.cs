@@ -94,22 +94,18 @@ public sealed class DotnetProjectTool : IToolSet
 
     /// <summary>Creates or wires up a project.</summary>
     [GlassCoderTool(ToolName, Order = 55)]
-    [Description("Create and wire up .NET projects with the dotnet CLI: scaffold a project or solution, "
-        + "add a project reference or a NuGet package, or restore. Prefer this over editing a .csproj by "
-        + "hand - it picks correct versions and cannot produce malformed XML. Adding a test project is "
-        + "normally three calls: new, add_reference, then build.")]
+    [Description("Create and wire up .NET projects with the dotnet CLI. Use this rather than hand-editing a "
+        + ".csproj. A test project is normally new, then add_reference, then build.")]
     public async Task<ToolObservation<DotnetProjectResult>> RunAsync(
-        [Description("What to do: new, new_solution, add_to_solution, add_reference, add_package or restore.")]
+        [Description("What to do.")]
         DotnetProjectOperation operation,
-        [Description("What the operation applies to, relative to the repository root. For 'new' this is the "
-            + "directory the project is created in, and its name is taken from that directory. For the others "
-            + "it is the project or solution being changed.")]
+        [Description("Repo-relative target. For new, the directory to create the project in; its name comes "
+            + "from that directory. Otherwise the project or solution being changed.")]
         string path,
-        [Description("The second half of the operation: the template for 'new' (xunit, classlib, console, ...), "
-            + "the referenced project for 'add_reference', the package id for 'add_package', the project to add "
-            + "for 'add_to_solution'. Not used by 'restore'.")]
+        [Description("Template for new (xunit, classlib, console, ...); referenced project for add_reference; "
+            + "package id for add_package; project to add for add_to_solution. Unused by restore.")]
         string? argument = null,
-        [Description("Package version for add_package. Omit for the latest version the project can take.")]
+        [Description("Package version for add_package. Omit for the latest.")]
         string? version = null,
         CancellationToken cancellationToken = default)
     {
@@ -220,8 +216,21 @@ public sealed class DotnetProjectTool : IToolSet
 
             case DotnetProjectOperation.NewSolution:
             {
-                string name = argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(full));
-                return (["new", "sln", "-o", full, "-n", name], root, null);
+                // A caller naming a solution means a file, and says so by ending the path in
+                // .sln. Treating that as a directory produced src/X.sln/X.sln.slnx - a folder
+                // named like a solution, holding a solution named like a folder. It built, by
+                // accident, which is the kind of nearly-right that survives a run and confuses
+                // the next person.
+                string extension = Path.GetExtension(full);
+                bool namesAFile = extension is ".sln" or ".slnx";
+
+                string directory = namesAFile
+                    ? Path.GetDirectoryName(full) ?? root
+                    : full;
+                string name = argument
+                    ?? Path.GetFileNameWithoutExtension(Path.TrimEndingDirectorySeparator(full));
+
+                return (["new", "sln", "-o", directory, "-n", name], root, null);
             }
 
             case DotnetProjectOperation.AddToSolution:

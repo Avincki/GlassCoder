@@ -108,8 +108,10 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<GlobTool>();
         services.TryAddSingleton<TodoTool>();
         services.TryAddSingleton<ListProjectsTool>();
+        services.TryAddSingleton<ListChangesTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<TodoTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListChangesTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ReadFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GrepTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GlobTool>());
@@ -131,12 +133,14 @@ public static class ToolsServiceCollectionExtensions
 
         services.TryAddSingleton<CreateFileTool>();
         services.TryAddSingleton<EditFileTool>();
+        services.TryAddSingleton<FileOperationTool>();
         services.TryAddSingleton<BuildTool>();
         services.TryAddSingleton<RunTestsTool>();
         services.TryAddSingleton<DotnetProjectTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<FileOperationTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<DotnetProjectTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());

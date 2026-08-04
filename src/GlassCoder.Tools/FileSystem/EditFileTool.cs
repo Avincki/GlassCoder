@@ -77,16 +77,14 @@ public sealed class EditFileTool : IToolSet
 
     /// <summary>Replaces an exact, unique string in a file.</summary>
     [GlassCoderTool(ToolName, Order = 40)]
-    [Description("Replace a unique string in a workspace file. Read the file first and quote enough "
-        + "surrounding text to make the target unique - the edit fails if the text is missing or appears more "
-        + "than once. Line endings do not have to match; indentation does. To replace a whole file, use "
-        + "create_file with overwrite: true instead. The change is syntax- and compile-checked before it "
-        + "is written.")]
+    [Description("Replace a unique string in a workspace file. Read it first and quote enough surrounding "
+        + "text to make the target unique. To replace a whole file, use create_file with overwrite: true. "
+        + "Syntax- and compile-checked before it is written.")]
     public async Task<ToolObservation<EditFileResult>> EditFileAsync(
         [Description("Path to the file, relative to the repository root.")]
         string path,
-        [Description("The text to replace. Must appear exactly once in the file, indentation included. "
-            + "Line endings are matched flexibly, so \\n is fine whatever the file uses.")]
+        [Description("The text to replace. Must appear exactly once, indentation included. Line endings are "
+            + "matched flexibly, so \\n is fine whatever the file uses.")]
         string oldText,
         [Description("The replacement text.")]
         string newText,

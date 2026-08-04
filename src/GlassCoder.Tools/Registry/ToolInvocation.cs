@@ -48,6 +48,12 @@ public sealed record ToolInvocation
     /// <summary>Failure detail for the statuses that carry one.</summary>
     public string? ErrorMessage { get; init; }
 
+    /// <summary>
+    /// The observation's own one-line account of what happened, success or not. Distinct from
+    /// <see cref="Status"/>, which says only whether the call itself ran.
+    /// </summary>
+    public string? Summary { get; init; }
+
     /// <summary>Whether this call counts as valid for the tool-call validity rate.</summary>
     public bool IsValid => Status is ToolCallStatus.Succeeded or ToolCallStatus.Failed;
 }

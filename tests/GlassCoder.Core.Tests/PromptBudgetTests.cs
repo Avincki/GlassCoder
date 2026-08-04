@@ -32,8 +32,24 @@ public sealed class PromptBudgetTests : IDisposable
     /// licence for the schemas to keep growing. If this fails, the question to ask is not "what
     /// should the number be" but "is this tool worth 200 tokens on every step of every run".
     /// </para>
+    /// <para>
+    /// Raised once, to 14,000, at 13,547 measured across seventeen tools. Four arrived together
+    /// (tasks 44, 49, 50): <c>list_projects</c> 446, <c>dotnet_project</c> 1,359,
+    /// <c>file_operation</c> 820, <c>list_changes</c> 413. That is more than the "tool or two"
+    /// the original headroom was for, so the number was not raised until the question above had
+    /// been answered honestly: every one of those descriptions was cut first, which took the
+    /// total from 14,448 - <c>dotnet_project</c> alone was 1,818 and the single most expensive
+    /// tool in the harness, ahead of <c>update_todos</c>.
+    /// </para>
+    /// <para>
+    /// It also decided a design. An outside review proposed nine new tools; they were folded into
+    /// four schemas instead, because at roughly 300 tokens each the flat version would have cost
+    /// about 2,700 tokens on every request - against a step-0 conversation of roughly 130.
+    /// Capability belongs on the tools that already exist. The next tool to be added should trim
+    /// something, not raise this again: the schemas are 95.9% of a step-0 request as it stands.
+    /// </para>
     /// </summary>
-    private const int ToolSchemaCharacterBudget = 13000;
+    private const int ToolSchemaCharacterBudget = 14000;
 
     /// <summary>Roughly the divisor the context assembler uses, so the two speak the same units.</summary>
     private const double CharactersPerToken = 4.0;

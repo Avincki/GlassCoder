@@ -9,6 +9,79 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The first run that finished, and what the budget test said about tools
+
+**Shipped.** Tasks 49 and 50, and two defects found by reading a run that *worked*. 478 tests
+green across all five assemblies — the WPF project rebuilt and is verified against this tree
+again, which it had not been since the previous entry.
+
+**The run.** `8a77ee00`: **19 steps, Completed, 117k tokens, 4m15, zero failed tool calls.** The
+goal was a function that sorts doubles descending and multiplies by six; it produced that, a test
+project, five passing tests and a solution that builds. Set against the two before it — 30 steps
+to StepLimit with 257k and 220k tokens, and no tests written at all — the harness work is what
+changed, because nothing about the model did.
+
+Three things the transcript proves rather than suggests:
+
+- **Line endings.** Step 5's `oldText` is `namespace MyMathLib;\n\npublic class Class1\n{\n\n}` —
+  LF — against a file `dotnet new` wrote as CRLF. That is byte-for-byte the call that failed
+  seventeen consecutive times a run earlier. It succeeded first try.
+- **Argument logging.** That `oldText` was read straight out of the log. Two analyses before it,
+  the same argument had to be inferred from bytes on disk.
+- **The MSB1003 message steered the agent.** Step 12 built `"."`, got back *"'.' is not a project
+  or solution… use list_projects to see what this repository holds"*, and answered it by creating
+  a solution at steps 13–15, which made 16 and 17 work. The harness taught the model its way out
+  of a dead end. That is what "errors are observations" is supposed to look like.
+
+**Decided**
+
+- **Nine proposed tools became four schemas, because the schemas were measured.** The outside
+  review's P0–P2 list would have added nine top-level tools. Step-0 requests across five runs put
+  a tool at roughly 300 tokens, re-sent every call, against an assembled conversation of about
+  130 — schemas are **96% of a step-0 request**. Nine would have cost ~2,700 tokens on every
+  step of every run. So `delete_file`/`move_file`/`revert_file` became verbs on one
+  `file_operation`, `list_tests` will be a flag on `run_tests`, and formatting a verb on
+  `dotnet_project`. Capability belongs on the tools that already exist. This is the same
+  reasoning `dotnet_project` itself was built on.
+- **`PromptBudgetTests` caught it, and its instruction was followed rather than its number
+  edited.** The test says the question on failure is not "what should the number be" but "is this
+  tool worth 200 tokens on every step of every run". Answering it found that
+  **`dotnet_project` was the most expensive tool in the harness at 1,818 characters** — larger
+  than `update_todos`, and written by this project three days ago. Trimming it and three other
+  descriptions took the total from 14,448 to 13,547, about 225 tokens off every step. Only then
+  was the ceiling raised, to 14,000, with the new per-tool figures written into the test.
+- **A successful run is worth reading too.** Both defects fixed this session came out of the run
+  that finished, not one that failed. `NewSolution` given `src/MyMathLib.sln` built a *directory*
+  of that name holding `MyMathLib.sln.slnx` — it worked by accident, and nearly-right that
+  survives a whole run is the kind that reaches the next person unexamined. And a build that hit
+  MSB1003 and compiled nothing logged as `build:Succeeded`, because the *call* had succeeded.
+
+**Worth knowing**
+
+- `ToolCallStatus` is about the call, not the outcome, and a failed build deliberately returns
+  `ok: true` — a handled outcome is not a tool fault. That is right, and it made the console line
+  misleading, so the step line now carries the observation's own summary. It is a separate field
+  on `ToolCallRecord` rather than parsed back out of `Result`, because content redaction blanks
+  the result entirely and would take the summary with it — losing the line exactly when the log
+  matters most.
+- **`file_operation` and `list_changes` were registered and never called** in that run. They cost
+  about 174 tokens on every request and returned nothing. The task needed neither; the
+  nested-project hazard is what `move` exists for. Worth recording rather than leaving behind a
+  claim of usefulness the transcript does not support.
+
+**Open**
+
+- Batch 2 — `apply_patch`, `find_symbol`, `read_file(outline:)` — is planned and unbuilt. It has
+  about 450 characters of schema headroom and will need roughly 1,700, so it has to pay for
+  itself: `update_todos` (1,356) and `grep` (1,191) are the untouched candidates.
+- `AddToSolution` takes one project per call; three steps of the run were one operation.
+- `GlassCoderTest/src/MyMathLib.sln/` still holds the misshapen solution the fixed bug produced.
+- Tasks 48 and 53 remain decisions rather than work: `find_references` needs a real MSBuild
+  workspace or it inherits the false-negative problem, and package knowledge is not worth
+  shipping without record/replay.
+
+---
+
 ## 2026-08-04 — Two failed runs, and the six-plus-five fixes they bought
 
 **Shipped.** Tasks 44 and 45, both written from transcripts rather than from guesses. 425 tests
