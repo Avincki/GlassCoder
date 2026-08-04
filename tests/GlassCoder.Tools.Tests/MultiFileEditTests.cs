@@ -1,6 +1,7 @@
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.FileSystem;
+using GlassCoder.Tools.Registry;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Options;
 
@@ -184,6 +185,111 @@ public sealed class MultiFileEditTests : IDisposable
         Read("src/Keep.cs").ShouldContain("Weight");
         Read("src/Deny.cs").ShouldContain("Size");
         observation.Data!.Files.Single(f => f.Path == "src/Deny.cs").Applied.ShouldBeFalse();
+    }
+
+    // ── The shapes the model actually sends ──
+    //
+    // Every case below is one the model produced in run 9fad0808, which spent eight consecutive
+    // steps on this tool and landed nothing. These go through ToolRegistry rather than calling the
+    // method, because binding is where they failed - a direct call would prove nothing.
+
+    [Fact]
+    public async Task The_flat_shape_is_the_one_a_model_reaches_for_and_it_works()
+    {
+        // Steps 14, 17 and 20. Step 14 was the run's first edit_file call, so this was not copied
+        // from a bad example in context: it is what the model does unprompted.
+        _workspace.WriteFile("src/Pager.cs", "int Last => 1;\n");
+
+        ToolInvocation invocation = await Invoke(new Dictionary<string, object?>
+        {
+            ["path"] = "src/Pager.cs",
+            ["oldText"] = "=> 1;",
+            ["newText"] = "=> 2;",
+        });
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded, invocation.ErrorMessage);
+        Read("src/Pager.cs").ShouldContain("=> 2;");
+    }
+
+    [Fact]
+    public async Task A_path_at_the_top_level_fills_in_for_edits_that_omit_it()
+    {
+        // Steps 15 and 21: the path was there, in the place the flat shape puts it, and the
+        // harness refused on a technicality - then called it path_not_allowed, which sent the
+        // model to look at the writable set instead of at its own arguments.
+        _workspace.WriteFile("src/Pager.cs", "int a = 1;\nint b = 2;\n");
+
+        ToolInvocation invocation = await Invoke(new Dictionary<string, object?>
+        {
+            ["path"] = "src/Pager.cs",
+            ["edits"] = new[]
+            {
+                new Dictionary<string, object?> { ["oldText"] = "int a = 1;", ["newText"] = "int a = 0;" },
+                new Dictionary<string, object?> { ["oldText"] = "int b = 2;", ["newText"] = "int b = 0;" },
+            },
+        });
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded, invocation.ErrorMessage);
+        Read("src/Pager.cs").ShouldBe("int a = 0;\nint b = 0;\n");
+    }
+
+    [Fact]
+    public async Task An_edits_array_sent_as_a_string_still_binds()
+    {
+        // The model double-encoded the array in three of its six attempts. It happens to bind, and
+        // pinning that here means a serialiser change cannot quietly take it away.
+        _workspace.WriteFile("src/Pager.cs", "int a = 1;\n");
+
+        ToolInvocation invocation = await Invoke(new Dictionary<string, object?>
+        {
+            ["edits"] = """[{"path": "src/Pager.cs", "oldText": "int a = 1;", "newText": "int a = 9;"}]""",
+        });
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded, invocation.ErrorMessage);
+        Read("src/Pager.cs").ShouldContain("int a = 9;");
+    }
+
+    [Fact]
+    public async Task A_call_with_no_usable_arguments_says_which_shape_to_use()
+    {
+        ToolInvocation invocation = await Invoke(new Dictionary<string, object?>
+        {
+            ["edits"] = new[] { new Dictionary<string, object?> { ["oldText"] = "a", ["newText"] = "b" } },
+        });
+
+        invocation.Status.ShouldBe(ToolCallStatus.Failed);
+
+        // Asserted on what the model is actually handed, which is the serialised observation.
+        string sent = Sent(invocation);
+        sent.ShouldContain(ToolErrorCodes.InvalidArgument);
+        sent.ShouldNotContain(
+            ToolErrorCodes.PathNotAllowed,
+            Case.Sensitive,
+            "a malformed argument is not a permission problem, and reporting it as one sent the model to look at the writable set");
+        sent.ShouldContain("edit_file(path, oldText, newText)");
+        sent.ShouldContain("edits:");
+    }
+
+    [Fact]
+    public async Task A_flat_call_missing_its_replacement_target_says_so_plainly()
+    {
+        ToolInvocation invocation = await Invoke(new Dictionary<string, object?> { ["path"] = "src/Pager.cs" });
+
+        string sent = Sent(invocation);
+        sent.ShouldContain(ToolErrorCodes.InvalidArgument);
+        sent.ShouldContain("oldText is required");
+    }
+
+    /// <summary>The observation as the model receives it, rather than as the tool returned it.</summary>
+    private static string Sent(ToolInvocation invocation) =>
+        System.Text.Json.JsonSerializer.Serialize(invocation.Result, ToolFunctionFactory.SerializerOptions);
+
+    /// <summary>Calls the tool the way the loop does: by name, with a bag of JSON arguments.</summary>
+    private async Task<ToolInvocation> Invoke(Dictionary<string, object?> arguments)
+    {
+        ToolRegistry registry = new([Tool()]);
+        return await registry.InvokeAsync(
+            new Microsoft.Extensions.AI.FunctionCallContent("call-1", "edit_file", arguments));
     }
 
     private string Read(string relative) =>

@@ -9,6 +9,69 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The run that failed on the tool I had just reshaped
+
+**Shipped.** Three fixes to `edit_file`, from reading run `9fad0808`. 528 tests green, +5.
+
+**What the run said.** Same goal as `8a77ee00` four hours earlier, same model, one difference: batch 2
+had made `edit_file` take a list of edits and nothing else.
+
+| | `8a77ee00` (12:06) | `9fad0808` (13:26) |
+|---|---|---|
+| Steps | 19, Completed | 22, **Cancelled** |
+| Tokens | 117,319 | 157,355 |
+| Tool-call validity | **1.00** | **0.86** |
+| Tests written | 5, passing | 0 |
+
+0.86 is the worst of the twelve runs in `metrics.jsonl`; the next worst is 0.96. Steps 0–13 were
+good — it scaffolded a classlib, **used `file_operation Move`** to relocate the source into it (the
+first real use of that tool), built green, scaffolded xunit, added the reference. Then eight
+consecutive steps on `edit_file`, cycling three shapes:
+
+- Steps 14, 17, 20: the flat `{path, oldText, newText}`. Step 14 was the run's *first* `edit_file`
+  call, so it was not copying a bad example from context — that is what the model does unprompted.
+- Steps 15, 21: `edits` with `path` left at the top level and omitted from each edit. The harness
+  answered `path_not_allowed: Path is required.`
+- Step 18: the one well-formed call, correctly refused for `CS1513: } expected`.
+
+One correct shape in six attempts, and `UnitTest1.cs` was still the untouched template stub.
+
+**Decided**
+
+- **The flat shape is primary again, with `edits` alongside it.** Six runs at 1.00 validity say
+  `edit_file(path, oldText, newText)` is what this model emits; the list stays for the multi-file
+  case that motivated task 46. This is the same lesson line-ending tolerance taught: *a shape the
+  model does not reliably produce is a contract the harness should not insist on.* I had the
+  precedent in hand and went the other way with it.
+- **A top-level `path` fills in for edits that omit it.** Not politeness — the information was there
+  five times over and the harness refused on a technicality.
+- **`path_not_allowed` was the wrong code and that is why the run never recovered.** It sent the
+  model to inspect the writable set instead of its own arguments. Malformed calls now answer
+  `invalid_argument` with both shapes spelled out in the hint.
+
+**Worth knowing**
+
+- **I optimised the number I could measure.** The batch-2 argument was that a second tool costs ~880
+  schema characters, about 150 tokens a request. The reshape cost ~40,000 tokens and a cancelled run
+  on one task. `PromptBudgetTests` measures prefill; it cannot see whether the model can drive the
+  schema at all, and that is worth more than the characters. Said so in the test, next to the number.
+- Declaring both shapes cost 414 characters, paid for by dropping the descriptions duplicated between
+  the flat parameters and `FileEdit`'s properties — the same text was on the wire twice — and by
+  trimming the six git tools, which nothing had touched yet. **13,687 total, below where batch 2 left
+  it.**
+- The new tests go through `ToolRegistry.InvokeAsync` with argument bags rather than calling the
+  method, because binding is where the run failed and a direct call would prove nothing. One of them
+  pins that a double-encoded `edits` string still binds, which the model did three times.
+
+**Open**
+
+- `find_symbol`, `read_file(outline:)` and `run_tests(listOnly:)` have still not been touched by a
+  real run. The next one is the test of whether batch 2 was worth anything at all.
+- `GlassCoderTest` holds a working `src/ArrayUtils` and an empty `tests/ArrayUtilsTests` from the
+  cancelled run, plus the `Class1.cs` stub `dotnet new` left behind.
+
+---
+
 ## 2026-08-04 — Batch 2: four capabilities for forty-five tokens, and the whitespace nobody was counting
 
 **Shipped.** Tasks 46, 47, 51 and 52, plus decisions recorded for 48 and 53. 523 tests green, +35.

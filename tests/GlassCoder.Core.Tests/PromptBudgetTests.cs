@@ -62,6 +62,16 @@ public sealed class PromptBudgetTests : IDisposable
     /// source, and it was being re-sent on every request of every run.
     /// </para>
     /// <para>
+    /// <strong>And then one number here was wrong about the thing that matters.</strong> Batch 2
+    /// made <c>edit_file</c> take a list <em>only</em>, on the argument that a second tool would
+    /// cost ~880 characters. The next run spent eight consecutive steps failing to call it,
+    /// tool-call validity fell from 1.00 - where it had sat for eleven runs - to 0.86, and the run
+    /// was cancelled. The flat shape came back alongside the list. What this test measures is
+    /// prefill; what it cannot see is whether the model can drive the schema at all, and that is
+    /// worth far more than the characters. A tool the model cannot call reliably has a cost this
+    /// number will never show.
+    /// </para>
+    /// <para>
     /// Roughly a fifth of what is counted here is whitespace, and it is not ours. The schemas this
     /// harness generates are compact; the OpenAI client re-serialises them through
     /// <c>AIJsonUtilities.DefaultOptions</c>, which writes indented. <c>update_todos</c> is 567

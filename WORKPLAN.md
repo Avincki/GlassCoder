@@ -385,6 +385,16 @@ Acceptance: a three-file rename lands in one call, one approval and three change
 
 **Shipped as `edit_file(edits)`, not as a second tool.** Two tools doing the same thing at different arities is the pattern the schema measurement exists to prevent: `edit_file` was 901 characters and a separate `apply_patch` would have been ~880 more, on every request of every run. Reshaping the one tool cost 373. A single edit is a one-element list, so nothing was lost, and the multi-file path is now the default rather than an alternative the model has to notice.
 
+**Corrected the same day: the list is not the only shape.** "Nothing was lost" was wrong, and run `9fad0808` said so. Asked to write tests, the model spent eight consecutive steps on `edit_file` and landed nothing — three calls in the flat shape it had never been shown, two with the edits' `path` left at the top level, one well-formed and correctly refused for unbalanced braces. Tool-call validity fell from 1.00, where it had sat for eleven runs, to 0.86; the run was cancelled at 157k tokens with an empty test stub still on disk. The comparable run four hours earlier finished in 19 steps with five passing tests.
+
+The lesson is the one line-ending tolerance already taught (task 45): **a shape the model does not reliably produce is a contract the harness should not insist on.** Three changes followed.
+
+- `edit_file(path, oldText, newText)` is primary again — six runs at 1.00 validity say it is what this model emits unprompted — with `edits` alongside it as an optional array for the multi-file case.
+- A top-level `path` fills in for edits that omit it, because that is exactly what the run sent five times: the information was there and the harness refused on a technicality.
+- A malformed call answers `invalid_argument` with both shapes spelled out. It used to answer `path_not_allowed`, which sent the model to inspect the writable set rather than its own arguments — which is why it never recovered.
+
+Declaring both shapes cost 414 characters, paid for by dropping the descriptions duplicated between the flat parameters and `FileEdit`'s properties, and by trimming the six git tools. Total schemas: **13,687**, below where batch 2 left them.
+
 **Two bullets were not built as written.**
 
 - *"One approval for the batch"* was rejected on inspection. `RequestActionAsync` is governed by `RequireApprovalForPush`, so routing edits through it would put file writes behind the push switch — a safety setting silently doing something other than what it says. More importantly the prompt shows a **diff**, and a reviewer approving three files should see three diffs. Approval stayed per file, which also means refusing one file still lets the rest land.

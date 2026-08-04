@@ -135,9 +135,8 @@ public sealed class GitTool : IToolSet
 
     /// <summary>Reports the state of the working tree.</summary>
     [GlassCoderTool(StatusToolName, Order = 80)]
-    [Description("Report the state of the git working tree: current branch, ahead/behind counts against the "
-        + "upstream, and which files are staged, modified, untracked or conflicted. Read-only; call it "
-        + "before git_commit to see what a commit would include.")]
+    [Description("Report the git working tree: branch, ahead/behind against upstream, and which files are "
+        + "staged, modified, untracked or conflicted. Read-only; call it before git_commit.")]
     public async Task<ToolObservation<GitStatusResult>> StatusAsync(CancellationToken cancellationToken = default)
     {
         GitRun run = await RunGitAsync(["status", "--porcelain=v2", "--branch"], cancellationToken).ConfigureAwait(false);
@@ -164,14 +163,12 @@ public sealed class GitTool : IToolSet
 
     /// <summary>Records the current changes as a commit.</summary>
     [GlassCoderTool(CommitToolName, Order = 81)]
-    [Description("Record the current changes as a git commit on the current branch. Stages every changed "
-        + "file inside the writable path set first unless stageAll is false, then commits with the given "
-        + "message. Local and reversible; nothing is pushed anywhere.")]
+    [Description("Commit the current changes on the current branch, staging everything inside the writable "
+        + "set first unless stageAll is false. Local and reversible; nothing is pushed.")]
     public async Task<ToolObservation<GitCommitResult>> CommitAsync(
         [Description("Commit message. The first line is the subject; keep it under 72 characters.")]
         string message,
-        [Description("Whether to stage every changed and untracked file inside the writable set before "
-            + "committing. Set false to commit only what is already staged.")]
+        [Description("Stage everything writable first. False commits only what is already staged.")]
         bool stageAll = true,
         CancellationToken cancellationToken = default)
     {
@@ -275,9 +272,8 @@ public sealed class GitTool : IToolSet
 
     /// <summary>Brings the branch up to date with its upstream.</summary>
     [GlassCoderTool(SyncToolName, Order = 82)]
-    [Description("Bring the current branch up to date with its upstream using pull --rebase. Requires a "
-        + "clean working tree - commit first. A conflicted rebase is aborted automatically and reported, "
-        + "leaving the tree exactly as it was. Run this before git_push when the branch is behind.")]
+    [Description("Bring the branch up to date with its upstream using pull --rebase. Needs a clean tree - "
+        + "commit first. A conflicted rebase is aborted and reported, leaving the tree as it was.")]
     public async Task<ToolObservation<GitSyncResult>> SyncAsync(CancellationToken cancellationToken = default)
     {
         if (!_guard.HasWritablePaths)
@@ -374,9 +370,8 @@ public sealed class GitTool : IToolSet
 
     /// <summary>Publishes the current branch, behind human approval.</summary>
     [GlassCoderTool(PushToolName, Order = 83)]
-    [Description("Push the current branch to the configured remote. This is the one action that leaves the "
-        + "machine: it normally requires human approval, and a refusal is final for this attempt. Commit "
-        + "first, and run git_sync if the branch is behind its upstream.")]
+    [Description("Push the current branch to its remote. This leaves the machine, so it normally requires "
+        + "human approval and a refusal is final. Commit first, and git_sync if the branch is behind.")]
     public async Task<ToolObservation<GitPushResult>> PushAsync(CancellationToken cancellationToken = default)
     {
         if (!_guard.HasWritablePaths)
@@ -533,9 +528,8 @@ public sealed class GitTool : IToolSet
 
     /// <summary>Opens a pull request for the current branch, behind human approval.</summary>
     [GlassCoderTool(PullRequestToolName, Order = 84)]
-    [Description("Open a GitHub pull request for the current branch using the gh CLI. Like git_push this "
-        + "leaves the machine and normally requires human approval. The branch must already be pushed with "
-        + "everything it should contain - run git_push first.")]
+    [Description("Open a GitHub pull request for the current branch with the gh CLI. Leaves the machine, so "
+        + "it normally requires human approval. Run git_push first.")]
     public async Task<ToolObservation<GitPullRequestResult>> CreatePullRequestAsync(
         [Description("Pull request title. One line, imperative mood, under 72 characters.")]
         string title,

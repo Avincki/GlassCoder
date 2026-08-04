@@ -12,11 +12,12 @@ namespace GlassCoder.Tools.FileSystem;
 /// <param name="Path">Repo-relative file to change.</param>
 /// <param name="OldText">Exact text to replace, unique in the file as it stands.</param>
 /// <param name="NewText">What to put there instead.</param>
-public sealed record FileEdit(
-    [property: Description("Path to the file, relative to the repository root.")] string Path,
-    [property: Description("Text to replace. Must appear exactly once, indentation included. Line endings "
-        + "are matched flexibly, so \\n is fine whatever the file uses.")] string OldText,
-    [property: Description("The replacement text.")] string NewText);
+/// <remarks>
+/// No <c>[Description]</c> on any of the three, deliberately: the tool declares parameters of the
+/// same names immediately above this, and describing them twice put 350 characters on every
+/// request to say the same thing in two places.
+/// </remarks>
+public sealed record FileEdit(string Path, string OldText, string NewText);
 
 /// <summary>What happened to one file.</summary>
 /// <param name="Path">Repo-relative file.</param>
@@ -61,11 +62,26 @@ public sealed record EditFileResult(
 /// and both are observations the agent can act on.
 /// </para>
 /// <para>
-/// It takes a <em>list</em> of edits, because one logical change - a rename, an interface
-/// update, a type moved - is one intent and was N calls, each preceded by a re-read and followed
-/// by its own compile. Edits to the same file are applied in order and that file is verified and
-/// written once, which is strictly cheaper than before: three edits in one file cost one
-/// in-memory compile instead of three.
+/// <strong>Two shapes, and the flat one is primary.</strong> <c>edit_file(path, oldText,
+/// newText)</c> is what a model reaches for unprompted; <c>edit_file(edits: [...])</c> does
+/// several replacements, across several files, in one call. Edits to the same file are applied in
+/// order and that file is verified and written once - three edits in one file cost one in-memory
+/// compile instead of three.
+/// </para>
+/// <para>
+/// The list was briefly the <em>only</em> shape, and one run says why it must not be. Asked to
+/// write tests, the model spent eight consecutive steps on this tool and landed nothing: three
+/// calls in the flat shape it had never been shown, two with the edits' <c>path</c> left at the
+/// top level, one well-formed. Tool-call validity fell from 1.00 - where it had sat for eleven
+/// runs - to 0.86, and the run was cancelled. The schema saving was about 150 tokens a request;
+/// it cost forty thousand tokens on one task.
+/// </para>
+/// <para>
+/// So this meets the model where it is, which is the same lesson line-ending tolerance taught
+/// (task 45): a shape the model does not reliably produce is a contract the harness should not
+/// insist on. A <c>path</c> given at the top level fills in for edits that omit it, because that
+/// is exactly what the run did, and a malformed call says which shape to use rather than
+/// reporting a permission problem it does not have.
 /// </para>
 /// <para>
 /// <strong>Atomic per file, deliberately not across files.</strong> Every edit to a file lands or
@@ -82,6 +98,14 @@ public sealed record EditFileResult(
 public sealed class EditFileTool : IToolSet
 {
     private const string ToolName = "edit_file";
+
+    /// <summary>
+    /// Both shapes, spelled out. Attached to every malformed call, because the run this exists for
+    /// never worked out what was wrong with its arguments from an error that did not say.
+    /// </summary>
+    private const string ShapeHint =
+        "Call it either way: edit_file(path, oldText, newText) for one replacement, or "
+        + "edit_file(edits: [{path, oldText, newText}, ...]) for several.";
 
     private readonly IPathGuard _guard;
     private readonly ICodeAnalyzer _analyzer;
@@ -112,24 +136,30 @@ public sealed class EditFileTool : IToolSet
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EditFileTool>.Instance;
     }
 
-    /// <summary>Applies an ordered list of replacements, grouped by file.</summary>
+    /// <summary>Applies one replacement, or an ordered list of them grouped by file.</summary>
     [GlassCoderTool(ToolName, Order = 40)]
-    [Description("Replace exact, unique strings in workspace files. Read a file first and quote enough "
-        + "surrounding text to make each target unique. Edits to one file apply in order and that file is "
-        + "written once, so a change spanning several files is one call. Compile-checked before writing.")]
-    public async Task<ToolObservation<EditFileResult>> EditFilesAsync(
-        [Description("The replacements to make, in order.")]
-        IReadOnlyList<FileEdit> edits,
+    [Description("Replace an exact, unique string in a workspace file. Read it first and quote enough "
+        + "surrounding text to make the target unique. Compile-checked before writing.")]
+    public async Task<ToolObservation<EditFileResult>> EditFileAsync(
+        [Description("Repo-relative path to the file.")]
+        string? path = null,
+        [Description("Text to replace. Must appear exactly once, indentation included; line endings are "
+            + "matched flexibly.")]
+        string? oldText = null,
+        [Description("The replacement text.")]
+        string? newText = null,
+        [Description("Several replacements at once, instead of the three above.")]
+        IReadOnlyList<FileEdit>? edits = null,
         CancellationToken cancellationToken = default)
     {
-        if (edits is null || edits.Count == 0)
+        (List<FileEdit> planned, string? complaint) = Plan(path, oldText, newText, edits);
+        if (complaint is not null)
         {
-            return Observation.Fail<EditFileResult>(
-                ToolName, ToolErrorCodes.InvalidArgument, "edits is required, with at least one entry.");
+            return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.InvalidArgument, complaint, ShapeHint);
         }
 
         List<FileOutcome> outcomes = [];
-        foreach ((PathGuardResult Verdict, string Path, List<FileEdit> Hunks) group in Group(edits))
+        foreach ((PathGuardResult Verdict, string Path, List<FileEdit> Hunks) group in Group(planned))
         {
             outcomes.Add(await ApplyAsync(group.Verdict, group.Path, group.Hunks, cancellationToken)
                 .ConfigureAwait(false));
@@ -157,16 +187,64 @@ public sealed class EditFileTool : IToolSet
         return Observation.Ok(ToolName, result, Summarise(result, outcomes));
     }
 
-    /// <summary>
-    /// Applies one replacement. The shape a single edit wants, and the one the tests speak - the
-    /// model-facing contract is the list, and this is the list of one.
-    /// </summary>
-    public Task<ToolObservation<EditFileResult>> EditFileAsync(
-        string path,
-        string oldText,
-        string newText,
+    /// <summary>Applies a list of replacements - the batch shape, without the flat parameters.</summary>
+    public Task<ToolObservation<EditFileResult>> EditFilesAsync(
+        IReadOnlyList<FileEdit> edits,
         CancellationToken cancellationToken = default) =>
-        EditFilesAsync([new FileEdit(path, oldText, newText)], cancellationToken);
+        EditFileAsync(edits: edits, cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Works out what was actually asked for, and says which shape to use when it cannot tell.
+    /// <para>
+    /// The path fallback is not politeness. A run sent the file's path at the top level and left
+    /// it out of each edit five times running; the information was there and the harness refused
+    /// on a technicality, then reported it as <c>path_not_allowed</c> - which sent the model to
+    /// look at the writable set rather than at its own arguments, so it never recovered.
+    /// </para>
+    /// </summary>
+    private static (List<FileEdit> Edits, string? Complaint) Plan(
+        string? path, string? oldText, string? newText, IReadOnlyList<FileEdit>? edits)
+    {
+        if (edits is { Count: > 0 })
+        {
+            List<FileEdit> planned = [];
+            for (int i = 0; i < edits.Count; i++)
+            {
+                if (edits[i] is not { } edit)
+                {
+                    return ([], $"Edit {i + 1} of {edits.Count} is empty.");
+                }
+
+                string? where = string.IsNullOrWhiteSpace(edit.Path) ? path : edit.Path;
+                if (string.IsNullOrWhiteSpace(where))
+                {
+                    return ([], $"Edit {i + 1} of {edits.Count} names no path, and the call has no "
+                        + "top-level path to fall back on.");
+                }
+
+                planned.Add(edit with { Path = where });
+            }
+
+            return (planned, null);
+        }
+
+        if (string.IsNullOrWhiteSpace(path) && string.IsNullOrEmpty(oldText))
+        {
+            return ([], "Nothing to do.");
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return ([], "path is required.");
+        }
+
+        if (string.IsNullOrEmpty(oldText))
+        {
+            return ([], $"oldText is required: it is the text to replace in '{path}'.");
+        }
+
+        return ([new FileEdit(path, oldText, newText ?? string.Empty)], null);
+    }
 
     /// <summary>
     /// Groups the edits by the file they name, keeping the order they were first named in.
@@ -182,9 +260,12 @@ public sealed class EditFileTool : IToolSet
         Dictionary<string, int> index = new(StringComparer.OrdinalIgnoreCase);
         List<(PathGuardResult Verdict, string Path, List<FileEdit> Hunks)> groups = [];
 
+        // Plan has already filled in every path, so a verdict here is about the workspace's rules
+        // rather than about the arguments - which is what lets PathNotAllowed below mean what it
+        // says. It reached the model as the answer to a missing path once, and cost five steps.
         foreach (FileEdit edit in edits)
         {
-            string raw = edit?.Path ?? string.Empty;
+            string raw = edit.Path;
             PathGuardResult verdict = _guard.Resolve(raw, PathAccess.Write);
             string key = verdict.RelativePath ?? raw;
 
