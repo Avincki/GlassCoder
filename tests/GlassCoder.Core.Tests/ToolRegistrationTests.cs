@@ -17,9 +17,14 @@ namespace GlassCoder.Core.Tests;
 /// </summary>
 public sealed class ToolRegistrationTests
 {
+    /// <summary>
+    /// In advertised order, which is also the order the work happens in: plan, read, search,
+    /// survey the projects, write, then the two oracles with project wiring between them.
+    /// </summary>
     private static readonly string[] BaseTools =
     [
-        "update_todos", "read_file", "grep", "glob", "create_file", "edit_file", "build", "run_tests",
+        "update_todos", "read_file", "grep", "glob", "list_projects",
+        "create_file", "edit_file", "build", "dotnet_project", "run_tests",
     ];
 
     private static readonly string[] GitTools =

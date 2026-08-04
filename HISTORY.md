@@ -9,6 +9,137 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — Two failed runs, and the six-plus-five fixes they bought
+
+**Shipped.** Tasks 44 and 45, both written from transcripts rather than from guesses. 425 tests
+green across Core, Tools, Models and Lab. The 34 WPF tests could not be rebuilt at the end of the
+session — the running app and Visual Studio hold `GlassCoder.Core.dll` and `GlassCoder.Tools.dll`
+in the WPF output folder — so they are **unverified against this tree**. Close both and rebuild
+before trusting a run: the binaries in `bin/Debug/net10.0-windows/` are older than this commit.
+
+**The method is the point.** Both tasks came from reading `glasscoder-20260804.jsonl` for a run
+that failed, finding the step where the harness rather than the model went wrong, and fixing that.
+Every change below names the step it came from. This is the first time the transcript has paid for
+itself as a design input rather than as a debugging aid, and it is worth keeping up.
+
+**Run one** (`bee2e874`, 30 steps, 257k tokens, StepLimit) was asked to add unit tests to a tree
+whose projects live under `src/` with no root solution. It produced **no tests at all**, with
+tool-call validity at 100 %. The model was never at fault — it wrote a correct test project and
+the harness refused to let it write a single test file. Four causes, all harness:
+
+- **The pre-write compile gate rejected correct code.** `RoslynCodeAnalyzer` scavenges its
+  reference set from build output rather than evaluating the project file, so a project whose
+  dependencies have not been built yet reports CS0246 for every type it imports. `create_file`
+  turned that into "nothing has been written", three times, on a file whose `using Utils;` was
+  right. It now returns `Inconclusive` when it can see its reference set is incomplete — the
+  machinery already existed and simply was not used for this case.
+- **The compile rung built `"."`, always.** `AgentLoop` never set `VerificationRequest.ProjectPath`
+  and the record's default was `"."`, so every edit was followed by `MSB1003` in 330 ms — while
+  the `build` *tool*, which takes a path, succeeded on the same tree in the same run. New
+  `ProjectLocator` resolves owning project → root solution → sole project → nothing, and nothing
+  means skip rather than fail.
+- **Nothing could manipulate a project.** Scaffolding meant hand-writing `.csproj` XML through
+  `edit_file`, and one of those edits failed outright. New `dotnet_project` wraps the SDK.
+- **Eight builds in thirty steps**, three consecutive with no edit between them. New `BuildCache`,
+  invalidated by the change log and by hand from `dotnet_project`.
+
+**Run two** (`bb0af8f6`) cleared all of that — `list_projects` at step 1, `dotnet_project` at step
+2, a real compile rung passing in 2.2 s — and then failed anyway, on **seventeen consecutive
+`edit_file` failures against a seven-line file**. The file came from `dotnet new` and held CRLF;
+the model emitted LF; the match was ordinal. Nothing the model could have done would have worked.
+
+**Decided**
+
+- **A tool that promises exactness must be fed by a tool that delivers it.** The real defect was
+  not the ordinal match on its own — it was that `read_file` read with `ReadAllLines` and rejoined
+  with `Environment.NewLine`, handing the model a *reconstruction* while `edit_file` demanded the
+  original. Fixing only the matcher would have left the contract broken in the other direction.
+  Both were changed together, and `read_file` now reports `LineEndings` and `ClippedLines`.
+- **Match flexibly, write consistently.** Normalising for the match is half the fix. The one edit
+  that did land in run two left a bare `\n` inside a CRLF file, so replacements now adopt the
+  file's own ending.
+- **`create_file` gained `overwrite: true`, and the doc comment that said it never would is gone.**
+  Creation and modification stayed separate verbs for a long time on purpose, but that left no way
+  to replace a generated stub — which is exactly the trap run two never escaped. Explicit, defaults
+  to false, and goes through the same change log, pre-write check and approval gate.
+- **A valid call that cannot be satisfied has to count toward something.** `MaxConsecutiveInvalid
+  ToolCalls` counts calls the registry could not *bind*; these bound and executed perfectly.
+  Nothing counted them, which is how a run ground through seventeen with validity reading 100 %.
+  New `AgentStopReason.RepeatedToolFailure` and `Agent:MaxIdenticalToolFailures` (nudge at 3, stop
+  at 8), kept deliberately distinct so the validity metric stays honest — a test asserts the rate
+  is still 1.0 when the new limit trips.
+- **The step budget is told to the model, once.** Run one spent its last five steps rebuilding an
+  unchanged tree; it could not pace itself against a ceiling nothing had mentioned. Sent at a
+  quarter remaining, floored at three, because repeating it would spend the budget it warns about.
+
+**Worth knowing**
+
+- **Tool-call arguments were not in the transcript.** They arrive as `JsonElement`, whose public
+  surface is its kind rather than its content, so the log recorded `{"ValueKind":"String"}` and the
+  value was gone. Two diagnoses in this session had to infer an argument from bytes on disk before
+  `ToolRegistry` was taught to unwrap them. CLAUDE.md §9 has required this all along.
+- **`CompileAsync` had only ever been handed a directory.** Now that it receives a resolved build
+  target it can get a `.csproj`, and enumerating a file as a directory throws. Caught by the test
+  for the `ProjectPath` override, not by a run.
+- **`ConfigurationBinder` appends to get-only collections rather than replacing them**, so
+  `FileReviewOptions.AllowedTools` is settable — otherwise "restrict the reviewer to Read" would
+  silently leave Grep and Glob on.
+
+**Open**
+
+- `GlassCoderTest` carries damage from run two: `src/MyMathLib/Class1.cs` has mixed line endings
+  and a stray `// test` comment. Fine as a test of the new matcher, not a clean starting point.
+- The nesting hazard `list_projects` now reports — a project directory containing another project,
+  so the SDK glob compiles the inner sources into the outer — is *diagnosable* but not fixable by
+  the agent, which has no move or delete tool. That is the next gap.
+
+---
+
+## 2026-08-04 — A second opinion on one file, from headless Claude Code
+
+**Shipped.** Task 43: a Review button on the file viewer that asks headless Claude Code what is
+wrong with the file, shows the report beside the code, and writes the actions you tick to a
+Markdown work order under `.glasscoder/reviews`.
+
+**Decided**
+
+- **A subprocess, not the model seam — the one deliberate exception to CLAUDE.md §4.** The seam
+  sends one file's text. A review of `WorkspaceViewModel.cs` that cannot open `WorkspacePane.xaml`
+  cannot tell whether the command it is reading is bound to anything. The CLI brings its own agent
+  loop and file tools, so the reviewer opens the callers, the types and the tests first. The
+  alternative was considered and rejected on that single ground.
+- **The allow-list is the safety argument.** `--allowedTools Read,Grep,Glob` with
+  `--permission-mode plan`: the subprocess can read and search the workspace and can do nothing
+  else to it. It runs outside the sandbox for the same reason `GitTool` does (task 40) — the
+  sandbox has neither network nor credentials. `FileReviewerTests` asserts the allow-list so a
+  tool cannot quietly join it.
+- **The two-field answer is enforced by `--json-schema`, not asked for in prose.** A prompt-JSON
+  fallback stays for older CLIs. Verified against 2.1.221: `--json-schema` is present,
+  `--max-turns` is *not*, so the run is bounded by `--max-budget-usd` and the process timeout.
+- **Not gated on `Critique:Enabled`.** That ships false, and sharing its switch would grey the
+  button out on every fresh install for a feature that is not part of the verification ladder.
+- **The API key is not injected unless configured.** The CLI has its own credentials; handing it a
+  key it did not ask for silently moves where the run is billed.
+- **Ported from `ClaudeContextGenerator3`'s `IntentAgentRunner`** rather than designed fresh — the
+  CLI probe, the argument assembly, the envelope parsing and the stderr redaction are all proven
+  there. Worth remembering that sibling exists.
+
+**Worth knowing**
+
+The work-order format writes *every* proposal with `[x]` marking the accepted ones, not just the
+accepted ones. The rejected proposals are the context that explains the accepted ones, and the
+consumer's rule stays "do the ticked ones". `ReviewActionFile.TryParse` ships with the renderer so
+the round-trip is provable now, while the format is still cheap to change.
+
+**Open**
+
+Nothing consumes the work order yet — composing a goal from the ticked items is a separate task,
+deliberately left until the format settled. And **a live review has still never run end to end**:
+the sandbox blocks the CLI's OAuth refresh, so it returns `Not logged in`. The failure path is
+proven; the success path is not.
+
+---
+
 ## 2026-08-03 — An icon, and the generator that made it
 
 **Shipped.** The app had no icon at all - no `.ico`, no `ApplicationIcon`, no `Icon` on any

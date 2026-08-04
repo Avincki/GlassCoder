@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Windows;
@@ -14,9 +15,9 @@ namespace GlassCoder.Wpf.Views;
 
 /// <summary>
 /// A read-only look at one file from the workspace tree, coloured by
-/// <see cref="SyntaxHighlighter"/>.
+/// <see cref="SyntaxHighlighter"/>, with the reviewer's second opinion beside it.
 /// <para>
-/// The document is built in code rather than bound. A <see cref="FlowDocument"/> is a tree of
+/// The documents are built in code rather than bound. A <see cref="FlowDocument"/> is a tree of
 /// <see cref="Inline"/> objects, not a value, and the binding needed to produce one per line
 /// would cost more in converters and templates than the twenty lines of construction it
 /// replaced - with the same result and less control over how many objects a large file makes.
@@ -32,6 +33,12 @@ public partial class FileViewerWindow : Window
     /// </summary>
     private const double CodeLineHeight = 17;
 
+    /// <summary>
+    /// How wide the review opens the first time one arrives. A fixed width rather than a star:
+    /// the code keeps the space it had, and the splitter is there for anyone who disagrees.
+    /// </summary>
+    private const double ReviewColumnWidth = 430;
+
     private static readonly Dictionary<SyntaxTokenKind, string> BrushKeys = new()
     {
         [SyntaxTokenKind.Plain] = "SyntaxPlain",
@@ -44,6 +51,8 @@ public partial class FileViewerWindow : Window
         [SyntaxTokenKind.Attribute] = "SyntaxAttribute",
     };
 
+    private readonly FileViewerViewModel _file;
+
     /// <summary>Creates the window over an already-loaded file.</summary>
     /// <param name="file">The file to show, read and coloured.</param>
     public FileViewerWindow(FileViewerViewModel file)
@@ -52,10 +61,18 @@ public partial class FileViewerWindow : Window
 
         InitializeComponent();
 
+        _file = file;
+        DataContext = file;
+
         Title = file.DisplayPath;
         FullPath.Text = file.FullPath;
         FullPath.ToolTip = file.FullPath;
         Summary.Text = file.Summary;
+
+        // Watched rather than bound: what changes is a document, and building one is exactly the
+        // kind of view mechanics that belongs here (CLAUDE.md §14).
+        file.PropertyChanged += OnFileChanged;
+        Closed += (_, _) => file.PropertyChanged -= OnFileChanged;
 
         if (!file.HasContent)
         {
@@ -69,8 +86,41 @@ public partial class FileViewerWindow : Window
         Gutter.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
         Gutter.Text = BuildGutter(file.Lines.Count);
 
-        Code.Document = BuildDocument(file.Lines);
+        Code.Document = BuildDocument(file.Lines, wrap: false);
         Loaded += OnLoaded;
+    }
+
+    private void OnFileChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(FileViewerViewModel.ReportLines):
+                Report.Document = BuildDocument(_file.ReportLines, wrap: true);
+                break;
+
+            case nameof(FileViewerViewModel.HasReview) when _file.HasReview:
+                OpenReviewPane();
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Gives the review its column the first time there is a review to put in it.
+    /// <para>
+    /// Left at zero until then, so a window opened just to read a file is all file. Only the
+    /// first review moves it - after that the width is the operator's, and reviewing a second
+    /// time must not undo where they dragged the splitter.
+    /// </para>
+    /// </summary>
+    private void OpenReviewPane()
+    {
+        ReviewSplitter.Visibility = Visibility.Visible;
+
+        if (ReviewColumn.Width.Value == 0)
+        {
+            ReviewColumn.Width = new GridLength(ReviewColumnWidth);
+            ReviewColumn.MinWidth = 260;
+        }
     }
 
     /// <summary>Right-aligned line numbers, one per line of the document.</summary>
@@ -90,7 +140,16 @@ public partial class FileViewerWindow : Window
         return text.ToString();
     }
 
-    private FlowDocument BuildDocument(IReadOnlyList<IReadOnlyList<HighlightedSpan>> lines)
+    /// <summary>
+    /// Builds one coloured document.
+    /// </summary>
+    /// <param name="lines">The coloured spans, one entry per line.</param>
+    /// <param name="wrap">
+    /// Whether long lines wrap. Code does not - a wrapped line would occupy two rows while the
+    /// gutter beside it advanced by one. Prose does, because there is no gutter to disagree with
+    /// and a review that scrolls sideways is a review nobody reads.
+    /// </param>
+    private FlowDocument BuildDocument(IReadOnlyList<IReadOnlyList<HighlightedSpan>> lines, bool wrap)
     {
         Dictionary<SyntaxTokenKind, Brush> brushes = [];
         foreach ((SyntaxTokenKind kind, string key) in BrushKeys)
@@ -100,7 +159,12 @@ public partial class FileViewerWindow : Window
 
         // One paragraph of runs separated by breaks, not a paragraph per line. Same rendering,
         // and it is the difference between a few thousand block elements and one on a long file.
-        Paragraph paragraph = new() { Margin = default, LineHeight = CodeLineHeight };
+        Paragraph paragraph = new() { Margin = default };
+        if (!wrap)
+        {
+            paragraph.LineHeight = CodeLineHeight;
+        }
+
         int longest = 0;
 
         for (int i = 0; i < lines.Count; i++)
@@ -120,15 +184,20 @@ public partial class FileViewerWindow : Window
             longest = Math.Max(longest, width);
         }
 
-        return new FlowDocument(paragraph)
+        FlowDocument document = new(paragraph)
         {
             PagePadding = default,
-            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-            // Wrapping would break the gutter - one logical line would occupy two rows while the
-            // numbers beside it advanced by one. Making the page wider than the longest line
-            // turns the wrap into a horizontal scrollbar instead.
-            PageWidth = (longest * MeasureCharacterWidth()) + 32,
+            LineStackingStrategy = wrap ? LineStackingStrategy.MaxHeight : LineStackingStrategy.BlockLineHeight,
         };
+
+        if (!wrap)
+        {
+            // Making the page wider than the longest line turns the wrap into a horizontal
+            // scrollbar instead.
+            document.PageWidth = (longest * MeasureCharacterWidth()) + 32;
+        }
+
+        return document;
     }
 
     /// <summary>

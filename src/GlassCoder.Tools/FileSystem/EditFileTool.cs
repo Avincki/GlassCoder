@@ -77,13 +77,16 @@ public sealed class EditFileTool : IToolSet
 
     /// <summary>Replaces an exact, unique string in a file.</summary>
     [GlassCoderTool(ToolName, Order = 40)]
-    [Description("Replace an exact, unique string in a workspace file. Read the file first and quote enough "
+    [Description("Replace a unique string in a workspace file. Read the file first and quote enough "
         + "surrounding text to make the target unique - the edit fails if the text is missing or appears more "
-        + "than once. The change is syntax- and compile-checked before it is written.")]
+        + "than once. Line endings do not have to match; indentation does. To replace a whole file, use "
+        + "create_file with overwrite: true instead. The change is syntax- and compile-checked before it "
+        + "is written.")]
     public async Task<ToolObservation<EditFileResult>> EditFileAsync(
         [Description("Path to the file, relative to the repository root.")]
         string path,
-        [Description("The exact text to replace. Must appear exactly once in the file, whitespace included.")]
+        [Description("The text to replace. Must appear exactly once in the file, indentation included. "
+            + "Line endings are matched flexibly, so \\n is fine whatever the file uses.")]
         string oldText,
         [Description("The replacement text.")]
         string newText,
@@ -130,20 +133,13 @@ public sealed class EditFileTool : IToolSet
             return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
         }
 
-        int first = original.IndexOf(oldText, StringComparison.Ordinal);
-        if (first < 0)
-        {
-            return Observation.Fail<EditFileResult>(
-                ToolName,
-                ToolErrorCodes.NotFound,
-                $"The text to replace was not found in '{verdict.RelativePath}'.",
-                "Read the file again and copy the target exactly, including indentation and line endings.");
-        }
+        // Line endings are matched flexibly. The model emits \n; a file from dotnet new on
+        // Windows holds \r\n; and demanding the two agree byte for byte is a contract no model
+        // reliably honours - it cost one run seventeen consecutive failures on a seven-line file.
+        TextFile.Match? found = TextFile.Find(original, oldText, out int occurrences);
 
-        int second = original.IndexOf(oldText, first + 1, StringComparison.Ordinal);
-        if (second >= 0)
+        if (found is null && occurrences > 1)
         {
-            int occurrences = Occurrences(original, oldText);
             return Observation.Fail<EditFileResult>(
                 ToolName,
                 ToolErrorCodes.AmbiguousTarget,
@@ -151,7 +147,23 @@ public sealed class EditFileTool : IToolSet
                 "Include more surrounding context so the target is unique.");
         }
 
-        string updated = string.Concat(original.AsSpan(0, first), newText, original.AsSpan(first + oldText.Length));
+        if (found is not { } match)
+        {
+            return Observation.Fail<EditFileResult>(
+                ToolName,
+                ToolErrorCodes.NotFound,
+                $"The text to replace was not found in '{verdict.RelativePath}'. {Nearest(original, oldText)}",
+                "Line endings are already matched flexibly, so the difference is in the characters themselves - "
+                    + "indentation, most often. Read the file again and copy the target from what it returns. "
+                    + "To replace the whole file instead, use create_file with overwrite: true.");
+        }
+
+        string newLine = TextFile.DominantNewLine(original);
+        string replacement = TextFile.WithNewLine(newText, newLine);
+        int first = match.Start;
+
+        string updated = string.Concat(
+            original.AsSpan(0, first), replacement, original.AsSpan(first + match.Length));
 
         // Every change is recorded before it is applied, so a change that was refused is as
         // visible in the UI as one that landed (CLAUDE.md §10).
@@ -198,7 +210,7 @@ public sealed class EditFileTool : IToolSet
         int startLine = CountLines(original.AsSpan(0, first)) + 1;
         int linesBefore = CountLines(original) + 1;
         int linesAfter = CountLines(updated) + 1;
-        int endLine = startLine + CountLines(newText);
+        int endLine = startLine + CountLines(replacement);
 
         _logger.LogInformation(
             "Edited {Path}: lines {StartLine}-{EndLine}, {LinesBefore} → {LinesAfter} lines",
@@ -278,18 +290,43 @@ public sealed class EditFileTool : IToolSet
     private static string Fingerprint(CodeDiagnostic diagnostic) =>
         $"{diagnostic.Id}|{diagnostic.FilePath}|{diagnostic.Message}";
 
-    private static int Occurrences(string text, string value)
+    /// <summary>
+    /// A lead to follow when the target was not found.
+    /// <para>
+    /// "Not found" on its own sends the model back to re-read a file it has often already read
+    /// correctly. Saying which part of its target <em>did</em> match points at the line that
+    /// differs, which is usually one indentation level.
+    /// </para>
+    /// </summary>
+    private static string Nearest(string original, string oldText)
     {
-        int count = 0;
-        int index = 0;
-        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        string[] lines = oldText.ReplaceLineEndings(TextFile.Lf).Split(TextFile.Lf);
+        if (lines.Length <= 1)
         {
-            count++;
-            index += value.Length;
+            return string.Empty;
         }
 
-        return count;
+        (string normalised, _) = TextFile.Normalise(original);
+
+        int matched = 0;
+        foreach (string line in lines)
+        {
+            if (line.Trim().Length > 0 && !normalised.Contains(line, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            matched++;
+        }
+
+        return matched == 0
+            ? "None of its lines appear in the file."
+            : $"Its first {matched} line(s) appear in the file, but line {matched + 1} does not: "
+                + $"\"{Trim(lines[matched])}\".";
     }
+
+    private static string Trim(string line) =>
+        line.Length <= 80 ? line : string.Concat(line.AsSpan(0, 80), "…");
 
     private static int CountLines(ReadOnlySpan<char> text)
     {

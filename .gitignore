@@ -45,3 +45,8 @@ token.zip
 
 ## Debug scratch output from launch profiles
 .debug/
+
+## File reviews written by the viewer's Review button (task 43). They are put inside the
+## workspace on purpose - so they show in the tree and the agent can read them - but they are
+## one operator's notes on one afternoon, not a fact about the repository.
+.glasscoder/

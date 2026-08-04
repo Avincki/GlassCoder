@@ -12,13 +12,17 @@ namespace GlassCoder.Tools.FileSystem;
 /// <param name="EndLine">1-based line number of the last returned line.</param>
 /// <param name="TotalLines">Total lines in the file, so the agent knows what it did not see.</param>
 /// <param name="Truncated">Whether lines were withheld because of the line cap.</param>
+/// <param name="LineEndings">What the file uses: crlf, lf, mixed or none.</param>
+/// <param name="ClippedLines">How many returned lines were too long to show whole.</param>
 public sealed record ReadFileResult(
     [property: Description("Repo-relative path that was read.")] string Path,
-    [property: Description("The requested lines, joined with newlines.")] string Content,
+    [property: Description("The requested lines, joined with the line ending the file itself uses.")] string Content,
     [property: Description("1-based line number of the first returned line.")] int StartLine,
     [property: Description("1-based line number of the last returned line.")] int EndLine,
     [property: Description("Total number of lines in the file.")] int TotalLines,
-    [property: Description("True when lines were withheld because of the line cap.")] bool Truncated);
+    [property: Description("True when lines were withheld because of the line cap.")] bool Truncated,
+    [property: Description("How this file ends its lines: crlf, lf, mixed or none.")] string LineEndings,
+    [property: Description("How many returned lines were too long and are shown truncated. Those lines cannot be quoted to edit_file.")] int ClippedLines);
 
 /// <summary>
 /// <c>read_file</c> - one of the three Phase 0 read-only tools (CLAUDE.md §17, workplan task 9).
@@ -108,14 +112,25 @@ public sealed class ReadFileTool : IToolSet
                 $"maxLines must be 1 or greater, got {maxLines}.");
         }
 
-        string[] lines;
+        string text;
         try
         {
-            lines = File.ReadAllLines(verdict.FullPath);
+            text = File.ReadAllText(verdict.FullPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Observation.Fail<ReadFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
+        }
+
+        // Split without losing what the file actually is. The previous ReadAllLines/join through
+        // Environment.NewLine handed the model a reconstruction: a file's real endings were
+        // replaced by the platform's, so what it was shown was not what was on disk - while
+        // edit_file went on to demand exactly what was on disk.
+        string[] lines = text.ReplaceLineEndings(TextFile.Lf).Split(TextFile.Lf);
+        if (lines.Length > 1 && lines[^1].Length == 0)
+        {
+            // A trailing newline terminates the last line rather than starting an empty one.
+            lines = lines[..^1];
         }
 
         int effectiveMax = Math.Min(maxLines, _options.MaxLinesPerRead);
@@ -123,9 +138,12 @@ public sealed class ReadFileTool : IToolSet
         int count = Math.Min(effectiveMax, Math.Max(lines.Length - firstIndex, 0));
         bool truncated = firstIndex + count < lines.Length;
 
+        string[] window = [.. lines.Skip(firstIndex).Take(count)];
+        int clipped = window.Count(line => line.Length > _options.MaxLineLength);
+
         string content = string.Join(
-            Environment.NewLine,
-            lines.Skip(firstIndex).Take(count).Select(line => WorkspaceFiles.Clip(line, _options.MaxLineLength)));
+            TextFile.DominantNewLine(text),
+            window.Select(line => WorkspaceFiles.Clip(line, _options.MaxLineLength)));
 
         ReadFileResult result = new(
             verdict.RelativePath!,
@@ -133,11 +151,20 @@ public sealed class ReadFileTool : IToolSet
             lines.Length == 0 ? 0 : firstIndex + 1,
             firstIndex + count,
             lines.Length,
-            truncated);
+            truncated,
+            TextFile.DescribeEndings(text),
+            clipped);
 
         string summary = truncated
             ? $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path} (truncated)."
             : $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path}.";
+
+        if (clipped > 0)
+        {
+            // Said out loud, because a clipped line is the one thing here that cannot be quoted
+            // back to edit_file - it is not what the file holds.
+            summary += $" {clipped} line(s) were too long and are shown truncated; do not quote those to edit_file.";
+        }
 
         return Observation.Ok(ToolName, result, summary);
     }

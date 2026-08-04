@@ -65,6 +65,9 @@ public sealed class GlassCoderSettings
     /// <summary>Critic panel (<c>GlassCoder:Critique</c>).</summary>
     public CritiqueOptions Critique { get; init; } = new();
 
+    /// <summary>On-demand review of one file (<c>GlassCoder:FileReview</c>).</summary>
+    public FileReviewOptions FileReview { get; init; } = new();
+
     /// <summary>Sub-agents (<c>GlassCoder:Orchestration</c>).</summary>
     public OrchestrationOptions Orchestration { get; init; } = new();
 

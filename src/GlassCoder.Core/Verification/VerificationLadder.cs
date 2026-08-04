@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using GlassCoder.Tools;
 using GlassCoder.Tools.Build;
+using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -94,12 +95,20 @@ public sealed record VerificationReport(
 public sealed record VerificationRequest(
     string? FilePath = null,
     string? FileText = null,
-    string ProjectPath = ".",
+    string? ProjectPath = null,
     string? TestFilter = null,
     bool RunFullSuite = false,
     string? Goal = null,
     string? ChangeDescription = null,
-    string? CriticRole = null);
+    string? CriticRole = null)
+{
+    /// <summary>
+    /// Repo-relative paths of the files this step changed, used to work out what to build when
+    /// <see cref="ProjectPath"/> is left null. Building the one project that owns the change is
+    /// both faster and more accurate than building the tree.
+    /// </summary>
+    public IReadOnlyList<string>? ChangedPaths { get; init; }
+}
 
 /// <summary>
 /// Climbs the verification ladder, cheapest oracle first, and stops at the first failure
@@ -131,6 +140,7 @@ public sealed class VerificationLadder : IVerificationLadder
     private readonly BuildTool _build;
     private readonly RunTestsTool _tests;
     private readonly ICriticPanel _critics;
+    private readonly IPathGuard _guard;
     private readonly VerificationLadderOptions _options;
     private readonly ILogger<VerificationLadder> _logger;
 
@@ -141,6 +151,7 @@ public sealed class VerificationLadder : IVerificationLadder
         BuildTool build,
         RunTestsTool tests,
         ICriticPanel critics,
+        IPathGuard guard,
         IOptions<VerificationLadderOptions> options,
         ILogger<VerificationLadder>? logger = null)
     {
@@ -151,6 +162,7 @@ public sealed class VerificationLadder : IVerificationLadder
         _build = build;
         _tests = tests;
         _critics = critics;
+        _guard = guard;
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<VerificationLadder>.Instance;
     }
@@ -164,6 +176,11 @@ public sealed class VerificationLadder : IVerificationLadder
 
         long start = Stopwatch.GetTimestamp();
         List<RungResult> results = [];
+
+        // Decided once, here, rather than defaulted to the workspace root. A tree whose projects
+        // live under src/ with no root solution answers MSB1003 to "build ." in 300 ms, and a
+        // rung reporting that as a failure tells the agent its edit broke something it did not.
+        request = request with { ProjectPath = ResolveTarget(request) };
 
         foreach (VerificationRung rung in Rungs(request))
         {
@@ -238,6 +255,11 @@ public sealed class VerificationLadder : IVerificationLadder
 
             case VerificationRung.Compile:
             {
+                if (request.ProjectPath is null)
+                {
+                    return Skip(rung, NothingToBuild, start);
+                }
+
                 ToolObservation<BuildResult> observation = await _build
                     .BuildAsync(request.ProjectPath, allowRestore: true, cancellationToken)
                     .ConfigureAwait(false);
@@ -261,6 +283,11 @@ public sealed class VerificationLadder : IVerificationLadder
                     return Skip(rung, "Analyzers are disabled.", start);
                 }
 
+                if (request.ProjectPath is null)
+                {
+                    return Skip(rung, NothingToBuild, start);
+                }
+
                 // Rung 3 reports and never gates: Passed is true whatever it finds.
                 DiagnosticReport report = await _analyzer
                     .CompileAsync(request.ProjectPath, cancellationToken)
@@ -276,6 +303,11 @@ public sealed class VerificationLadder : IVerificationLadder
             case VerificationRung.UnitTests:
             case VerificationRung.FullSuite:
             {
+                if (request.ProjectPath is null)
+                {
+                    return Skip(rung, NothingToBuild, start);
+                }
+
                 string? filter = rung == VerificationRung.UnitTests ? request.TestFilter : null;
                 ToolObservation<TestRunResult> observation = await _tests
                     .RunTestsAsync(request.ProjectPath, filter, cancellationToken)
@@ -319,6 +351,46 @@ public sealed class VerificationLadder : IVerificationLadder
         }
     }
 
+    /// <summary>What the compile and test rungs say when the tree holds nothing buildable.</summary>
+    private const string NothingToBuild =
+        "No project or solution was found to build. Add one, or set GlassCoder:VerificationLadder:ProjectPath.";
+
+    /// <summary>
+    /// What <c>dotnet build</c> should be pointed at for this change.
+    /// <para>
+    /// An explicit request wins, then the configured override, then the project that owns the
+    /// changed files. Null means there is nothing buildable, which the rungs skip on - an
+    /// unbuildable tree is a fact about the repository, not a failing edit.
+    /// </para>
+    /// </summary>
+    private string? ResolveTarget(VerificationRequest request)
+    {
+        if (!string.IsNullOrWhiteSpace(request.ProjectPath))
+        {
+            return request.ProjectPath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_options.ProjectPath))
+        {
+            return _options.ProjectPath;
+        }
+
+        IReadOnlyList<string>? relative = request.ChangedPaths
+            ?? (request.FilePath is null ? null : [request.FilePath]);
+
+        IEnumerable<string>? changed = relative?.Select(p =>
+            Path.GetFullPath(Path.Combine(_guard.RepoRoot, p.Replace('/', Path.DirectorySeparatorChar))));
+
+        string? target = ProjectLocator.ResolveBuildTarget(_guard.RepoRoot, changed);
+        if (target is null)
+        {
+            _logger.LogWarning(
+                "Nothing buildable found under {Root}; the compile and test rungs will be skipped", _guard.RepoRoot);
+        }
+
+        return target;
+    }
+
     private static RungResult Skip(VerificationRung rung, string reason, long start) =>
         new(rung, true, reason, Elapsed(start), Skipped: true);
 
@@ -341,6 +413,15 @@ public sealed class VerificationLadderOptions
 
     /// <summary>Whether rung 3 runs at all. It never gates either way.</summary>
     public bool RunAnalyzers { get; set; } = true;
+
+    /// <summary>
+    /// What the compile and test rungs build, relative to the workspace root. Null works it out
+    /// from the change: the project that owns the edited files, else a solution at the root, else
+    /// the only project in the tree. Set this when a repository needs a target none of that
+    /// finds - and note that a wrong value here is worse than null, because null skips the rung
+    /// while a wrong path fails it.
+    /// </summary>
+    public string? ProjectPath { get; set; }
 
     /// <summary>
     /// Filter for the unit-test rung of the in-loop climb, so it stays cheaper than the full

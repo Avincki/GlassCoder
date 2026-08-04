@@ -46,13 +46,15 @@ public sealed class BuildTool : IToolSet
     private readonly IPathGuard _guard;
     private readonly DiagnosticSummarizer _summarizer;
     private readonly SandboxOptions _sandbox;
+    private readonly BuildCache? _cache;
 
     /// <summary>Creates the tool.</summary>
     public BuildTool(
         ICommandExecutor executor,
         IPathGuard guard,
         DiagnosticSummarizer summarizer,
-        IOptions<SandboxOptions> sandbox)
+        IOptions<SandboxOptions> sandbox,
+        BuildCache? cache = null)
     {
         ArgumentNullException.ThrowIfNull(sandbox);
 
@@ -60,6 +62,7 @@ public sealed class BuildTool : IToolSet
         _guard = guard;
         _summarizer = summarizer;
         _sandbox = sandbox.Value;
+        _cache = cache;
     }
 
     /// <summary>Builds a project, solution or directory.</summary>
@@ -78,6 +81,18 @@ public sealed class BuildTool : IToolSet
         if (!verdict.Allowed || verdict.FullPath is null)
         {
             return Observation.Fail<BuildResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
+        }
+
+        // Nothing has changed since this target last built clean, so the answer cannot have
+        // changed either. Returned in milliseconds and said out loud, so a run that would have
+        // spent three steps rebuilding an untouched tree spends one.
+        if (_cache is not null && _cache.TryGet(verdict.RelativePath!, allowRestore, out BuildResult? cached))
+        {
+            return Observation.Ok(
+                ToolName,
+                cached!,
+                "Build succeeded (unchanged since the last build, so this result was reused). "
+                    + "Edit something before building again.");
         }
 
         bool isDirectory = Directory.Exists(verdict.FullPath);
@@ -137,7 +152,20 @@ public sealed class BuildTool : IToolSet
 
         if (payload.Succeeded)
         {
+            _cache?.Set(verdict.RelativePath!, allowRestore, payload);
             return Observation.Ok(ToolName, payload, $"Build succeeded ({summary.TotalWarnings} warnings).");
+        }
+
+        // MSB1003 means the target is not a project or solution, which is a fact about the
+        // repository rather than about the code. Say so, because "specify a project or solution
+        // file" reads like a compile error to anything that only counts errors.
+        if (summary.Text.Contains("MSB1003", StringComparison.Ordinal))
+        {
+            return Observation.Ok(
+                ToolName,
+                payload,
+                $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. "
+                    + "Build a specific project, or use list_projects to see what this repository holds.");
         }
 
         // A failed build is a handled outcome, not a tool failure: this is the single most

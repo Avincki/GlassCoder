@@ -133,8 +133,15 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
             return Task.FromResult(DiagnosticReport.Inconclusive(verdict.Reason ?? "Path is not readable."));
         }
 
+        // Callers name a build target, which is as often a .csproj or .sln as a directory. This
+        // compiles a directory of sources, so take the one the target lives in - enumerating a
+        // file as though it were a directory throws rather than returning nothing.
+        string directory = Directory.Exists(verdict.FullPath)
+            ? verdict.FullPath
+            : Path.GetDirectoryName(verdict.FullPath) ?? verdict.FullPath;
+
         return Task.Run(
-            () => Compile(verdict.FullPath, overridePath: null, overrideText: null, cancellationToken),
+            () => Compile(directory, overridePath: null, overrideText: null, cancellationToken),
             cancellationToken);
     }
 
@@ -201,10 +208,22 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 cancellationToken: cancellationToken));
         }
 
+        (List<MetadataReference> metadata, HashSet<string> resolved) = References(projectDirectory);
+
+        // Before trusting any diagnostic, ask whether this compilation could possibly be right.
+        // The reference set is scavenged from build output, not evaluated from the project file,
+        // so a project whose dependencies have not been built yet produces CS0246 for every type
+        // it imports - including correct ones. Reporting that as "your file does not compile"
+        // blocks the write, and the agent cannot fix an error that is not in its file.
+        if (UnresolvedReferences(projectDirectory, resolved) is { } unresolved)
+        {
+            return DiagnosticReport.Inconclusive(unresolved, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+
         CSharpCompilation compilation = CSharpCompilation.Create(
             $"glasscoder-{Path.GetFileName(projectDirectory)}",
             trees,
-            References(projectDirectory),
+            metadata,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: true,
@@ -222,6 +241,11 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 
     private IEnumerable<string> EnumerateSources(string projectDirectory)
     {
+        if (!Directory.Exists(projectDirectory))
+        {
+            yield break;
+        }
+
         IEnumerable<string> files;
         try
         {
@@ -330,9 +354,15 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         return null;
     }
 
-    private List<MetadataReference> References(string projectDirectory)
+    /// <summary>
+    /// The assemblies to compile against, and the names of the ones that were scavenged from
+    /// build output. The names are what tells the caller whether the set is complete: framework
+    /// assemblies are always there, so only the scavenged ones say anything about this project.
+    /// </summary>
+    private (List<MetadataReference> Metadata, HashSet<string> Resolved) References(string projectDirectory)
     {
         List<MetadataReference> references = [.. FrameworkReferences.Value];
+        HashSet<string> resolved = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string directory in _options.ExtraReferenceDirectories.Prepend(Path.Combine(projectDirectory, "bin")))
         {
@@ -346,6 +376,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 try
                 {
                     references.Add(MetadataReference.CreateFromFile(dll));
+                    resolved.Add(Path.GetFileNameWithoutExtension(dll));
                 }
                 catch (Exception ex) when (ex is IOException or BadImageFormatException)
                 {
@@ -354,7 +385,45 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
             }
         }
 
-        return references;
+        return (references, resolved);
+    }
+
+    /// <summary>
+    /// Why this compilation cannot be trusted, or null when it can.
+    /// <para>
+    /// Two cases, both meaning "the answer would be about the reference set, not about the code".
+    /// A <c>ProjectReference</c> whose assembly is nowhere in the output is definitive. Packages
+    /// are judged more coarsely - a package id is not an assembly name, so the only reliable
+    /// reading is that nothing has been built yet at all.
+    /// </para>
+    /// </summary>
+    private static string? UnresolvedReferences(string projectDirectory, HashSet<string> resolved)
+    {
+        foreach (string projectFile in ProjectLocator.EnumerateProjects(projectDirectory))
+        {
+            ProjectReferences declared = ProjectLocator.ReadReferences(projectFile);
+            if (!declared.Any)
+            {
+                continue;
+            }
+
+            List<string> missing = [.. declared.Projects.Where(p => !resolved.Contains(p))];
+            if (missing.Count > 0)
+            {
+                return $"'{Path.GetFileName(projectFile)}' references {string.Join(", ", missing)}, " +
+                    "which has not been built yet, so an in-memory compile cannot see those types. " +
+                    "Use the build tool for an authoritative answer.";
+            }
+
+            if (declared.Packages.Count > 0 && resolved.Count == 0)
+            {
+                return $"'{Path.GetFileName(projectFile)}' references NuGet packages that have not been " +
+                    "restored or built yet, so an in-memory compile cannot see those types. " +
+                    "Use the build tool for an authoritative answer.";
+            }
+        }
+
+        return null;
     }
 
     private static List<MetadataReference> LoadFrameworkReferences()

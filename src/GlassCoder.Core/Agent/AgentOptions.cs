@@ -36,6 +36,17 @@ public sealed class AgentOptions
     public int MaxConsecutiveInvalidToolCalls { get; set; } = 5;
 
     /// <summary>
+    /// How many times the same tool may fail the same way, consecutively, before the run stops.
+    /// <para>
+    /// A different limit from <see cref="MaxConsecutiveInvalidToolCalls"/>, because these calls
+    /// are not invalid: they parse, bind and execute, and report a failure the agent then fails
+    /// to act on. Nothing counted them, so a run could spend seventeen consecutive steps on one
+    /// unsatisfiable edit while tool-call validity read 100%. Zero switches the limit off.
+    /// </para>
+    /// </summary>
+    public int MaxIdenticalToolFailures { get; set; } = 8;
+
+    /// <summary>
     /// System prompt used when a run does not supply one. Context assembly (task 12) will take
     /// this over; until then it is the whole of the always-loaded context.
     /// </summary>

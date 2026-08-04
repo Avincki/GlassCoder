@@ -30,9 +30,13 @@ public sealed record CreateFileResult(
 /// gap without weakening the property that makes <c>edit_file</c> safe.
 /// </para>
 /// <para>
-/// It <em>refuses to overwrite</em>. Creation and modification stay separate verbs, so
-/// "replace one exact, unique string" remains the only way an existing file can change - an
-/// upserting create tool would be a hole straight through that guarantee.
+/// It refuses to overwrite <em>unless asked to</em>. Creation and modification stayed separate
+/// verbs for a long time, so that "replace one unique string" was the only way an existing file
+/// could change - but that left no way at all to replace a generated stub, and a run once spent
+/// seventeen consecutive steps failing to edit its way to the same result (workplan task 45).
+/// <c>overwrite</c> is explicit, defaults to false, and goes through the same change log,
+/// pre-write check and approval gate as everything else, so it is a named verb rather than the
+/// hole an upserting create tool would have been.
 /// </para>
 /// <para>
 /// The path allow-list, the change log, the pre-write compile check and the approval gate all
@@ -76,14 +80,17 @@ public sealed class CreateFileTool : IToolSet
 
     /// <summary>Creates a new file and writes its full contents.</summary>
     [GlassCoderTool(ToolName, Order = 35)]
-    [Description("Create a new file and write its complete contents. Fails if anything already exists at "
-        + "that path - use edit_file to change a file that is already there. Missing parent directories are "
-        + "created. The content is syntax- and compile-checked before it is written.")]
+    [Description("Write a file's complete contents. Creates it when it does not exist, and with "
+        + "overwrite: true replaces one that does - which is the right tool for replacing a generated stub "
+        + "wholesale, rather than editing it line by line. Missing parent directories are created. The "
+        + "content is syntax- and compile-checked before it is written.")]
     public async Task<ToolObservation<CreateFileResult>> CreateFileAsync(
-        [Description("Path for the new file, relative to the repository root.")]
+        [Description("Path for the file, relative to the repository root.")]
         string path,
-        [Description("The complete contents of the new file.")]
+        [Description("The complete contents of the file.")]
         string content,
+        [Description("Whether to replace the file if it already exists. False refuses rather than overwriting.")]
+        bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
         if (content is null)
@@ -101,13 +108,14 @@ public sealed class CreateFileTool : IToolSet
             return Observation.Fail<CreateFileResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
         }
 
-        if (File.Exists(verdict.FullPath))
+        bool exists = File.Exists(verdict.FullPath);
+        if (exists && !overwrite)
         {
             return Observation.Fail<CreateFileResult>(
                 ToolName,
                 ToolErrorCodes.AlreadyExists,
                 $"'{verdict.RelativePath}' already exists.",
-                "Use edit_file to change it. This tool will not overwrite a file.");
+                "Use edit_file to change part of it, or call this again with overwrite: true to replace it.");
         }
 
         if (Directory.Exists(verdict.FullPath))
@@ -118,9 +126,27 @@ public sealed class CreateFileTool : IToolSet
                 $"'{verdict.RelativePath}' is a directory.");
         }
 
-        // Recorded before it is attempted, so a refused creation is as visible in the UI as one
-        // that landed. An empty "before" is what makes the diff render as pure addition.
-        CodeChange change = _changes.Propose(verdict.RelativePath!, ToolName, string.Empty, content);
+        string before = string.Empty;
+        if (exists)
+        {
+            try
+            {
+                before = await File.ReadAllTextAsync(verdict.FullPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Observation.Fail<CreateFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
+            }
+
+            // Keep the file's own line endings rather than imposing the model's, so replacing a
+            // file wholesale does not leave it half CRLF and half LF.
+            content = TextFile.WithNewLine(content, TextFile.DominantNewLine(before));
+        }
+
+        // Recorded before it is attempted, so a refused write is as visible in the UI as one that
+        // landed. An empty "before" is what makes a creation render as pure addition, while a
+        // replacement renders as the diff it actually is.
+        CodeChange change = _changes.Propose(verdict.RelativePath!, ToolName, before, content);
 
         (bool rejected, string? diagnostics, bool verified) =
             await VerifyAsync(verdict.FullPath, verdict.RelativePath!, content, cancellationToken).ConfigureAwait(false);
@@ -131,7 +157,7 @@ public sealed class CreateFileTool : IToolSet
             return Observation.Fail<CreateFileResult>(
                 ToolName,
                 ToolErrorCodes.VerificationFailed,
-                $"The file was not created: '{verdict.RelativePath}' would not compile.\n{diagnostics}",
+                $"'{verdict.RelativePath}' was not written: it would not compile.\n{diagnostics}",
                 "Fix the problem in the content and try again. Nothing has been written.");
         }
 
@@ -167,10 +193,14 @@ public sealed class CreateFileTool : IToolSet
         _changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: diagnostics);
         int lines = content.Length == 0 ? 0 : CountLines(content) + 1;
 
-        _logger.LogInformation("Created {Path}: {Lines} lines", verdict.RelativePath, lines);
+        _logger.LogInformation(
+            "{Verb} {Path}: {Lines} lines", exists ? "Replaced" : "Created", verdict.RelativePath, lines);
 
         CreateFileResult result = new(verdict.RelativePath!, lines, verified, diagnostics, change.Id);
-        return Observation.Ok(ToolName, result, $"Created {verdict.RelativePath} ({lines} lines).");
+        return Observation.Ok(
+            ToolName,
+            result,
+            $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines).");
     }
 
     /// <summary>

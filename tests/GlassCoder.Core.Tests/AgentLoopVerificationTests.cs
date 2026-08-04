@@ -221,6 +221,7 @@ public sealed class AgentLoopVerificationTests
             new CriticPanel(
                 new FakeChatClientFactory(client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
                 Options.Create(new CritiqueOptions())),
+            guard,
             Options.Create(new VerificationLadderOptions()));
 
         RecordingStepLogger stepLogger = new();

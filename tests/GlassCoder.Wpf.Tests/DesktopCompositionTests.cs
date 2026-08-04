@@ -1,5 +1,6 @@
 using System.Windows.Threading;
 using GlassCoder.Core.DependencyInjection;
+using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
@@ -80,6 +81,25 @@ public sealed class DesktopCompositionTests
 
         shared.SameAsAccessor.ShouldBeTrue();
         shared.SameAsShell.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The file reviewer reaches the viewer by way of the shell (workplan task 43), which is the
+    /// same shell the workspace pane already holds. Worth asserting rather than assuming: this is
+    /// the second time a service has been hung off <see cref="IDesktopShell"/>, and the first
+    /// time something closed a cycle the container could not report.
+    /// </summary>
+    [Fact]
+    public void The_shell_resolves_with_the_file_reviewer_attached()
+    {
+        bool enabled = Resolve(gitEnabled: true, provider =>
+        {
+            provider.GetRequiredService<IDesktopShell>();
+            provider.GetRequiredService<IReviewActionWriter>();
+            return provider.GetRequiredService<IFileReviewer>().Enabled;
+        });
+
+        enabled.ShouldBeTrue();
     }
 
     /// <summary>The workspace pane roots itself where the guard is rooted, not where the app runs.</summary>

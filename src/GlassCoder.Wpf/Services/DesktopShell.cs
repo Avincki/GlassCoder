@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using GlassCoder.Core.Verification;
 using GlassCoder.Wpf.ViewModels;
 using GlassCoder.Wpf.Views;
 
@@ -69,6 +70,23 @@ public interface IDesktopShell
 /// <summary>The Windows implementation of <see cref="IDesktopShell"/>.</summary>
 public sealed class DesktopShell : IDesktopShell
 {
+    private readonly IFileReviewer? _reviewer;
+    private readonly IReviewActionWriter? _writer;
+
+    /// <summary>
+    /// Creates the shell.
+    /// <para>
+    /// The reviewer and its writer are optional so a host that never registered them still gets
+    /// a working viewer - the Review button simply says it is unavailable, which is the same
+    /// answer a machine without the CLI installed gets.
+    /// </para>
+    /// </summary>
+    public DesktopShell(IFileReviewer? reviewer = null, IReviewActionWriter? writer = null)
+    {
+        _reviewer = reviewer;
+        _writer = writer;
+    }
+
     /// <inheritdoc />
     public void OpenFolder(string path)
     {
@@ -88,7 +106,7 @@ public sealed class DesktopShell : IDesktopShell
     {
         // Read before the window exists, so a file that cannot be read becomes the window's
         // message rather than an exception thrown mid-construction.
-        FileViewerWindow window = new(FileViewerViewModel.Load(fullPath, displayPath))
+        FileViewerWindow window = new(FileViewerViewModel.Load(fullPath, displayPath, _reviewer, _writer, this))
         {
             Owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive),
         };

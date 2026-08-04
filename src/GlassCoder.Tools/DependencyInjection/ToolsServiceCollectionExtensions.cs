@@ -107,11 +107,13 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<GrepTool>();
         services.TryAddSingleton<GlobTool>();
         services.TryAddSingleton<TodoTool>();
+        services.TryAddSingleton<ListProjectsTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<TodoTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ReadFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GrepTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GlobTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListProjectsTool>());
         return services;
     }
 
@@ -123,13 +125,19 @@ public static class ToolsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // Shared by the build tool, which fills it, and the project tool, which empties it when
+        // the SDK rewrites a project file behind the change log's back.
+        services.TryAddSingleton<BuildCache>();
+
         services.TryAddSingleton<CreateFileTool>();
         services.TryAddSingleton<EditFileTool>();
         services.TryAddSingleton<BuildTool>();
         services.TryAddSingleton<RunTestsTool>();
+        services.TryAddSingleton<DotnetProjectTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<DotnetProjectTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());
         return services;
