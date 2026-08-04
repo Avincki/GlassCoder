@@ -63,12 +63,50 @@ One correct shape in six attempts, and `UnitTest1.cs` was still the untouched te
   method, because binding is where the run failed and a direct call would prove nothing. One of them
   pins that a double-encoded `edits` string still binds, which the model did three times.
 
+**Confirmed by the re-run** (`6b9118b8`, then `12df72e1`, both Completed at 1.00 validity).
+
+`12df72e1` is "add unittests" — the task that produced the first failure ever analysed here. Step 8
+is `edit_file` in the flat shape, parsed, succeeded, first attempt: byte for byte the call that
+failed six times the run before.
+
+| Run | Steps | Outcome | Tokens | Validity | Tests |
+|---|---|---|---|---|---|
+| `bee2e874` | 30 | StepLimit | 257k | 1.00 | 0 |
+| `bb0af8f6` | 30 | StepLimit | 220k | 1.00 | 0 |
+| `9fad0808` | 22 | Cancelled | 157k | 0.86 | 0 |
+| `12df72e1` | **11** | **Completed** | **57k** | 1.00 | **6 passing** |
+
+Six tests, all green, verified against the working tree rather than taken from the transcript.
+
+**The diagnosis needed one correction.** Both runs sent `update_todos` with `items` as a
+*double-encoded JSON string* — `{"items": "[{\"id\": ...}]"}` — exactly as they had sent `edits`, and
+it bound without complaint, as it always has. So the model can produce array parameters. What it
+could not do was stop producing the flat shape it already knew. **The failure was the absence of the
+familiar shape, not the presence of the array** — which is a more useful rule than "arrays are hard",
+and a narrower one: an array is fine as an *addition*, and dangerous as a *replacement*.
+
+**Worth knowing, second pass**
+
+- Neither run called `build` or `run_tests`. The ladder ran them and reported back, which is what
+  `builds: 1, testRuns: 1` in the metrics means against a trace containing neither. The agent's
+  closing "All tests pass" was grounded: after step 8 it received *"Automatic verification of your
+  change passed (reached UnitTests)… 6 tests passed."* I had it down as a possible hallucination
+  before checking the prompt.
+- `update_todos` is being used as ceremony. Both runs called it once, at the very end, with a single
+  item already marked `Completed`. It is the most expensive schema in the harness at 1,186
+  characters and it is writing a receipt.
+- Steps 6 and 7 of `12df72e1` are the same `read_file` twice in a row. Ten seconds, and the kind of
+  thing that was invisible before argument logging.
+
 **Open**
 
-- `find_symbol`, `read_file(outline:)` and `run_tests(listOnly:)` have still not been touched by a
-  real run. The next one is the test of whether batch 2 was worth anything at all.
-- `GlassCoderTest` holds a working `src/ArrayUtils` and an empty `tests/ArrayUtilsTests` from the
-  cancelled run, plus the `Class1.cs` stub `dotnet new` left behind.
+- **Batch 2 remains entirely unproven.** No run has yet called `find_symbol`, `read_file(outline:)`,
+  `run_tests(listOnly:)` or `list_changes`. What these two runs exercised was task 44/45 work —
+  `dotnet_project`, `create_file` overwrite, the MSB1003 hint — plus the `edit_file` repair. The
+  harness is measurably better than it was before batch 2, and none of that improvement is batch 2's.
+- `update_todos` is the next thing to weigh against its cost, on the evidence above.
+- `GlassCoderTest` is clean again: `src/MyMathLib` and `tests/MyMathLib.Tests`, six passing tests, no
+  stubs left over. The `ArrayUtils` wreckage from the cancelled run is gone.
 
 ---
 
