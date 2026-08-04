@@ -59,11 +59,14 @@ public sealed class StepRowViewModel
     public string Latency => Record.ModelLatencyMs.ToString("F0", CultureInfo.InvariantCulture) + " ms";
 
     /// <summary>
-    /// How far into the run this step started. Latency answers "how long did this step take";
-    /// this answers "when did it happen", which is what makes a slow patch in the middle of an
-    /// otherwise brisk run visible at a glance.
+    /// How far into the run this step finished. Latency answers "how long did this step take";
+    /// this reads the run's clock as the step's outcome landed - the start offset plus the whole
+    /// step, tool and verification included, because a row appears when its step completes and a
+    /// clock that stopped at the step's start would lag the run by exactly the action it just
+    /// watched.
     /// </summary>
-    public string Elapsed => FormatElapsed(Record.StartedAt - _runStartedAt);
+    public string Elapsed => FormatElapsed(
+        Record.StartedAt + TimeSpan.FromMilliseconds(Record.StepLatencyMs) - _runStartedAt);
 
     /// <summary>
     /// <c>m:ss</c> up to an hour, <c>h:mm:ss</c> past it. Clamped at zero: a clock that moved

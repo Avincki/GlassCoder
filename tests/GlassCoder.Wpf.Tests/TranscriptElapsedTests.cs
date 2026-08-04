@@ -6,8 +6,8 @@ using GlassCoder.Wpf.ViewModels;
 namespace GlassCoder.Wpf.Tests;
 
 /// <summary>
-/// The transcript's elapsed column: where each step sits on the run's clock, as opposed to the
-/// latency column beside it, which is how long that one step took.
+/// The transcript's elapsed column: where each step sits on the run's clock, read at the step's
+/// end - as opposed to the latency column beside it, which is how long that one step took.
 /// <para>
 /// Every case here seeds the bus before the view model is built, so the rows are produced by the
 /// constructor rather than by the <c>StepRecorded</c> handler. That handler posts through
@@ -19,16 +19,21 @@ public sealed class TranscriptElapsedTests
 {
     private static readonly DateTimeOffset Origin = new(2026, 8, 3, 9, 0, 0, TimeSpan.Zero);
 
-    /// <summary>The first step of a run is the origin, and later steps are offsets from it.</summary>
+    /// <summary>
+    /// The first step's start is the origin, and each row reads the clock at its own step's end.
+    /// A row appears when its step completes, so a clock stopped at the step's start would lag
+    /// the run by exactly the action it just watched - the first row of a run that has been
+    /// working for thirteen seconds must say so, not say 0:00.
+    /// </summary>
     [Fact]
-    public void Elapsed_counts_from_the_first_step_of_the_run()
+    public void Elapsed_reads_the_clock_at_the_end_of_each_step()
     {
         IReadOnlyList<string> elapsed = ElapsedFor(
-            Step("run-1", 0, Origin),
-            Step("run-1", 1, Origin.AddSeconds(5)),
-            Step("run-1", 2, Origin.AddSeconds(90)));
+            Step("run-1", 0, Origin, stepLatencyMs: 13_000),
+            Step("run-1", 1, Origin.AddSeconds(15), stepLatencyMs: 8_000),
+            Step("run-1", 2, Origin.AddSeconds(90), stepLatencyMs: 500));
 
-        elapsed.ShouldBe(["0:00", "0:05", "1:30"]);
+        elapsed.ShouldBe(["0:13", "0:23", "1:30"]);
     }
 
     /// <summary>
@@ -91,7 +96,8 @@ public sealed class TranscriptElapsedTests
             return [.. transcript.Steps.Select(row => row.Elapsed)];
         });
 
-    private static StepRecord Step(string runId, int index, DateTimeOffset startedAt) => new()
+    private static StepRecord Step(
+        string runId, int index, DateTimeOffset startedAt, double stepLatencyMs = 120) => new()
     {
         RunId = runId,
         TaskId = "task-1",
@@ -101,7 +107,7 @@ public sealed class TranscriptElapsedTests
         Prompt = [],
         ToolCalls = [],
         ModelLatencyMs = 100,
-        StepLatencyMs = 120,
+        StepLatencyMs = stepLatencyMs,
         Outcome = "continued",
     };
 }

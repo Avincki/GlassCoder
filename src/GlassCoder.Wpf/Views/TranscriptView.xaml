@@ -47,7 +47,7 @@
         <DataGridTextColumn Header="Outcome" Binding="{Binding Outcome}" Width="90" />
         <DataGridTextColumn Header="Tokens" Binding="{Binding Tokens}" Width="70" />
         <DataGridTextColumn Header="Latency" Binding="{Binding Latency}" Width="80" />
-        <!-- How far into the run the step started, counted from the run's first step. -->
+        <!-- How far into the run the step finished, counted from the run's first step. -->
         <DataGridTextColumn Header="Elapsed" Binding="{Binding Elapsed}" Width="70" />
         <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*" />
       </DataGrid.Columns>

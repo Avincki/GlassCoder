@@ -9,6 +9,34 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The clock that lagged the run by one action
+
+**Shipped.** The transcript's elapsed column now reads the run's clock at each step's *end*.
+530 tests green — none added; the elapsed suite was re-pinned rather than grown.
+
+**What was wrong.** `Elapsed` was `StartedAt − runStart`: the clock at the moment the step
+*began*. But a row only appears once its step completes — the record is written after the tool and
+the ladder — so the newest row always understated the run by exactly the action it had just
+watched. With the worker at ~13 s a step, the transcript's bottom line was permanently a step in
+the past, and the first row of every run read `0:00` after visibly working for a dozen seconds.
+
+**Decided**
+
+- **The anchor is `StartedAt + StepLatencyMs`.** `StepLatencyMs` is the whole step — model call,
+  tool, verification ladder — because `AgentLoop` stamps it when it writes the record, which is
+  also the moment the row appears. Clock and row now agree about what "now" is.
+- **The origin stays the first step's start.** So a run's first row now reads its own duration
+  rather than `0:00` — intended, not an off-by-one. Latency beside it still answers "how long did
+  this one step take"; elapsed answers "how deep into the run were we when this landed".
+
+**Worth knowing.** The old test helper's 120 ms step latency is invisible at second granularity,
+which is why the original suite could not have caught this: pre- and post-action elapsed format
+identically when the action costs nothing. The re-pinned first test uses multi-second latencies so
+the two behaviors read differently; the other three cases (per-run restart, hour field, backwards
+clamp) hold as they were.
+
+---
+
 ## 2026-08-04 — The change log does not get to say what exists
 
 **Shipped.** One guard in the workspace pane, three tests. 530 tests green, +2.
