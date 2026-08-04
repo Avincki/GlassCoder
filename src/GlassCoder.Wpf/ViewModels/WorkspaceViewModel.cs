@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using GlassCoder.Core.Configuration;
@@ -30,6 +32,11 @@ public sealed class FileNodeViewModel : ViewModelBase
         Name = name;
         RelativePath = relativePath;
         IsDirectory = isDirectory;
+
+        // Open by default. A tree that starts closed shows one row per top-level folder and
+        // hides the thing the pane exists to show - which file the run touched. The deny globs
+        // already keep bin, obj, .git and node_modules out, so what expands is source.
+        _isExpanded = isDirectory;
     }
 
     /// <summary>File or directory name, as shown.</summary>
@@ -44,7 +51,10 @@ public sealed class FileNodeViewModel : ViewModelBase
     /// <summary>Child nodes, directories first.</summary>
     public ObservableCollection<FileNodeViewModel> Children { get; } = [];
 
-    /// <summary>Bound two-way, so marking a file modified can expand the folders above it.</summary>
+    /// <summary>
+    /// Bound two-way: directories start open, the user may close one, and marking a file modified
+    /// re-opens the folders above it.
+    /// </summary>
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -110,8 +120,16 @@ public sealed class FileNodeViewModel : ViewModelBase
 /// therefore always shows the workspace the agent is <em>actually</em> in - never a folder it
 /// is not.
 /// </para>
+/// <para>
+/// Two sources feed it, and they answer different questions. A <see cref="FileSystemWatcher"/>
+/// says what the workspace <em>contains</em>: a file exists in the tree the moment its path
+/// exists on disk, whoever made it and whether or not anything has finished writing to it. The
+/// change log says what <em>this run</em> did to it, which is the green and the line counts.
+/// Before the watcher, the tree only knew about files the harness had recorded a change for -
+/// so the three files <c>dotnet new</c> writes were invisible until someone pressed Refresh.
+/// </para>
 /// </summary>
-public sealed class WorkspaceViewModel : ViewModelBase
+public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 {
     /// <summary>
     /// Probe child used to decide whether a directory is denied wholesale: if an arbitrary
@@ -126,9 +144,17 @@ public sealed class WorkspaceViewModel : ViewModelBase
     private readonly IDesktopShell _shell;
     private readonly Dispatcher _dispatcher;
     private readonly Matcher? _denied;
+    private readonly string _rootPrefix;
+    private readonly Lock _pendingGate = new();
+    private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly FileSystemWatcher? _watcher;
+    private readonly string? _watchFailure;
     private Dictionary<string, FileNodeViewModel> _nodesByPath = new(StringComparer.OrdinalIgnoreCase);
     private string _status = string.Empty;
     private string? _pendingRoot;
+    private string? _runId;
+    private bool _awaitingRun;
+    private bool _drainQueued;
     private bool _isLoading;
 
     /// <summary>Creates the pane over the active workspace root and subscribes to the change log.</summary>
@@ -151,6 +177,7 @@ public sealed class WorkspaceViewModel : ViewModelBase
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
 
         RootPath = guard.RepoRoot;
+        _rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath)) + Path.DirectorySeparatorChar;
 
         // The tree hides exactly what the agent cannot touch, so the pane and the guardrail
         // never disagree about what the workspace contains.
@@ -167,11 +194,18 @@ public sealed class WorkspaceViewModel : ViewModelBase
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !_isLoading);
         OpenFileCommand = new RelayCommand(OpenFile, CanOpenFile);
 
-        _ = RefreshAsync();
+        (_watcher, _watchFailure) = StartWatching();
+        Loaded = RefreshAsync();
     }
 
     /// <summary>The workspace root the agent is working in.</summary>
     public string RootPath { get; }
+
+    /// <summary>
+    /// The first read of the tree. Exposed so a caller that needs the tree populated - a test,
+    /// mainly - can wait for the read the constructor started rather than poll for it.
+    /// </summary>
+    public Task Loaded { get; }
 
     /// <summary>Top level of the tree: the root folder's contents.</summary>
     public ObservableCollection<FileNodeViewModel> RootNodes { get; } = [];
@@ -210,6 +244,34 @@ public sealed class WorkspaceViewModel : ViewModelBase
 
     /// <summary>Opens the double-clicked file in a read-only viewer window.</summary>
     public RelayCommand OpenFileCommand { get; }
+
+    /// <summary>
+    /// Clears the marking, and starts counting again for the run about to begin.
+    /// <para>
+    /// The counts answer "what has this run done to the tree", so the previous run's green has
+    /// to come off before this one writes anything - otherwise the first step of a new run is
+    /// read against a tree still coloured by the last one. The run id is not knowable here
+    /// (the loop mints it), so the pane latches onto the first change the run produces and
+    /// ignores everything belonging to any other.
+    /// </para>
+    /// </summary>
+    public void BeginRun()
+    {
+        foreach (FileNodeViewModel node in _nodesByPath.Values)
+        {
+            node.ClearStats();
+        }
+
+        _runId = null;
+        _awaitingRun = true;
+    }
+
+    /// <summary>Stops watching the workspace.</summary>
+    public void Dispose()
+    {
+        _changes.Changed -= OnChanged;
+        _watcher?.Dispose();
+    }
 
     /// <summary>
     /// Only files, never directories.
@@ -314,7 +376,7 @@ public sealed class WorkspaceViewModel : ViewModelBase
 
             _nodesByPath = index;
 
-            foreach ((string path, FileChangeStats stats) in FileChangeSummary.Summarise(_changes.All()))
+            foreach ((string path, FileChangeStats stats) in FileChangeSummary.Summarise(Scope()))
             {
                 Apply(path, stats);
             }
@@ -328,7 +390,9 @@ public sealed class WorkspaceViewModel : ViewModelBase
                 }
             }
 
-            Status = string.Create(CultureInfo.InvariantCulture, $"{files} file(s).");
+            Status = _watchFailure is null
+                ? string.Create(CultureInfo.InvariantCulture, $"{files} file(s).")
+                : string.Create(CultureInfo.InvariantCulture, $"{files} file(s). {_watchFailure}");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
@@ -395,54 +459,284 @@ public sealed class WorkspaceViewModel : ViewModelBase
     private bool IsDeniedDirectory(string relativePath) =>
         _denied is not null && _denied.Match(relativePath + "/" + DirectoryProbe).HasMatches;
 
-    private void OnChanged(object? sender, CodeChange change) =>
-        _dispatcher.BeginInvoke(() =>
-        {
-            FileChangeStats? stats = FileChangeSummary.ForPath(_changes.All(), change.Path);
-            if (stats is null)
-            {
-                if (_nodesByPath.TryGetValue(change.Path, out FileNodeViewModel? node))
-                {
-                    node.ClearStats();
-                }
-
-                return;
-            }
-
-            Apply(change.Path, stats.Value);
-        });
+    // ── What the workspace contains ──
 
     /// <summary>
-    /// Marks the file and expands the folders above it, creating nodes on the way for a file
-    /// the agent brought into being after the tree was read.
+    /// Starts watching the tree, and reports rather than throws when it cannot.
+    /// <para>
+    /// Only names are watched, not content: a rename, a create and a delete change the shape of
+    /// the tree, and a write does not. The events are treated as "look at this path again"
+    /// rather than as facts - the drain asks the file system what is actually there, which is
+    /// what makes a create-then-delete, a rename and a half-written file all come out right.
+    /// </para>
     /// </summary>
+    private (FileSystemWatcher? Watcher, string? Failure) StartWatching()
+    {
+        FileSystemWatcher? watcher = null;
+        try
+        {
+            watcher = new FileSystemWatcher(RootPath)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName,
+
+                // A build can produce thousands of events in a burst. The default 8 KB buffer
+                // overflows, and an overflow costs a full re-read rather than one node.
+                InternalBufferSize = 64 * 1024,
+            };
+
+            watcher.Created += (_, e) => Queue(e.FullPath);
+            watcher.Deleted += (_, e) => Queue(e.FullPath);
+            watcher.Renamed += (_, e) =>
+            {
+                Queue(e.OldFullPath);
+                Queue(e.FullPath);
+            };
+
+            // Overflow, or the root going away. Either way the incremental picture is no longer
+            // trustworthy, and the honest response is to read the tree again.
+            watcher.Error += (_, _) => _dispatcher.BeginInvoke(() => _ = RefreshAsync());
+
+            watcher.EnableRaisingEvents = true;
+            return (watcher, null);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            // Enabling can fail after construction - the root going away between the two is
+            // enough - and a watcher nobody holds is a handle nobody closes.
+            watcher?.Dispose();
+            return (null, $"Live updates are off ({ex.Message}); use Refresh.");
+        }
+    }
+
+    /// <summary>
+    /// Notes a path to re-examine. Runs on a watcher thread, so it does as little as possible:
+    /// the deny check is here rather than in the drain because a build writes thousands of paths
+    /// under <c>bin/</c> and <c>obj/</c> and every one of them would otherwise cost a post to
+    /// the UI thread.
+    /// </summary>
+    private void Queue(string fullPath)
+    {
+        if (ToRelative(fullPath) is not { } relative || IsDenied(relative))
+        {
+            return;
+        }
+
+        bool post;
+        lock (_pendingGate)
+        {
+            _pending.Add(relative);
+            post = !_drainQueued;
+            _drainQueued = true;
+        }
+
+        // One drain per burst, at background priority: a `dotnet new` is a dozen events and a
+        // checkout is thousands, and neither should be a dozen or thousands of tree edits.
+        if (post)
+        {
+            _dispatcher.BeginInvoke(DispatcherPriority.Background, Drain);
+        }
+    }
+
+    /// <summary>Reconciles every noted path with what the file system now holds.</summary>
+    private void Drain()
+    {
+        string[] paths;
+        lock (_pendingGate)
+        {
+            paths = [.. _pending];
+            _pending.Clear();
+            _drainQueued = false;
+        }
+
+        foreach (string relative in paths)
+        {
+            Rescan(relative);
+        }
+    }
+
+    /// <summary>
+    /// Brings one path in line with disk: present as a directory, present as a file, or gone.
+    /// </summary>
+    private void Rescan(string relative)
+    {
+        string full = Path.Combine(RootPath, relative.Replace('/', Path.DirectorySeparatorChar));
+
+        if (Directory.Exists(full))
+        {
+            FileNodeViewModel node = EnsureNode(relative, isFile: false);
+
+            // A directory moved in from outside arrives as one event for the folder and none for
+            // what is in it, so a folder that shows empty would be a lie. Reading it here uses
+            // the same walk, sort and deny filter the initial load uses.
+            if (node.Children.Count == 0)
+            {
+                foreach (FileNodeViewModel child in BuildChildren(new DirectoryInfo(full), relative, _nodesByPath))
+                {
+                    node.Children.Add(child);
+                }
+            }
+        }
+        else if (File.Exists(full))
+        {
+            EnsureNode(relative, isFile: true);
+        }
+        else
+        {
+            Remove(relative);
+        }
+    }
+
+    /// <summary>Whether the deny globs hide this path, as either a file or a directory.</summary>
+    private bool IsDenied(string relative) =>
+        _denied is not null && (_denied.Match(relative).HasMatches || IsDeniedDirectory(relative));
+
+    /// <summary>The repo-relative path with forward slashes, or null when it is not under the root.</summary>
+    private string? ToRelative(string fullPath) =>
+        fullPath.StartsWith(_rootPrefix, StringComparison.OrdinalIgnoreCase)
+            ? fullPath[_rootPrefix.Length..].Replace(Path.DirectorySeparatorChar, '/')
+            : null;
+
+    // ── What this run did to it ──
+
+    private void OnChanged(object? sender, CodeChange change)
+    {
+        // Tools raise this from whatever thread they are on, but the Changes surface raises it
+        // from the UI thread when a human applies or reverts - and there the hop only means the
+        // tree lags its own window by a dispatcher turn.
+        if (_dispatcher.CheckAccess())
+        {
+            Record(change);
+        }
+        else
+        {
+            _dispatcher.BeginInvoke(() => Record(change));
+        }
+    }
+
+    /// <summary>Marks, unmarks or ignores one change, according to which run it belongs to.</summary>
+    private void Record(CodeChange change)
+    {
+        if (_awaitingRun)
+        {
+            _runId = change.RunId;
+            _awaitingRun = false;
+        }
+        else if (_runId is not null && !string.Equals(change.RunId, _runId, StringComparison.Ordinal))
+        {
+            // An earlier run's change - a revert from the Changes surface, most likely. It is
+            // real, and it is not this run's arithmetic.
+            return;
+        }
+
+        FileChangeStats? stats = FileChangeSummary.ForPath(Scope(), change.Path);
+        if (stats is null)
+        {
+            if (_nodesByPath.TryGetValue(change.Path, out FileNodeViewModel? node))
+            {
+                node.ClearStats();
+            }
+
+            return;
+        }
+
+        Apply(change.Path, stats.Value);
+    }
+
+    /// <summary>
+    /// The changes the counts are drawn from: this run's, once there is one. Before the first
+    /// run of the session that is every change; between <see cref="BeginRun"/> and the run's
+    /// first change it is none, which is what makes the tree go plain the moment Run is pressed.
+    /// </summary>
+    private IReadOnlyList<CodeChange> Scope()
+    {
+        if (_awaitingRun)
+        {
+            return [];
+        }
+
+        IReadOnlyList<CodeChange> all = _changes.All();
+        return _runId is null
+            ? all
+            : [.. all.Where(change => string.Equals(change.RunId, _runId, StringComparison.Ordinal))];
+    }
+
+    /// <summary>Marks the file and opens the folders above it, so a change is never folded away.</summary>
     private void Apply(string path, FileChangeStats stats)
+    {
+        EnsureNode(path, isFile: true).SetStats(stats);
+
+        for (int cut = path.LastIndexOf('/'); cut >= 0; cut = path.LastIndexOf('/'))
+        {
+            path = path[..cut];
+            if (_nodesByPath.TryGetValue(path, out FileNodeViewModel? ancestor))
+            {
+                ancestor.IsExpanded = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the node for a path, creating it and every folder above it that is missing. This
+    /// is what lets a file appear in the tree the moment it exists, rather than at the next
+    /// full read.
+    /// </summary>
+    private FileNodeViewModel EnsureNode(string path, bool isFile)
     {
         string[] segments = path.Split('/');
         ObservableCollection<FileNodeViewModel> siblings = RootNodes;
         string relative = string.Empty;
+        FileNodeViewModel? node = null;
 
         for (int i = 0; i < segments.Length; i++)
         {
-            bool isFile = i == segments.Length - 1;
+            bool last = i == segments.Length - 1;
             relative = relative.Length == 0 ? segments[i] : relative + "/" + segments[i];
 
-            if (!_nodesByPath.TryGetValue(relative, out FileNodeViewModel? node))
+            if (!_nodesByPath.TryGetValue(relative, out node))
             {
-                node = new FileNodeViewModel(segments[i], relative, isDirectory: !isFile);
+                node = new FileNodeViewModel(segments[i], relative, isDirectory: !last || !isFile);
                 _nodesByPath[relative] = node;
                 Insert(siblings, node);
             }
 
-            if (isFile)
+            siblings = node.Children;
+        }
+
+        return node!;
+    }
+
+    /// <summary>Drops a node and everything under it - the path is gone from the workspace.</summary>
+    private void Remove(string path)
+    {
+        if (!_nodesByPath.TryGetValue(path, out FileNodeViewModel? node))
+        {
+            return;
+        }
+
+        int cut = path.LastIndexOf('/');
+        ObservableCollection<FileNodeViewModel> siblings =
+            cut >= 0 && _nodesByPath.TryGetValue(path[..cut], out FileNodeViewModel? parent)
+                ? parent.Children
+                : RootNodes;
+
+        siblings.Remove(node);
+
+        // The subtree goes with it. An index still holding nodes nothing can reach would let a
+        // recreated file adopt the stats of the one that was deleted.
+        string prefix = path + "/";
+        List<string> gone = [path];
+        foreach (string key in _nodesByPath.Keys)
+        {
+            if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
-                node.SetStats(stats);
+                gone.Add(key);
             }
-            else
-            {
-                node.IsExpanded = true;
-                siblings = node.Children;
-            }
+        }
+
+        foreach (string key in gone)
+        {
+            _nodesByPath.Remove(key);
         }
     }
 

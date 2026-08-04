@@ -267,6 +267,13 @@ The window has no view of the workspace itself: which folder the agent works on 
 - [x] Folder selection is save-and-restart: the choice persists through `IUserSettingsStore` like every other setting, and an inline strip offers the restart that makes it the root in force. The tree always shows the active root, never a folder the agent is not in.
 - [x] Tests for the rollup arithmetic in `GlassCoder.Tools.Tests`.
 
+Follow-up, after watching a run: the pane knew only what the change log had recorded, and coloured the whole session rather than the run on screen.
+
+- [x] A `FileSystemWatcher` over the root, so the tree shows what the workspace *contains* rather than what the harness happened to record. A path appears the moment it exists — the three files `dotnet new` writes, a file still being written, a file created by hand. Names only, not content: a create, a delete and a rename change the shape of the tree and a write does not. Events are treated as "look at this path again"; the drain asks the file system what is actually there, which is what makes create-then-delete, rename and half-written files all come out right. Denied globs are filtered on the watcher thread, before anything is posted, because a build writes thousands of paths under `bin/`.
+- [x] Folders start open. A tree that starts closed shows one row per top-level folder and hides the thing the pane exists to show.
+- [x] The colouring is scoped to the run in progress, not the session. `MainWindowViewModel` calls `BeginRun()` when Run is pressed — including a retry, which is a new run for the same reason it gets a new run id. The run id is not knowable at that moment (the loop mints it), so the pane latches onto the first change the run produces and ignores every other run's. `ChangeLog.Update` keeps a change's original run id, so reverting this run's work still unmarks the file.
+- [x] `WorkspaceTreeTests` in `GlassCoder.Wpf.Tests`, driving the real watcher over a throwaway root through a pumped dispatcher (`UiThread.Pump`).
+
 Acceptance: the pane shows the active workspace tree; an agent edit turns its file green with correct net counts; picking a folder persists it and offers a restart. Depends on tasks 25, 27.
 
 ## 40. Git tools, step 1: git_status and git_commit through the LLM

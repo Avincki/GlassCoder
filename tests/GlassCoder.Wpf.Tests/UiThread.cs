@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows.Threading;
 
 namespace GlassCoder.Wpf.Tests;
@@ -63,5 +64,44 @@ internal static class UiThread
         }
 
         return completion.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Runs queued dispatcher work until <paramref name="until"/> holds, and reports whether it
+    /// did. Call it on the dispatcher's own thread - inside the delegate handed to
+    /// <see cref="Run{T}"/>.
+    /// <para>
+    /// A dispatcher created by <see cref="Dispatcher.CurrentDispatcher"/> has a queue but no
+    /// loop, so anything posted to it sits there until something pumps. That is fine for the
+    /// composition tests, which post nothing; it is the whole difficulty for anything driven by
+    /// a file-system watcher, whose events arrive on a thread-pool thread and are posted here.
+    /// </para>
+    /// </summary>
+    /// <param name="dispatcher">The dispatcher belonging to the calling thread.</param>
+    /// <param name="until">The condition being waited for, evaluated between pumps.</param>
+    /// <param name="budget">How long to keep pumping. Defaults to five seconds.</param>
+    public static bool Pump(Dispatcher dispatcher, Func<bool> until, TimeSpan? budget = null)
+    {
+        TimeSpan limit = budget ?? TimeSpan.FromSeconds(5);
+        Stopwatch clock = Stopwatch.StartNew();
+
+        while (!until())
+        {
+            if (clock.Elapsed > limit)
+            {
+                return false;
+            }
+
+            // Drain everything queued at Background or above: posting the frame's own exit at
+            // Background means it runs after the work already in front of it.
+            DispatcherFrame frame = new();
+            dispatcher.BeginInvoke(DispatcherPriority.Background, () => frame.Continue = false);
+            Dispatcher.PushFrame(frame);
+
+            // The watcher has not necessarily posted anything yet. Yield rather than spin.
+            Thread.Sleep(15);
+        }
+
+        return true;
     }
 }

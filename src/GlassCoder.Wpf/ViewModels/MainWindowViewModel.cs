@@ -336,6 +336,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Status = attempt > 1 ? $"Running attempt {attempt}…" : "Running…";
         SelectedSurface = "Transcript";
 
+        // The tree's green says "this run touched it", so the last run's green comes off before
+        // this one writes anything. A retry is a new run for the same reason it gets a new run
+        // id: what attempt two changed is not what attempt one changed.
+        Workspace.BeginRun();
+
         // Read once, here: from this point the run is one arm, whatever the checkbox does next.
         string? criticRole = UseRemoteCritic ? _critique.RemoteRole : null;
 

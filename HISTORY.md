@@ -9,6 +9,69 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The workspace pane stops reporting the change log and starts reporting the workspace
+
+**Shipped.** Three asks from watching the pane during a run, all in `WorkspaceViewModel`. 488
+tests green, +10.
+
+**The bug behind all three.** The tree was built from the change log, so it showed what the
+*harness had recorded*, not what the workspace *held*. `dotnet new` writes three files and
+`DotnetProjectTool` records one — the other two existed on disk and nowhere on screen until
+someone pressed Refresh. And the green was per-session, so the previous run's colouring was still
+on the tree while the next run was being read.
+
+**Decided**
+
+- **Two sources, answering two different questions.** A `FileSystemWatcher` says what the
+  workspace *contains*; the change log says what *this run did to it*. Keeping them separate is
+  what lets a file appear the moment its path exists — whoever made it, and whether or not
+  anything has finished writing to it — while green still means "this run touched it" and nothing
+  weaker.
+- **Watcher events are "look at this path again", not facts.** The drain asks the file system
+  what is actually there rather than trusting the event's own verb. That single choice is what
+  makes create-then-delete, rename, and a file still open for writing all come out right with no
+  special case for any of them. Names are watched, not content: a create, a delete and a rename
+  change the shape of the tree, and a write does not.
+- **Deny globs are applied on the watcher thread, before anything is posted.** A build writes
+  thousands of paths under `bin/` and `obj/`; forwarding them would cost thousands of posts to
+  the UI thread to decide thousands of times to do nothing. The drain is posted once per burst at
+  `Background` priority for the same reason — a checkout is one tree edit, not ten thousand.
+- **The run id is latched, not passed.** `BeginRun()` runs when Run is pressed, and at that
+  moment there is no run id: the loop mints it. So the pane clears the marking and latches onto
+  the first change the run produces, ignoring every other run's. The alternative — plumbing a run
+  id from the loop back into a view model — would put harness bookkeeping in the pane's
+  constructor to learn something the first change already carries.
+- **Folders start open.** A tree that starts closed shows one row per top-level folder, which is
+  a pane whose whole purpose is hidden behind a disclosure triangle.
+
+**Worth knowing**
+
+- `ChangeLog.Update` preserves a change's original run id. That is what makes reverting this
+  run's work still unmark the file, however long after the run it happens — the per-run filter
+  would otherwise drop the revert on the floor and leave the file green forever.
+- `Remove` drops the whole subtree from the index, not just the node. An index still holding
+  nodes nothing can reach would let a recreated file adopt the stats of the deleted one.
+- `OnChanged` now records inline when it is already on the UI thread. The Changes surface raises
+  changes from the UI thread on a manual apply or revert, where the dispatcher hop only meant the
+  tree lagged its own window by a turn.
+- **`Dispatcher.CurrentDispatcher` gives you a queue with no loop.** Anything posted to it sits
+  there forever unless something pumps — fine for the composition tests, which post nothing, and
+  the whole difficulty for anything watcher-driven. `UiThread.Pump` pushes a frame and posts its
+  own exit at `Background`, so it drains what is already in front of it. Ten tests driving the
+  real watcher over a real temp directory run in ~600 ms and were stable over five consecutive
+  runs before the suite was trusted.
+
+**Open**
+
+- The tree removes a node when its file leaves the disk, including a file the run deleted on
+  purpose. That is right — the tree shows the workspace, and the Changes surface is where
+  deletions live — but it means `file_operation delete` is invisible in the pane. Worth revisiting
+  if it reads as a lost change rather than a completed one.
+- Batch 2 of the tool work (`apply_patch`, `find_symbol`, `read_file(outline:)`) is still planned
+  and unbuilt, still needing ~1,700 characters of schema against ~450 of headroom.
+
+---
+
 ## 2026-08-04 — The first run that finished, and what the budget test said about tools
 
 **Shipped.** Tasks 49 and 50, and two defects found by reading a run that *worked*. 478 tests
