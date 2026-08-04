@@ -157,14 +157,28 @@ public sealed class BuildTool : IToolSet
 
         // MSB1003 means the target is not a project or solution, which is a fact about the
         // repository rather than about the code. Say so, because "specify a project or solution
-        // file" reads like a compile error to anything that only counts errors.
+        // file" reads like a compile error to anything that only counts errors. And name the
+        // projects here rather than pointing at list_projects: run e8f9186a was pointed there
+        // once, never called it, and went back to editing - the answer has to be in the message
+        // the model is already reading.
         if (summary.Text.Contains("MSB1003", StringComparison.Ordinal))
         {
+            string directory = Directory.Exists(verdict.FullPath)
+                ? verdict.FullPath
+                : System.IO.Path.GetDirectoryName(verdict.FullPath) ?? verdict.FullPath;
+            List<string> held = [.. ProjectLocator.FindAllProjects(directory).Take(7)];
+
+            string guidance = held.Count == 0
+                ? "Build a specific project, or use list_projects to see what this repository holds."
+                : "Its projects are " +
+                  string.Join(", ", held.Take(6).Select(p => _guard.ToRelativePath(p))) +
+                  (held.Count > 6 ? " and more (list_projects shows the rest)" : string.Empty) +
+                  " - build one of those.";
+
             return Observation.Ok(
                 ToolName,
                 payload,
-                $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. "
-                    + "Build a specific project, or use list_projects to see what this repository holds.");
+                $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. {guidance}");
         }
 
         // A failed build is a handled outcome, not a tool failure: this is the single most

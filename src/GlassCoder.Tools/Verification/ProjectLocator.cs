@@ -137,7 +137,26 @@ public static class ProjectLocator
 
             if (any && projects.Count == 1)
             {
-                return Relative(root, projects.Single());
+                string owner = projects.Single();
+
+                // A change confined to one project still breaks every project that references it
+                // the moment it changes what the project exports - and the owner is exactly the
+                // one project such a change cannot fail in. Building a dependent builds the owner
+                // first, so the dependent at the top of the chain is both the tightest and the
+                // most complete single target.
+                (bool hasDependents, string? top) = Dependents(root, owner);
+                if (top is not null)
+                {
+                    return Relative(root, top);
+                }
+
+                if (!hasDependents || FindSolutionFile(root) is null)
+                {
+                    return Relative(root, owner);
+                }
+
+                // Dependents exist, no single project covers them all, and the root solution
+                // below does.
             }
         }
 
@@ -156,6 +175,74 @@ public static class ProjectLocator
         // building it is unambiguous.
         List<string> all = [.. FindAllProjects(root).Take(2)];
         return all.Count == 1 ? Relative(root, all[0]) : null;
+    }
+
+    /// <summary>
+    /// The projects that transitively reference <paramref name="ownerProject"/>, and the one
+    /// that covers them all when there is one.
+    /// <para>
+    /// From run <c>e8f9186a</c>: a library gained a parameter, the ladder built the library
+    /// alone and reported green, and every call site in the test project had just stopped
+    /// compiling - invisibly, because nothing ever built the project the change actually broke.
+    /// </para>
+    /// </summary>
+    private static (bool HasDependents, string? CoveringTarget) Dependents(string root, string ownerProject)
+    {
+        List<string> all = [.. FindAllProjects(root)];
+        if (all.Count <= 1)
+        {
+            return (false, null);
+        }
+
+        Dictionary<string, string> byName = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, IReadOnlyList<string>> referenced = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string project in all)
+        {
+            byName[Path.GetFileNameWithoutExtension(project)] = project;
+            referenced[project] = [.. ReadProjectReferencePaths(project).Select(r => r.Name)];
+        }
+
+        // Walked by name rather than by resolved path, because the names are what the projects
+        // themselves declare and a broken Include resolves to nothing anyway.
+        bool Reaches(string project, string targetName)
+        {
+            HashSet<string> visited = new(StringComparer.OrdinalIgnoreCase);
+            Stack<string> pending = new();
+            pending.Push(project);
+            while (pending.Count > 0)
+            {
+                foreach (string name in referenced[pending.Pop()])
+                {
+                    if (name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    if (byName.TryGetValue(name, out string? next) && visited.Add(next))
+                    {
+                        pending.Push(next);
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        string ownerName = Path.GetFileNameWithoutExtension(ownerProject);
+        List<string> dependents = [.. all.Where(project =>
+            !string.Equals(Path.GetFullPath(project), Path.GetFullPath(ownerProject), StringComparison.OrdinalIgnoreCase) &&
+            Reaches(project, ownerName))];
+
+        if (dependents.Count == 0)
+        {
+            return (false, null);
+        }
+
+        List<string> tops = [.. dependents.Where(candidate => dependents.All(other =>
+            string.Equals(other, candidate, StringComparison.OrdinalIgnoreCase) ||
+            Reaches(candidate, Path.GetFileNameWithoutExtension(other))))];
+
+        return (true, tops.Count == 1 ? tops[0] : null);
     }
 
     /// <summary>Every project file under <paramref name="root"/>, skipping build output.</summary>
@@ -233,6 +320,44 @@ public static class ProjectLocator
         }
 
         return new ProjectReferences(projects, packages);
+    }
+
+    /// <summary>
+    /// The <c>ProjectReference</c> entries of a project, each as the assembly name it produces
+    /// and the full path of the referenced project file, resolved against the referencing
+    /// project's directory. Read straight from the XML, like <see cref="ReadReferences"/>, and
+    /// for the same reason.
+    /// </summary>
+    public static IReadOnlyList<(string Name, string FullPath)> ReadProjectReferencePaths(string projectFile)
+    {
+        ArgumentNullException.ThrowIfNull(projectFile);
+
+        List<(string, string)> references = [];
+
+        try
+        {
+            string directory = Path.GetDirectoryName(Path.GetFullPath(projectFile)) ?? ".";
+            foreach (XElement element in XDocument.Load(projectFile).Descendants())
+            {
+                string? include = element.Attribute("Include")?.Value;
+                if (string.IsNullOrWhiteSpace(include) ||
+                    !element.Name.LocalName.Equals("ProjectReference", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string full = Path.GetFullPath(
+                    Path.Combine(directory, include.Replace('\\', Path.DirectorySeparatorChar)));
+                references.Add((Path.GetFileNameWithoutExtension(full), full));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            // A malformed project file tells us nothing about its references, which is the same
+            // answer as having none.
+        }
+
+        return references;
     }
 
     /// <summary>What a project targets, as written in its project file, or null when it does not say.</summary>

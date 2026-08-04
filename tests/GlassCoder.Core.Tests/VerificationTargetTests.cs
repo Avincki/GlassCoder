@@ -43,6 +43,29 @@ public sealed class VerificationTargetTests : IDisposable
     }
 
     [Fact]
+    public async Task A_library_change_builds_the_project_that_depends_on_it()
+    {
+        // Run e8f9186a: the library gained a parameter, the ladder built the library alone and
+        // reported green, and the test project's broken call sites stayed invisible for the
+        // rest of the run. Building the dependent builds the library too.
+        _workspace.WriteFile("src/Lib/Lib.csproj", Project);
+        _workspace.WriteFile("src/Lib/Thing.cs", "public class T { }");
+        _workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\Lib\\Lib.csproj\" /></ItemGroup></Project>");
+        _workspace.WriteFile("src/App/Program.cs", "public class P { }");
+
+        await Ladder().VerifyAsync(new VerificationRequest(ChangeDescription: "edited Thing.cs")
+        {
+            ChangedPaths = ["src/Lib/Thing.cs"],
+        });
+
+        CommandRequest build = _executor.Commands.First(c => c.Arguments.Contains("build"));
+        build.Arguments.ShouldContain("App.csproj");
+        build.Arguments.ShouldNotContain("Lib.csproj");
+    }
+
+    [Fact]
     public async Task A_root_solution_covers_a_change_that_spans_projects()
     {
         _workspace.WriteFile("Everything.sln", string.Empty);

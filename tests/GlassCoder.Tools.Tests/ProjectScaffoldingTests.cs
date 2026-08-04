@@ -85,6 +85,87 @@ public sealed class ProjectScaffoldingTests
         ProjectLocator.FindAllProjects(workspace.Root).Count().ShouldBe(1);
     }
 
+    // ── What a library change has to build ──
+
+    [Fact]
+    public void A_change_in_a_library_builds_the_project_that_depends_on_it()
+    {
+        // Run e8f9186a: the library gained a parameter, the ladder built the library alone and
+        // reported green, and the test project's broken call sites stayed invisible for the rest
+        // of the run. Building the dependent builds the library first, so one target covers the
+        // whole affected closure.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Lib/Lib.csproj", Project());
+        string changed = workspace.WriteFile("src/Lib/Thing.cs", "class T { }");
+        workspace.WriteFile("tests/Lib.Tests/Lib.Tests.csproj", Project("..\\..\\src\\Lib\\Lib.csproj"));
+
+        ProjectLocator.ResolveBuildTarget(workspace.Root, [changed])
+            .ShouldBe("tests/Lib.Tests/Lib.Tests.csproj");
+    }
+
+    [Fact]
+    public void A_chain_of_dependents_builds_the_project_at_the_top()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Core/Core.csproj", Project());
+        string changed = workspace.WriteFile("src/Core/Thing.cs", "class T { }");
+        workspace.WriteFile("src/Mid/Mid.csproj", Project("..\\Core\\Core.csproj"));
+        workspace.WriteFile("src/Top/Top.csproj", Project("..\\Mid\\Mid.csproj"));
+
+        ProjectLocator.ResolveBuildTarget(workspace.Root, [changed]).ShouldBe("src/Top/Top.csproj");
+    }
+
+    [Fact]
+    public void Two_unrelated_dependents_fall_back_to_the_solution()
+    {
+        // No single project covers both dependents, and the solution does. Without one, the
+        // owner is still the best single target there is.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("Everything.sln", string.Empty);
+        workspace.WriteFile("src/Lib/Lib.csproj", Project());
+        string changed = workspace.WriteFile("src/Lib/Thing.cs", "class T { }");
+        workspace.WriteFile("src/A/A.csproj", Project("..\\Lib\\Lib.csproj"));
+        workspace.WriteFile("src/B/B.csproj", Project("..\\Lib\\Lib.csproj"));
+
+        ProjectLocator.ResolveBuildTarget(workspace.Root, [changed]).ShouldBe("Everything.sln");
+    }
+
+    [Fact]
+    public void Two_unrelated_dependents_without_a_solution_still_build_the_owner()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Lib/Lib.csproj", Project());
+        string changed = workspace.WriteFile("src/Lib/Thing.cs", "class T { }");
+        workspace.WriteFile("src/A/A.csproj", Project("..\\Lib\\Lib.csproj"));
+        workspace.WriteFile("src/B/B.csproj", Project("..\\Lib\\Lib.csproj"));
+
+        ProjectLocator.ResolveBuildTarget(workspace.Root, [changed]).ShouldBe("src/Lib/Lib.csproj");
+    }
+
+    [Fact]
+    public async Task A_target_with_no_project_names_the_projects_instead_of_a_tool_to_call()
+    {
+        // Run e8f9186a called build "." once, was pointed at list_projects, never called it,
+        // and went back to editing. The projects belong in the message the model is reading.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Lib/Lib.csproj", Project());
+        workspace.WriteFile("tests/Lib.Tests/Lib.Tests.csproj", Project("..\\..\\src\\Lib\\Lib.csproj"));
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "MSBUILD : error MSB1003: Specify a project or solution file.");
+        BuildTool build = new(
+            executor,
+            workspace.Guard("."),
+            new DiagnosticSummarizer(Options.Create(new VerificationOptions())),
+            Options.Create(new SandboxOptions()));
+
+        ToolObservation<BuildResult> observation = await build.BuildAsync(".");
+
+        observation.Summary.ShouldNotBeNull();
+        observation.Summary.ShouldContain("src/Lib/Lib.csproj");
+        observation.Summary.ShouldContain("tests/Lib.Tests/Lib.Tests.csproj");
+    }
+
     // ── Structural hazards ──
 
     [Fact]

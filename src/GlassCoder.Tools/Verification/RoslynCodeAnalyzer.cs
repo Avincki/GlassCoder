@@ -220,7 +220,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 cancellationToken: cancellationToken));
         }
 
-        (List<MetadataReference> metadata, HashSet<string> resolved) = References(projectDirectory);
+        (List<MetadataReference> metadata, Dictionary<string, DateTime> resolved) = References(projectDirectory);
 
         // Before trusting any diagnostic, ask whether this compilation could possibly be right.
         // The reference set is scavenged from build output, not evaluated from the project file,
@@ -230,6 +230,16 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         if (UnresolvedReferences(projectDirectory, resolved) is { } unresolved)
         {
             return DiagnosticReport.Inconclusive(unresolved, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+
+        // A reference can also exist and be old. From run e8f9186a: a library gained a
+        // parameter, and every edit fixing the call sites in its test project was refused with
+        // "no overload takes 2 arguments" - judged against the library's last-built DLL, which
+        // no tool call could refresh, because the test project cannot build until the very edit
+        // being refused has landed. A gate that cannot know must not gate.
+        if (StaleReferences(projectDirectory, resolved) is { } stale)
+        {
+            return DiagnosticReport.Inconclusive(stale, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
         }
 
         CSharpCompilation compilation = CSharpCompilation.Create(
@@ -368,13 +378,15 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 
     /// <summary>
     /// The assemblies to compile against, and the names of the ones that were scavenged from
-    /// build output. The names are what tells the caller whether the set is complete: framework
-    /// assemblies are always there, so only the scavenged ones say anything about this project.
+    /// build output, each with the newest write time seen for that name. The names are what
+    /// tells the caller whether the set is complete: framework assemblies are always there, so
+    /// only the scavenged ones say anything about this project. The write times are what say
+    /// whether a reference predates the sources it was built from.
     /// </summary>
-    private (List<MetadataReference> Metadata, HashSet<string> Resolved) References(string projectDirectory)
+    private (List<MetadataReference> Metadata, Dictionary<string, DateTime> Resolved) References(string projectDirectory)
     {
         List<MetadataReference> references = [.. FrameworkReferences.Value];
-        HashSet<string> resolved = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, DateTime> resolved = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string directory in _options.ExtraReferenceDirectories.Prepend(Path.Combine(projectDirectory, "bin")))
         {
@@ -388,7 +400,13 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 try
                 {
                     references.Add(MetadataReference.CreateFromFile(dll));
-                    resolved.Add(Path.GetFileNameWithoutExtension(dll));
+
+                    string name = Path.GetFileNameWithoutExtension(dll);
+                    DateTime written = File.GetLastWriteTimeUtc(dll);
+                    if (!resolved.TryGetValue(name, out DateTime seen) || written > seen)
+                    {
+                        resolved[name] = written;
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or BadImageFormatException)
                 {
@@ -409,7 +427,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
     /// reading is that nothing has been built yet at all.
     /// </para>
     /// </summary>
-    private static string? UnresolvedReferences(string projectDirectory, HashSet<string> resolved)
+    private static string? UnresolvedReferences(string projectDirectory, Dictionary<string, DateTime> resolved)
     {
         foreach (string projectFile in ProjectLocator.EnumerateProjects(projectDirectory))
         {
@@ -419,7 +437,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 continue;
             }
 
-            List<string> missing = [.. declared.Projects.Where(p => !resolved.Contains(p))];
+            List<string> missing = [.. declared.Projects.Where(p => !resolved.ContainsKey(p))];
             if (missing.Count > 0)
             {
                 return $"'{Path.GetFileName(projectFile)}' references {string.Join(", ", missing)}, " +
@@ -432,6 +450,39 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 return $"'{Path.GetFileName(projectFile)}' references NuGet packages that have not been " +
                     "restored or built yet, so an in-memory compile cannot see those types. " +
                     "Use the build tool for an authoritative answer.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The scavenged reference that is older than the sources of the project it was built from,
+    /// or null when they are all current. Diagnostics computed against a stale reference are
+    /// about a version of the dependency that no longer exists, so the compile is inconclusive -
+    /// the same answer an unbuilt reference gets, for the same reason.
+    /// </summary>
+    private string? StaleReferences(string projectDirectory, Dictionary<string, DateTime> resolved)
+    {
+        foreach (string projectFile in ProjectLocator.EnumerateProjects(projectDirectory))
+        {
+            foreach ((string name, string referencedProject) in ProjectLocator.ReadProjectReferencePaths(projectFile))
+            {
+                if (!resolved.TryGetValue(name, out DateTime built) ||
+                    Path.GetDirectoryName(referencedProject) is not { } directory)
+                {
+                    continue;
+                }
+
+                foreach (string source in EnumerateSources(directory))
+                {
+                    if (File.GetLastWriteTimeUtc(source) > built)
+                    {
+                        return $"'{Path.GetFileName(projectFile)}' references {name}, whose sources changed " +
+                            $"after it was last built, so this compile would judge the edit against the old " +
+                            $"{name}. Use the build tool for an authoritative answer.";
+                    }
+                }
             }
         }
 

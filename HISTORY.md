@@ -9,6 +9,66 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The gate judged the fix against a library that no longer exists
+
+**Shipped.** Three fixes from reading run `e8f9186a`. 538 tests green, +8.
+
+**What the run said.** Goal: *"change the multiplication of the elements from value 10 to a
+parameter set in the calling function"* — inherently a two-project change. 21 steps, 205k tokens,
+stopped at TimeLimit with the workspace half-migrated. Step 6 changed the library signature,
+verified against the library project alone, and passed. Then the model did the right thing eight
+times — updated the test project's call sites, in the flat shape, the `edits` list, and finally
+all six call sites in one call — and the write-time gate refused six of them with
+`CS1501: No overload for 'SortAndMultiply' takes 2 arguments`.
+
+The gate compiles the edited file against DLLs scavenged from the project's own `bin`, and the
+test project's copy of `MyMathLib.dll` predated the signature change. That made the refusal a
+**deadlock**, not a transient: the gate only believes the DLL, the DLL only refreshes on a
+successful build of the test project, and the test project cannot build until the very edit being
+refused has landed. No sequence of tool calls escapes. The model even tried — step 18 called
+`build "."`, was told to use `list_projects`, never did, and went back to editing.
+
+**Decided**
+
+- **A gate that cannot know must not gate.** The scavenger now records each DLL's write time, and
+  a reference older than any source of the project it was built from makes the compile
+  *inconclusive* — the same answer an unbuilt reference already got, for the same reason: the
+  diagnostics would be about the reference set, not the code. `EditFileTool` already lets
+  inconclusive through with a note, so the fix is one new check, not a new pathway. It errs only
+  in the safe direction: a wrongly-suspected reference costs one unverified write, never a wrong
+  refusal.
+- **The ladder builds what a library change can break, not what it cannot.** When one project owns
+  the change, `ResolveBuildTarget` now finds the projects that transitively reference it and
+  targets the dependent at the top of the chain — building it builds the owner first, so one
+  target covers the affected closure. Two unrelated dependents fall back to the root solution;
+  without one, the owner. At step 6 this would have said "5 call sites broke" instead of green.
+- **`build "."` names the projects in the answer.** Pointing at `list_projects` is a hop the
+  model demonstrably does not take. Same lesson as the `edit_file` hint repair: the information
+  has to be in the message the model is already reading.
+
+**Worth knowing**
+
+- **This failure class is invisible to tool-call validity.** Every one of the eight failed calls
+  parsed and executed; the run scores 1.00. What the metrics cannot see is a *correct* edit
+  refused on stale evidence — worth remembering when a run looks clean in the numbers and dead in
+  the transcript.
+- The refusal's wording asserted the opposite of the truth ("it would break") — the same shape as
+  `path_not_allowed`: a confident wrong reason sends the model somewhere it can never recover
+  from.
+- The staleness comparison leans on MSBuild's copy preserving write times, which is what makes
+  "DLL older than the sources of its project" readable straight off the file system.
+
+**Open**
+
+- `GlassCoderTest` is deliberately left half-migrated — two-parameter library, one-parameter test
+  calls — as a ready-made retry: the same goal again should now complete in ~10 steps, and is the
+  end-to-end validation these fixes still lack.
+- The deeper fix — compiling workspace `ProjectReference`s from source so the gate stays
+  *authoritative* across projects instead of merely humble — was weighed and deferred until it
+  earns its machinery (transitive references, caching).
+
+---
+
 ## 2026-08-04 — The clock that lagged the run by one action
 
 **Shipped.** The transcript's elapsed column now reads the run's clock at each step's *end*.

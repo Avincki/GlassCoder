@@ -1,5 +1,7 @@
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Verification;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.Tests;
@@ -203,6 +205,76 @@ public sealed class RoslynCodeAnalyzerTests : IDisposable
             "namespace Demo; public sealed class Caller { public int N => 2; }");
 
         report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    // ── Stale references ──
+
+    private const string ReferencingProject =
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><ProjectReference Include=\"..\\lib\\Lib.csproj\" /></ItemGroup></Project>";
+
+    [Fact]
+    public async Task Rung_two_is_inconclusive_when_a_reference_is_older_than_its_sources()
+    {
+        // Run e8f9186a: a library gained a parameter, and every edit fixing the call sites in
+        // its test project was refused with "no overload takes 2 arguments" - judged against
+        // the library's last-built DLL, which the test project could not rebuild until the very
+        // edit being refused had landed. Stale evidence must not gate.
+        _workspace.WriteFile("lib/Lib.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("lib/Exported.cs", "namespace LibNs; public static class Exported { }");
+        _workspace.WriteFile("app/App.csproj", ReferencingProject);
+        string caller = _workspace.WriteFile("app/Caller.cs", "namespace AppNs; public class Caller { }");
+
+        string dll = EmitLibrary("app/bin/Debug/Lib.dll");
+        File.SetLastWriteTimeUtc(dll, DateTime.UtcNow.AddHours(-1));   // built before the source above
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller, "namespace AppNs; public class Caller { public int N => 1; }");
+
+        report.FailureReason.ShouldNotBeNull();
+        report.FailureReason.ShouldContain("Lib");
+        report.Diagnostics.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Rung_two_still_gates_when_the_reference_is_current()
+    {
+        // The staleness check must not become a blanket amnesty for every project that has a
+        // reference: a DLL newer than every source it was built from is trustworthy evidence.
+        _workspace.WriteFile("lib/Lib.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        string libSource = _workspace.WriteFile(
+            "lib/Exported.cs", "namespace LibNs; public static class Exported { public static int One => 1; }");
+        _workspace.WriteFile("app/App.csproj", ReferencingProject);
+        string caller = _workspace.WriteFile("app/Caller.cs", "namespace AppNs; public class Caller { }");
+
+        File.SetLastWriteTimeUtc(libSource, DateTime.UtcNow.AddHours(-1));
+        EmitLibrary("app/bin/Debug/Lib.dll");   // written now, after every source it was built from
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller, "namespace AppNs; public class Caller { public int N => LibNs.Exported.One; }");
+
+        report.FailureReason.ShouldBeNull();
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    /// <summary>
+    /// A real assembly, because the reference scavenger only counts DLLs it can load. Its
+    /// content mirrors <c>lib/Exported.cs</c> the way a built output would.
+    /// </summary>
+    private string EmitLibrary(string relativePath)
+    {
+        string full = Path.Combine(_workspace.Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "Lib",
+            [CSharpSyntaxTree.ParseText(
+                "namespace LibNs { public static class Exported { public static int One => 1; } }")],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        using FileStream output = File.Create(full);
+        compilation.Emit(output).Success.ShouldBeTrue();
+        return full;
     }
 
     [Fact]
