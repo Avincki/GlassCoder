@@ -661,9 +661,24 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             : [.. all.Where(change => string.Equals(change.RunId, _runId, StringComparison.Ordinal))];
     }
 
-    /// <summary>Marks the file and opens the folders above it, so a change is never folded away.</summary>
+    /// <summary>
+    /// Marks the file and opens the folders above it, so a change is never folded away.
+    /// <para>
+    /// Only when the file is on disk. The change log colours the tree; what exists is the
+    /// watcher's to say. A delete's change stays Applied - and the loop re-raises it after the
+    /// step, attaching the ladder's summary - so marking without this check would recreate the
+    /// node the watcher just removed: a green row for a file that is gone. Creation is
+    /// unaffected, because every tool writes before it records Applied.
+    /// </para>
+    /// </summary>
     private void Apply(string path, FileChangeStats stats)
     {
+        string full = Path.Combine(RootPath, path.Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(full))
+        {
+            return;
+        }
+
         EnsureNode(path, isFile: true).SetStats(stats);
 
         for (int cut = path.LastIndexOf('/'); cut >= 0; cut = path.LastIndexOf('/'))

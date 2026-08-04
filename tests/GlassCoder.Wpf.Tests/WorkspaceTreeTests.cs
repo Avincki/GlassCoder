@@ -214,7 +214,11 @@ public sealed class WorkspaceTreeTests
         marked.ShouldBeFalse();
     }
 
-    /// <summary>A file the run creates gets a node, and the folders above it are opened to it.</summary>
+    /// <summary>
+    /// A file the run creates gets a node, and the folders above it are opened to it. The write
+    /// comes first, as it does in every tool: a change is only recorded Applied once the file is
+    /// on disk, and the colouring only ever marks what is.
+    /// </summary>
     [Fact]
     public void A_change_to_a_file_the_tree_has_not_seen_creates_it_expanded()
     {
@@ -224,6 +228,7 @@ public sealed class WorkspaceTreeTests
         (bool marked, bool opened) = Over(workspace, (_, tree) =>
         {
             tree.Workspace.BeginRun();
+            workspace.WriteFile("src/App/Program.cs", "class P { }\n");
             Apply(tree.Changes, "run-1", "src/App/Program.cs", string.Empty, "class P { }\n");
 
             return (Node(tree, "src/App/Program.cs")!.IsModified, Node(tree, "src/App")!.IsExpanded);
@@ -231,6 +236,80 @@ public sealed class WorkspaceTreeTests
 
         marked.ShouldBeTrue();
         opened.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The resurrection this guards against: the loop re-raises a delete's Applied change after
+    /// the step, when the ladder's summary is attached to it. The change log must not recreate
+    /// the node the watcher removed - the file is gone, and the tree follows the file system.
+    /// </summary>
+    [Fact]
+    public void A_deleted_file_stays_gone_when_its_change_is_updated_again()
+    {
+        using TempWorkspace workspace = new();
+        string doomed = workspace.WriteFile("src/App/Doomed.cs", "a\nb\n");
+
+        bool resurrected = Over(workspace, (dispatcher, tree) =>
+        {
+            tree.Workspace.BeginRun();
+
+            // The delete as file_operation records it: before-text to nothing, Applied.
+            CodeChange change = Apply(tree.Changes, "run-1", "src/App/Doomed.cs", "a\nb\n", string.Empty);
+            File.Delete(doomed);
+            UiThread.Pump(dispatcher, () => Node(tree, "src/App/Doomed.cs") is null)
+                .ShouldBeTrue("the watcher should have dropped the deleted file first");
+
+            // What AgentLoop does after the step. Raised on this thread, handled synchronously.
+            tree.Changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: "build ok");
+
+            return Node(tree, "src/App/Doomed.cs") is not null;
+        });
+
+        resurrected.ShouldBeFalse("a verification update must not recreate a file the run deleted");
+    }
+
+    /// <summary>
+    /// A move is recorded as a removal and an addition, and the removal stays Applied at the old
+    /// path. Only the new path may hold a row once the file has moved.
+    /// </summary>
+    [Fact]
+    public void A_moved_file_lives_at_its_new_path_only()
+    {
+        using TempWorkspace workspace = new();
+        string oldPath = workspace.WriteFile("src/App/Old.cs", "content\n");
+
+        (bool oldGone, bool newMarked) = Over(workspace, (dispatcher, tree) =>
+        {
+            tree.Workspace.BeginRun();
+
+            // As file_operation records a move: propose both halves, move, then apply both.
+            RunContext.Set(new RunContext("run-1", "task"));
+            CodeChange removal, addition;
+            try
+            {
+                removal = tree.Changes.Propose("src/App/Old.cs", "file_operation", "content\n", string.Empty);
+                addition = tree.Changes.Propose("src/App/New.cs", "file_operation", string.Empty, "content\n");
+            }
+            finally
+            {
+                RunContext.Clear();
+            }
+
+            File.Move(oldPath, Path.Combine(workspace.Root, "src", "App", "New.cs"));
+            tree.Changes.Update(removal.Id, ChangeStatus.Applied);
+            tree.Changes.Update(addition.Id, ChangeStatus.Applied);
+
+            UiThread.Pump(dispatcher, () => Node(tree, "src/App/Old.cs") is null)
+                .ShouldBeTrue("the watcher should have dropped the moved-away path");
+
+            // The loop's after-step update, re-raising the removal at the old path.
+            tree.Changes.Update(removal.Id, ChangeStatus.Applied, verificationSummary: "moved");
+
+            return (Node(tree, "src/App/Old.cs") is null, Node(tree, "src/App/New.cs")!.IsModified);
+        });
+
+        oldGone.ShouldBeTrue("the old path is not in the workspace, so it is not in the tree");
+        newMarked.ShouldBeTrue();
     }
 
     // ── Scaffolding ──

@@ -9,6 +9,63 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The change log does not get to say what exists
+
+**Shipped.** One guard in the workspace pane, three tests. 530 tests green, +2.
+
+**What was seen.** A file the run deleted stayed in the tree — green, semibold, counts and all. It
+was not actually *remaining*: it was removed correctly and resurrected seconds later, which is why
+it read as odd rather than as broken.
+
+1. `file_operation` deletes the file and marks its change Applied. The pane's `Record` runs first —
+   change events post at Normal priority, the watcher's drain at Background — and paints the
+   still-present node green.
+2. The drain rescans the path, sees it is gone, removes the node. For a moment the tree is right.
+3. The ladder finishes its build and `AgentLoop` re-updates every applied change of the step to
+   attach the verification summary. `ChangeLog.Update` raises `Changed` on *every* update, "deleted"
+   is not a concept `FileChangeSummary` has — a delete is just an Applied change whose after-text is
+   empty — and `Apply` called `EnsureNode`, which creates whatever it cannot find. The dead file
+   returns, ancestors forced open.
+
+The drain takes milliseconds and the ladder seconds, so step 3 lands after step 2 every time —
+deterministic with `VerifyAppliedChanges` on, which is how it runs. The same mechanism resurrected
+the old path of every move (its removal change gets the same re-update), and Refresh brought the
+whole set back again through `Summarise`.
+
+**Decided**
+
+- **The change log colours the tree; existence is the watcher's to say.** That was already the
+  stated design — "two sources answering two different questions" — but `Apply` → `EnsureNode` let
+  one source answer the other's question. The fix is one gate: `Apply` returns before marking when
+  the file is not on disk. The live path and the Refresh replay both go through it, so the delete
+  ghost, the move ghost and the Refresh ghost close together.
+- **Creation is unaffected because every tool writes before it records Applied.** Which is also why
+  `A_change_to_a_file_the_tree_has_not_seen_creates_it_expanded` had to change: it recorded a change
+  for a file that never touched disk — a shortcut no tool takes, and exactly the gap the bug lived
+  in.
+
+**Worth knowing**
+
+- The regression tests replay the sequence rather than assert the summary: apply, delete on disk,
+  pump until the watcher has dropped the node, then re-raise the change the way `AgentLoop` does.
+  Raised on the dispatcher thread, `Record` runs synchronously, so the assertion needs no second
+  pump.
+- The suite ran in Release because the app was open — watching this bug, fittingly — and holds the
+  Debug binaries. The open instance keeps the ghost until it restarts.
+
+**Open** — the rest of the same review, seen from the operator's chair and not addressed here:
+
+- The run latch takes the first `Changed` event of *any* run id after Run is pressed. A human revert
+  in the gap before the run's first change latches the wrong run, and the whole run paints nothing.
+- Every applied change re-expands the folders above it, so collapsing a folder mid-run is futile.
+- A deletion leaves no trace in the run's story — the file just vanishes, with the −N nowhere.
+  Whether deletions deserve their own visual (a struck-through row?) is undecided.
+- Refresh rebuilds every node: expansion choices, selection and scroll are lost — and a watcher
+  buffer overflow triggers that rebuild unprompted, because the deny globs filter events after the
+  OS buffer, not before it.
+
+---
+
 ## 2026-08-04 — The run that failed on the tool I had just reshaped
 
 **Shipped.** Three fixes to `edit_file`, from reading run `9fad0808`. 528 tests green, +5.
