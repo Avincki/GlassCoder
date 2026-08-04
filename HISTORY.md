@@ -9,6 +9,71 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — Batch 2: four capabilities for forty-five tokens, and the whitespace nobody was counting
+
+**Shipped.** Tasks 46, 47, 51 and 52, plus decisions recorded for 48 and 53. 523 tests green, +35.
+
+**The number that matters.** The advertised schemas went from **13,547 to 13,726 characters** — about
+45 tokens per request — and bought multi-file edits, file outlines, symbol search, test discovery and
+a formatting verb. The previous entry left this with ~450 characters of headroom and an instruction:
+*the next tool to be added should trim something, not raise this again.* It was followed.
+
+**Decided**
+
+- **Three of the five arrived as parameters, not tools.** `file_outline` became
+  `read_file(outline: true)` (150 chars, not ~450). `list_tests` became `run_tests(listOnly: true)`
+  (113, not ~450). `dotnet format` became a `DotnetProjectOperation` (37). Each is the same request
+  at a different setting, and a setting is a flag.
+- **`apply_patch` did not ship; `edit_file` grew a list instead.** Two tools doing the same thing at
+  different arities is exactly the pattern the budget test exists to catch — `edit_file` was 901
+  characters and a second tool would have been ~880 more, on every request of every run. Reshaping
+  the one tool cost 373. A single edit is a one-element list, and the multi-file path is now the
+  default rather than an alternative the model has to notice.
+- **The workplan's "one approval for the batch" was rejected on inspection.** `RequestActionAsync`
+  is governed by `RequireApprovalForPush`, so routing file writes through it would have put them
+  behind the *push* switch — a safety setting silently doing something other than what it says. And
+  the prompt shows a diff: a reviewer approving three files should see three diffs. Approval stayed
+  per file, which also means refusing one file still lets the rest land.
+- **`find_references` is not being built** (task 48), and the reason is the asymmetry with its
+  sibling. `find_symbol` reads the syntax tree, so its worst failure is "not found" for something
+  that lives in a package. `find_references` needs semantics, and on a reference set scavenged from
+  `bin/` its worst failure is **"nothing calls this" when something does** — which an agent acts on
+  by deleting live code. The two look alike; their failure modes are not comparable.
+- **Package knowledge (task 53) waits for record/replay.** No transcript analysed so far shows a run
+  failing on a package version — the failures were line endings, a missing solution, and a tool that
+  could not scaffold. Shipping `nuget_info` live "for now" would put a network call in the loop and
+  quietly break the Lab's ablations, which is the failure the task was written to avoid.
+
+**Worth knowing**
+
+- **`AIJsonUtilities.DefaultOptions` writes indented, and it was serialising every tool observation
+  fed back into the conversation.** Unlike a schema — re-sent once per step — a tool result is
+  written *into* the conversation and then carried for the rest of the run, so a grep returning
+  forty matches paid for its own whitespace on every subsequent step until compaction. Fixed by
+  copying the options with `WriteIndented = false`; `PromptBudgetTests` now measures it.
+- **About a fifth of the "schema budget" is whitespace we do not control.** `update_todos` is 567
+  characters leaving `AIFunction.JsonSchema` and 1,186 on the wire: the OpenAI client re-serialises
+  the schema through the library's own indented options. Worth knowing before someone reads a number
+  in that test as prose they can shorten.
+- **What got cut to pay for this was rationale, not guidance.** `list_projects` used to tell the
+  model it "answers in one step what globbing for *.csproj answers in four". That sentence was for a
+  human reading the source, and it was being re-sent on every request of every run. Eleven
+  descriptions were trimmed the same way; `build` lost a third of its size and none of its meaning.
+- The Lab's Phase 1 checkpoint drives `edit_file` through the registry with scripted JSON, so its
+  fixtures now carry the nested `edits` array. That it passes is the end-to-end evidence that the
+  new wire shape deserialises — worth more than a unit test of the same thing.
+
+**Open**
+
+- `find_symbol` is the one new tool name (531 chars) and it has not yet been called by a real run.
+  `file_operation` and `list_changes` from the previous batch are still in the same position. If a
+  run finishes without touching any of them, that is worth reading as evidence.
+- `dotnet_project Format` snapshots up to 500 sources to work out what the SDK rewrote, because the
+  SDK will not say. Fine for a project, wasteful for a solution.
+- The tutorial docs describe an eight-tool harness; there are now thirteen without git.
+
+---
+
 ## 2026-08-04 — The workspace pane stops reporting the change log and starts reporting the workspace
 
 **Shipped.** Three asks from watching the pane during a run, all in `WorkspaceViewModel`. 488

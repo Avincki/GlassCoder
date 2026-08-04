@@ -84,6 +84,18 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         !string.IsNullOrWhiteSpace(filePath) &&
         Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The parsed tree for a file on disk, or null when it cannot be read.
+    /// <para>
+    /// Exposed so structural tools (workplan task 47) sweep the workspace through the cache this
+    /// class already keeps, rather than opening a second one. A repository-wide symbol search and
+    /// a pre-write compile want the same trees, and parsing them twice would be paying twice for
+    /// the same answer.
+    /// </para>
+    /// </summary>
+    public SyntaxTree? ParseFile(string fullPath, CancellationToken cancellationToken = default) =>
+        Handles(fullPath) ? ParseCached(fullPath, cancellationToken) : null;
+
     /// <inheritdoc />
     public DiagnosticReport CheckSyntax(string filePath, string text)
     {

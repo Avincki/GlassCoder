@@ -54,9 +54,8 @@ public sealed class ListProjectsTool : IToolSet
 
     /// <summary>Describes the projects and solutions in the workspace.</summary>
     [GlassCoderTool(ToolName, Order = 32)]
-    [Description("List the solutions and projects in the workspace, with their target frameworks, references "
-        + "and source-file counts, plus any structural problems. Call this before creating or wiring up a "
-        + "project - it answers in one step what globbing for *.csproj answers in four.")]
+    [Description("List the solutions and projects in the workspace with their frameworks, references and "
+        + "source counts, plus any structural problems. Call this before creating or wiring up a project.")]
     public Task<ToolObservation<ListProjectsResult>> ListAsync(CancellationToken cancellationToken = default)
     {
         string root = _guard.RepoRoot;

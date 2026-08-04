@@ -207,9 +207,15 @@ public sealed class AgentLoopVerificationTests
         FakeChatClient client = new(
             FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
             {
-                ["path"] = "src/Pager.cs",
-                ["oldText"] = "int X => 1",
-                ["newText"] = "int X => 2",
+                ["edits"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = "src/Pager.cs",
+                        ["oldText"] = "int X => 1",
+                        ["newText"] = "int X => 2",
+                    },
+                },
             }),
             FakeChatClient.Text("done"));
 

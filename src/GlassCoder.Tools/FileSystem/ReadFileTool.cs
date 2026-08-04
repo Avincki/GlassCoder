@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.FileSystem;
@@ -44,15 +45,17 @@ public sealed class ReadFileTool : IToolSet
 
     /// <summary>Reads a slice of a text file.</summary>
     [GlassCoderTool(ToolName, Order = 10)]
-    [Description("Read a text file from the workspace and return it with 1-based line numbers. "
-        + "Read before editing: an edit must quote an exact, unique string from the file.")]
+    [Description("Read a text file. Read before editing: an edit must quote an exact, unique string from "
+        + "the file. In a large C# file take the outline first, then the one range you need.")]
     public ToolObservation<ReadFileResult> ReadFile(
-        [Description("Path to the file, relative to the repository root, for example src/GlassCoder.Core/Agent/AgentLoop.cs.")]
+        [Description("Repo-relative path, e.g. src/Agent/AgentLoop.cs.")]
         string path,
-        [Description("1-based line number to start reading from. Use 1 for the beginning of the file.")]
+        [Description("1-based line to start from.")]
         int startLine = 1,
-        [Description("Maximum number of lines to return. Ask for a smaller window when you only need one region.")]
-        int maxLines = 400)
+        [Description("Maximum lines to return. Ask for less when you need one region.")]
+        int maxLines = 400,
+        [Description("For C#, return the declarations and their line numbers instead of the code.")]
+        bool outline = false)
     {
         PathGuardResult verdict = _guard.Resolve(path, PathAccess.Read);
         if (!verdict.Allowed || verdict.FullPath is null)
@@ -133,6 +136,11 @@ public sealed class ReadFileTool : IToolSet
             lines = lines[..^1];
         }
 
+        if (outline)
+        {
+            return Outline(verdict.RelativePath!, text, lines.Length);
+        }
+
         int effectiveMax = Math.Min(maxLines, _options.MaxLinesPerRead);
         int firstIndex = Math.Min(startLine - 1, Math.Max(lines.Length - 1, 0));
         int count = Math.Min(effectiveMax, Math.Max(lines.Length - firstIndex, 0));
@@ -167,5 +175,50 @@ public sealed class ReadFileTool : IToolSet
         }
 
         return Observation.Ok(ToolName, result, summary);
+    }
+
+    /// <summary>
+    /// The file's declarations and where they are, instead of its text (workplan task 47).
+    /// <para>
+    /// Orienting in an unfamiliar file used to cost the whole file. This costs its shape, and
+    /// every entry carries the line number that turns the follow-up into one ranged read. It
+    /// needs only the syntax tree, so it works on a file whose project has never been built.
+    /// </para>
+    /// </summary>
+    private ToolObservation<ReadFileResult> Outline(string relativePath, string text, int totalLines)
+    {
+        if (!relativePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return Observation.Fail<ReadFileResult>(
+                ToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{relativePath}' is not C#, and an outline is read from the C# syntax tree.",
+                "Read it without outline, or use grep to find the region you need.");
+        }
+
+        IReadOnlyList<SourceSymbol> symbols = CodeStructure.Outline(relativePath, text, _options.MaxLinesPerRead);
+        if (symbols.Count == 0)
+        {
+            return Observation.Fail<ReadFileResult>(
+                ToolName,
+                ToolErrorCodes.NotFound,
+                $"'{relativePath}' declares nothing an outline can show.",
+                "Read it without outline.");
+        }
+
+        ReadFileResult result = new(
+            relativePath,
+            CodeStructure.Render(symbols),
+            symbols[0].Line,
+            symbols[^1].EndLine,
+            totalLines,
+            Truncated: false,
+            TextFile.DescribeEndings(text),
+            ClippedLines: 0);
+
+        return Observation.Ok(
+            ToolName,
+            result,
+            $"{symbols.Count} declaration(s) in {relativePath}. Read a line range for any body.");
     }
 }

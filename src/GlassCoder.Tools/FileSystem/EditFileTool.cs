@@ -8,38 +8,75 @@ using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.FileSystem;
 
+/// <summary>One replacement in one file.</summary>
+/// <param name="Path">Repo-relative file to change.</param>
+/// <param name="OldText">Exact text to replace, unique in the file as it stands.</param>
+/// <param name="NewText">What to put there instead.</param>
+public sealed record FileEdit(
+    [property: Description("Path to the file, relative to the repository root.")] string Path,
+    [property: Description("Text to replace. Must appear exactly once, indentation included. Line endings "
+        + "are matched flexibly, so \\n is fine whatever the file uses.")] string OldText,
+    [property: Description("The replacement text.")] string NewText);
+
+/// <summary>What happened to one file.</summary>
+/// <param name="Path">Repo-relative file.</param>
+/// <param name="Applied">Whether it was written.</param>
+/// <param name="Edits">How many replacements were made in it.</param>
+/// <param name="StartLine">1-based first line the change touched.</param>
+/// <param name="EndLine">1-based last line it touched.</param>
+/// <param name="LinesBefore">Lines in the file before.</param>
+/// <param name="LinesAfter">Lines in the file after.</param>
+/// <param name="Verified">Whether it was compile-checked in memory before being written.</param>
+/// <param name="Diagnostics">Summarised diagnostics from that check, when it ran.</param>
+/// <param name="ChangeId">Identifier of the change in the change log.</param>
+/// <param name="Error">Why nothing was written, when nothing was.</param>
+public sealed record FileEditResult(
+    [property: Description("Repo-relative path.")] string Path,
+    [property: Description("True when the file was written.")] bool Applied,
+    [property: Description("How many replacements were made in this file.")] int Edits,
+    [property: Description("1-based first line the change touched.")] int StartLine,
+    [property: Description("1-based last line the change touched.")] int EndLine,
+    [property: Description("Lines in the file before.")] int LinesBefore,
+    [property: Description("Lines in the file after.")] int LinesAfter,
+    [property: Description("True when the change was compile-checked before being written.")] bool Verified,
+    [property: Description("Diagnostics from the pre-write check, if it ran.")] string? Diagnostics = null,
+    [property: Description("Identifier of this change in the change log.")] string? ChangeId = null,
+    [property: Description("Why this file was not changed, when it was not.")] string? Error = null);
+
 /// <summary>Result payload of <c>edit_file</c>.</summary>
-/// <param name="Path">Repo-relative file that was changed.</param>
-/// <param name="StartLine">1-based first line of the replaced region.</param>
-/// <param name="EndLine">1-based last line of the replaced region, after the edit.</param>
-/// <param name="LinesBefore">Lines in the file before the edit.</param>
-/// <param name="LinesAfter">Lines in the file after the edit.</param>
-/// <param name="Verified">Whether the edit was compile-checked in memory before being written.</param>
-/// <param name="Diagnostics">Summarised diagnostics from that pre-write check, when it ran.</param>
-/// <param name="ChangeId">Identifier of this change in the change log, for the UI to link to.</param>
+/// <param name="Files">One entry per file, in the order the edits first named them.</param>
+/// <param name="FilesChanged">How many files were written.</param>
+/// <param name="EditsApplied">How many replacements were made in all.</param>
 public sealed record EditFileResult(
-    [property: Description("Repo-relative path that was edited.")] string Path,
-    [property: Description("1-based first line of the replaced region.")] int StartLine,
-    [property: Description("1-based last line of the replaced region after the edit.")] int EndLine,
-    [property: Description("Number of lines in the file before the edit.")] int LinesBefore,
-    [property: Description("Number of lines in the file after the edit.")] int LinesAfter,
-    [property: Description("True when the edit was compile-checked in memory before being written.")] bool Verified,
-    [property: Description("Summary of diagnostics from the pre-write check, if it ran.")] string? Diagnostics,
-    [property: Description("Identifier of this change in the change log.")] string? ChangeId = null);
+    [property: Description("One entry per file named by the edits, changed or not.")] IReadOnlyList<FileEditResult> Files,
+    [property: Description("How many files were written.")] int FilesChanged,
+    [property: Description("How many replacements were made in all.")] int EditsApplied);
 
 /// <summary>
-/// <c>edit_file</c> - the first tool that changes anything (CLAUDE.md §7, workplan task 16).
+/// <c>edit_file</c> - the tool that changes things (CLAUDE.md §7, workplan tasks 16 and 46).
 /// <para>
-/// It replaces one <em>exact, unique</em> string. Not a line range, not a regex, not a fuzzy
-/// match: an edit that can silently land in the wrong place is worse than an edit that fails,
-/// because the loop will not notice. Absent target and ambiguous target are both errors, and
-/// both are observations the agent can act on.
+/// Each edit replaces one <em>exact, unique</em> string. Not a line range, not a regex, not a
+/// fuzzy match: an edit that can silently land in the wrong place is worse than an edit that
+/// fails, because the loop will not notice. Absent target and ambiguous target are both errors,
+/// and both are observations the agent can act on.
 /// </para>
 /// <para>
-/// Two gates stand before the write. The path allow-list decides whether this file may be
-/// touched at all (task 8), and the in-memory Roslyn check decides whether the result would
-/// still compile (task 14) - so a broken edit is refused before it reaches the working tree,
-/// not after.
+/// It takes a <em>list</em> of edits, because one logical change - a rename, an interface
+/// update, a type moved - is one intent and was N calls, each preceded by a re-read and followed
+/// by its own compile. Edits to the same file are applied in order and that file is verified and
+/// written once, which is strictly cheaper than before: three edits in one file cost one
+/// in-memory compile instead of three.
+/// </para>
+/// <para>
+/// <strong>Atomic per file, deliberately not across files.</strong> Every edit to a file lands or
+/// none does. Cross-file atomicity would need a rollback path over the working tree, and a
+/// partly-applied change that says exactly which files landed is more useful to the model than
+/// one that silently undoes correct work.
+/// </para>
+/// <para>
+/// Two gates stand before each write. The path allow-list decides whether the file may be
+/// touched at all (task 8), and the in-memory Roslyn check decides whether the result would still
+/// compile (task 14) - so a broken edit is refused before it reaches the working tree.
 /// </para>
 /// </summary>
 public sealed class EditFileTool : IToolSet
@@ -75,50 +112,114 @@ public sealed class EditFileTool : IToolSet
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EditFileTool>.Instance;
     }
 
-    /// <summary>Replaces an exact, unique string in a file.</summary>
+    /// <summary>Applies an ordered list of replacements, grouped by file.</summary>
     [GlassCoderTool(ToolName, Order = 40)]
-    [Description("Replace a unique string in a workspace file. Read it first and quote enough surrounding "
-        + "text to make the target unique. To replace a whole file, use create_file with overwrite: true. "
-        + "Syntax- and compile-checked before it is written.")]
-    public async Task<ToolObservation<EditFileResult>> EditFileAsync(
-        [Description("Path to the file, relative to the repository root.")]
-        string path,
-        [Description("The text to replace. Must appear exactly once, indentation included. Line endings are "
-            + "matched flexibly, so \\n is fine whatever the file uses.")]
-        string oldText,
-        [Description("The replacement text.")]
-        string newText,
+    [Description("Replace exact, unique strings in workspace files. Read a file first and quote enough "
+        + "surrounding text to make each target unique. Edits to one file apply in order and that file is "
+        + "written once, so a change spanning several files is one call. Compile-checked before writing.")]
+    public async Task<ToolObservation<EditFileResult>> EditFilesAsync(
+        [Description("The replacements to make, in order.")]
+        IReadOnlyList<FileEdit> edits,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(oldText))
+        if (edits is null || edits.Count == 0)
         {
             return Observation.Fail<EditFileResult>(
-                ToolName,
-                ToolErrorCodes.InvalidArgument,
-                "oldText is required.",
-                "To create a file, use an empty file and edit into it, or ask for a file-creation tool.");
+                ToolName, ToolErrorCodes.InvalidArgument, "edits is required, with at least one entry.");
         }
 
-        if (string.Equals(oldText, newText, StringComparison.Ordinal))
+        List<FileOutcome> outcomes = [];
+        foreach ((PathGuardResult Verdict, string Path, List<FileEdit> Hunks) group in Group(edits))
         {
+            outcomes.Add(await ApplyAsync(group.Verdict, group.Path, group.Hunks, cancellationToken)
+                .ConfigureAwait(false));
+        }
+
+        EditFileResult result = new(
+            [.. outcomes.Select(o => o.Result)],
+            outcomes.Count(o => o.Result.Applied),
+            outcomes.Sum(o => o.Result.Applied ? o.Result.Edits : 0));
+
+        // Nothing landed, so this is a failed call rather than a partial one. Said as a failure
+        // because the loop counts those: a model repeating an edit whose target is not there has
+        // to be able to trip the repeated-failure guard, and an "ok" with an error inside it
+        // would let it loop to the step limit instead.
+        if (result.FilesChanged == 0)
+        {
+            FileOutcome first = outcomes[0];
             return Observation.Fail<EditFileResult>(
                 ToolName,
-                ToolErrorCodes.InvalidArgument,
-                "oldText and newText are identical, so this edit would do nothing.");
+                first.Code ?? ToolErrorCodes.InvalidArgument,
+                Describe(outcomes),
+                first.Hint);
         }
 
-        PathGuardResult verdict = _guard.Resolve(path, PathAccess.Write);
+        return Observation.Ok(ToolName, result, Summarise(result, outcomes));
+    }
+
+    /// <summary>
+    /// Applies one replacement. The shape a single edit wants, and the one the tests speak - the
+    /// model-facing contract is the list, and this is the list of one.
+    /// </summary>
+    public Task<ToolObservation<EditFileResult>> EditFileAsync(
+        string path,
+        string oldText,
+        string newText,
+        CancellationToken cancellationToken = default) =>
+        EditFilesAsync([new FileEdit(path, oldText, newText)], cancellationToken);
+
+    /// <summary>
+    /// Groups the edits by the file they name, keeping the order they were first named in.
+    /// <para>
+    /// Grouped on the guard's own spelling of the path rather than the model's, so
+    /// <c>./src/A.cs</c> and <c>src/A.cs</c> are one file. They were two groups when this was
+    /// keyed on the raw string, and the second would then read the text the first had already
+    /// replaced and fail to find its target.
+    /// </para>
+    /// </summary>
+    private List<(PathGuardResult Verdict, string Path, List<FileEdit> Hunks)> Group(IReadOnlyList<FileEdit> edits)
+    {
+        Dictionary<string, int> index = new(StringComparer.OrdinalIgnoreCase);
+        List<(PathGuardResult Verdict, string Path, List<FileEdit> Hunks)> groups = [];
+
+        foreach (FileEdit edit in edits)
+        {
+            string raw = edit?.Path ?? string.Empty;
+            PathGuardResult verdict = _guard.Resolve(raw, PathAccess.Write);
+            string key = verdict.RelativePath ?? raw;
+
+            if (!index.TryGetValue(key, out int at))
+            {
+                at = groups.Count;
+                index[key] = at;
+                groups.Add((verdict, key, []));
+            }
+
+            groups[at].Hunks.Add(edit!);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// Applies every edit for one file, or none of them. The verification and the approval happen
+    /// once, on the finished text, which is both cheaper and the only correct thing to check -
+    /// an intermediate state between two hunks of a rename does not compile and was never meant to.
+    /// </summary>
+    private async Task<FileOutcome> ApplyAsync(
+        PathGuardResult verdict,
+        string path,
+        List<FileEdit> hunks,
+        CancellationToken cancellationToken)
+    {
         if (!verdict.Allowed || verdict.FullPath is null)
         {
-            return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
+            return Refused(path, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
         }
 
         if (!File.Exists(verdict.FullPath))
         {
-            return Observation.Fail<EditFileResult>(
-                ToolName,
-                ToolErrorCodes.NotFound,
-                $"'{verdict.RelativePath}' does not exist.");
+            return Refused(path, ToolErrorCodes.NotFound, $"'{path}' does not exist.");
         }
 
         string original;
@@ -128,69 +229,52 @@ public sealed class EditFileTool : IToolSet
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
-        }
-
-        // Line endings are matched flexibly. The model emits \n; a file from dotnet new on
-        // Windows holds \r\n; and demanding the two agree byte for byte is a contract no model
-        // reliably honours - it cost one run seventeen consecutive failures on a seven-line file.
-        TextFile.Match? found = TextFile.Find(original, oldText, out int occurrences);
-
-        if (found is null && occurrences > 1)
-        {
-            return Observation.Fail<EditFileResult>(
-                ToolName,
-                ToolErrorCodes.AmbiguousTarget,
-                $"The text to replace appears {occurrences} times in '{verdict.RelativePath}'.",
-                "Include more surrounding context so the target is unique.");
-        }
-
-        if (found is not { } match)
-        {
-            return Observation.Fail<EditFileResult>(
-                ToolName,
-                ToolErrorCodes.NotFound,
-                $"The text to replace was not found in '{verdict.RelativePath}'. {Nearest(original, oldText)}",
-                "Line endings are already matched flexibly, so the difference is in the characters themselves - "
-                    + "indentation, most often. Read the file again and copy the target from what it returns. "
-                    + "To replace the whole file instead, use create_file with overwrite: true.");
+            return Refused(path, ToolErrorCodes.Unreadable, ex.Message);
         }
 
         string newLine = TextFile.DominantNewLine(original);
-        string replacement = TextFile.WithNewLine(newText, newLine);
-        int first = match.Start;
+        string updated = original;
 
-        string updated = string.Concat(
-            original.AsSpan(0, first), replacement, original.AsSpan(first + match.Length));
+        for (int i = 0; i < hunks.Count; i++)
+        {
+            HunkResult step = Replace(updated, hunks[i], newLine, Where(i, hunks.Count), path);
+            if (step.Text is null)
+            {
+                return Refused(path, step.Code!, step.Message!, step.Hint);
+            }
+
+            updated = step.Text;
+        }
 
         // Every change is recorded before it is applied, so a change that was refused is as
         // visible in the UI as one that landed (CLAUDE.md §10).
-        CodeChange change = _changes.Propose(verdict.RelativePath!, ToolName, original, updated);
+        CodeChange change = _changes.Propose(path, ToolName, original, updated);
 
         // Gate 1: would this still parse, and would it still compile? Refuse before writing.
         (bool rejected, string? diagnostics, bool verified) = await VerifyAsync(
-            verdict.FullPath, verdict.RelativePath!, original, updated, cancellationToken).ConfigureAwait(false);
+            verdict.FullPath, path, original, updated, cancellationToken).ConfigureAwait(false);
 
         if (rejected)
         {
             _changes.Update(change.Id, ChangeStatus.Rejected, "Verification refused the edit.", diagnostics);
-            return Observation.Fail<EditFileResult>(
-                ToolName,
+            return Refused(
+                path,
                 ToolErrorCodes.VerificationFailed,
-                $"The edit was refused: it would break '{verdict.RelativePath}'.\n{diagnostics}",
+                $"The edit was refused: it would break '{path}'.\n{diagnostics}",
                 "Fix the problem in your replacement text and try again. Nothing has been written.");
         }
 
-        // Gate 2: does a human have to say yes? The permission prompt is a guardrail before
-        // write, so it runs after verification and before anything touches the working tree.
+        // Gate 2: does a human have to say yes? Asked per file, not per batch, because the prompt
+        // shows a diff and a reviewer must see what they are approving - and refusing one file of
+        // a change still lets the rest land.
         ApprovalDecision decision = await _approval.RequestAsync(change, cancellationToken).ConfigureAwait(false);
         if (!decision.Approved)
         {
             _changes.Update(change.Id, ChangeStatus.Rejected, decision.Reason ?? "A human rejected the change.");
-            return Observation.Fail<EditFileResult>(
-                ToolName,
+            return Refused(
+                path,
                 ToolErrorCodes.ApprovalRefused,
-                decision.Reason ?? $"A human rejected the change to '{verdict.RelativePath}'.",
+                decision.Reason ?? $"A human rejected the change to '{path}'.",
                 "Nothing has been written. Take the feedback into account before trying again.");
         }
 
@@ -201,30 +285,108 @@ public sealed class EditFileTool : IToolSet
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _changes.Update(change.Id, ChangeStatus.Rejected, ex.Message);
-            return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
+            return Refused(path, ToolErrorCodes.Unreadable, ex.Message);
         }
 
         _changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: diagnostics);
-        int startLine = CountLines(original.AsSpan(0, first)) + 1;
-        int linesBefore = CountLines(original) + 1;
-        int linesAfter = CountLines(updated) + 1;
-        int endLine = startLine + CountLines(replacement);
+
+        // The touched range comes from the finished diff rather than from offset bookkeeping
+        // across hunks, which is both simpler and the only version that stays right when two
+        // hunks overlap in effect.
+        (int Start, int End)? range = change.Range();
 
         _logger.LogInformation(
-            "Edited {Path}: lines {StartLine}-{EndLine}, {LinesBefore} → {LinesAfter} lines",
-            verdict.RelativePath, startLine, endLine, linesBefore, linesAfter);
+            "Edited {Path}: {Edits} replacement(s), {LinesBefore} → {LinesAfter} lines",
+            path, hunks.Count, CountLines(original) + 1, CountLines(updated) + 1);
 
-        EditFileResult result = new(
-            verdict.RelativePath!,
-            startLine,
-            endLine,
-            linesBefore,
-            linesAfter,
-            verified,
-            diagnostics,
-            change.Id);
+        return new FileOutcome(
+            new FileEditResult(
+                path,
+                Applied: true,
+                hunks.Count,
+                range?.Start ?? 1,
+                range?.End ?? 1,
+                CountLines(original) + 1,
+                CountLines(updated) + 1,
+                verified,
+                diagnostics,
+                change.Id),
+            null,
+            null);
+    }
 
-        return Observation.Ok(ToolName, result, $"Edited {verdict.RelativePath} at line {startLine}.");
+    /// <summary>Applies one hunk to the text as it now stands, or says why it could not.</summary>
+    private static HunkResult Replace(string text, FileEdit hunk, string newLine, string which, string path)
+    {
+        if (string.IsNullOrEmpty(hunk?.OldText))
+        {
+            return HunkResult.Refused(
+                ToolErrorCodes.InvalidArgument,
+                $"{which}oldText is required.",
+                "To create a file, use create_file.");
+        }
+
+        if (string.Equals(hunk.OldText, hunk.NewText, StringComparison.Ordinal))
+        {
+            return HunkResult.Refused(
+                ToolErrorCodes.InvalidArgument,
+                $"{which}oldText and newText are identical, so this edit would do nothing.");
+        }
+
+        // Line endings are matched flexibly. The model emits \n; a file from dotnet new on
+        // Windows holds \r\n; and demanding the two agree byte for byte is a contract no model
+        // reliably honours - it cost one run seventeen consecutive failures on a seven-line file.
+        TextFile.Match? found = TextFile.Find(text, hunk.OldText, out int occurrences);
+
+        if (found is null && occurrences > 1)
+        {
+            return HunkResult.Refused(
+                ToolErrorCodes.AmbiguousTarget,
+                $"{which}the text to replace appears {occurrences} times in '{path}'.",
+                "Include more surrounding context so the target is unique.");
+        }
+
+        if (found is not { } match)
+        {
+            return HunkResult.Refused(
+                ToolErrorCodes.NotFound,
+                $"{which}the text to replace was not found in '{path}'. {Nearest(text, hunk.OldText)}",
+                "Line endings are already matched flexibly, so the difference is in the characters "
+                    + "themselves - indentation, most often. Read the file again and copy the target from "
+                    + "what it returns. To replace the whole file instead, use create_file with overwrite: true.");
+        }
+
+        return new HunkResult(
+            string.Concat(
+                text.AsSpan(0, match.Start),
+                TextFile.WithNewLine(hunk.NewText, newLine),
+                text.AsSpan(match.Start + match.Length)),
+            null,
+            null,
+            null);
+    }
+
+    /// <summary>Names the hunk when there is more than one, so a failure says which edit stopped.</summary>
+    private static string Where(int index, int count) => count == 1 ? string.Empty : $"Edit {index + 1} of {count}: ";
+
+    private static FileOutcome Refused(string path, string code, string message, string? hint = null) =>
+        new(
+            new FileEditResult(path, Applied: false, 0, 0, 0, 0, 0, Verified: false, Error: message),
+            code,
+            hint);
+
+    /// <summary>Every file that did not change, and why - the "says exactly which" half of the contract.</summary>
+    private static string Describe(List<FileOutcome> outcomes) =>
+        string.Join("\n", outcomes.Where(o => !o.Result.Applied).Select(o => o.Result.Error));
+
+    private static string Summarise(EditFileResult result, List<FileOutcome> outcomes)
+    {
+        string summary = result.FilesChanged == 1 && result.EditsApplied == 1
+            ? $"Edited {result.Files.First(f => f.Applied).Path} at line {result.Files.First(f => f.Applied).StartLine}."
+            : $"{result.EditsApplied} edit(s) across {result.FilesChanged} file(s).";
+
+        int refused = outcomes.Count - result.FilesChanged;
+        return refused == 0 ? summary : $"{summary} {refused} file(s) unchanged:\n{Describe(outcomes)}";
     }
 
     /// <summary>
@@ -338,5 +500,15 @@ public sealed class EditFileTool : IToolSet
         }
 
         return lines;
+    }
+
+    /// <summary>A file's result plus the error code and hint that belong to the observation, not the payload.</summary>
+    private sealed record FileOutcome(FileEditResult Result, string? Code, string? Hint);
+
+    /// <summary>The text after one hunk, or the reason there is none.</summary>
+    private readonly record struct HunkResult(string? Text, string? Code, string? Message, string? Hint)
+    {
+        public static HunkResult Refused(string code, string message, string? hint = null) =>
+            new(null, code, message, hint);
     }
 }

@@ -37,11 +37,11 @@ public sealed class TodoTool : IToolSet
 
     /// <summary>Replaces the plan.</summary>
     [GlassCoderTool(ToolName, Order = 5)]
-    [Description("Record or update your plan for this task. Send the complete list every time - it replaces "
-        + "the previous plan. Break a multi-step task down before starting it, mark exactly one item "
-        + "InProgress while you work on it, and mark items Completed as you finish them.")]
+    [Description("Record or update your plan. Send the complete list every time - it replaces the previous "
+        + "plan. Break a multi-step task down before starting, keep exactly one item InProgress, and mark "
+        + "items Completed as you finish them.")]
     public ToolObservation<TodoResult> UpdateTodos(
-        [Description("The complete plan: every item, each with an id, a title and a status.")]
+        [Description("The complete plan, every item.")]
         IReadOnlyList<TodoItem> items)
     {
         if (items is null)

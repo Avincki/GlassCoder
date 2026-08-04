@@ -125,9 +125,15 @@ public sealed class PhaseCheckpointTests : IDisposable
             FakeChatClient.ToolCall("read_file", new Dictionary<string, object?> { ["path"] = "src/Pager.cs" }, "c1"),
             FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
             {
-                ["path"] = "src/Pager.cs",
-                ["oldText"] = "public int Last => 10;",
-                ["newText"] = "public int Last => 9;",
+                ["edits"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = "src/Pager.cs",
+                        ["oldText"] = "public int Last => 10;",
+                        ["newText"] = "public int Last => 9;",
+                    },
+                },
             }, "c2"),
             FakeChatClient.ToolCall("build", new Dictionary<string, object?> { ["path"] = "src" }, "c3"),
             FakeChatClient.ToolCall("run_tests", new Dictionary<string, object?> { ["path"] = "src" }, "c4"),
@@ -162,16 +168,28 @@ public sealed class PhaseCheckpointTests : IDisposable
         FakeChatClient client = new(
             FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
             {
-                ["path"] = "src/Pager.cs",
-                ["oldText"] = "=> 10;",
-                ["newText"] = "=> 11;",
+                ["edits"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = "src/Pager.cs",
+                        ["oldText"] = "=> 10;",
+                        ["newText"] = "=> 11;",
+                    },
+                },
             }, "c1"),
             FakeChatClient.ToolCall("build", new Dictionary<string, object?> { ["path"] = "src" }, "c2"),
             FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
             {
-                ["path"] = "src/Pager.cs",
-                ["oldText"] = "=> 11;",
-                ["newText"] = "=> 12;",
+                ["edits"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = "src/Pager.cs",
+                        ["oldText"] = "=> 11;",
+                        ["newText"] = "=> 12;",
+                    },
+                },
             }, "c3"),
             FakeChatClient.ToolCall("build", new Dictionary<string, object?> { ["path"] = "src" }, "c4"),
             FakeChatClient.Text("Recovered."));

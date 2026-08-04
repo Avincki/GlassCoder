@@ -372,31 +372,40 @@ Acceptance: an edit quoting `\n` lands on a CRLF file; replacing a generated stu
 
 ## 46. apply_patch: one call for a change that spans hunks and files
 
-- [ ] **Estimated time:** 2d
+- [x] **Estimated time:** 2d
 
 From the outside tool review (`docs/grok/tool-evaluation-ai-codegen.md`, P0). One logical change — a rename, an interface update, a type moved — is today N `edit_file` calls, each preceded by a re-read and followed by its own pre-write compile. Models plan in patches and the harness makes them do micro-surgery, which is both slow and fragile: a mid-sequence `not_found` leaves the tree half-changed with no way to say so.
 
-- [ ] `apply_patch(hunks)`: ordered search/replace hunks, each naming a path, grouped by file.
-- [ ] **Atomic per file.** Every hunk in a file applies or none does. Cross-file atomicity is deliberately *not* offered — it would need a rollback path over the working tree, and a half-applied patch that says exactly which files landed is more useful to the model than one that silently undoes correct work.
-- [ ] **One pre-write verification per file, not per hunk.** This is strictly cheaper than today: three hunks in one file currently cost three in-memory compiles and would cost one.
-- [ ] **One approval for the batch.** `IApprovalGate.RequestAsync` is shaped around a single `CodeChange`, so a three-file patch would prompt three times. Use `RequestActionAsync` (task 41) once for the batch, then propose and apply per file — the change log stays per-file because `CodeChange.Path` is singular, which is also what the Changes surface wants.
-- [ ] Hunks match through `TextFile.Find`, so line-ending tolerance and the ambiguity guard behave exactly as they do in `edit_file` (task 45).
-- [ ] `edit_file` stays for single-hunk work. The tool descriptions should say which to reach for.
+- [x] `apply_patch(hunks)`: ordered search/replace hunks, each naming a path, grouped by file.
+- [x] **Atomic per file.** Every hunk in a file applies or none does. Cross-file atomicity is deliberately *not* offered — it would need a rollback path over the working tree, and a half-applied patch that says exactly which files landed is more useful to the model than one that silently undoes correct work.
+- [x] **One pre-write verification per file, not per hunk.** This is strictly cheaper than today: three hunks in one file currently cost three in-memory compiles and would cost one.
+- [x] Hunks match through `TextFile.Find`, so line-ending tolerance and the ambiguity guard behave exactly as they do in `edit_file` (task 45).
 
 Acceptance: a three-file rename lands in one call, one approval and three change-log entries; a patch whose second hunk does not match leaves that file untouched and names it. Depends on tasks 16, 28, 45.
 
+**Shipped as `edit_file(edits)`, not as a second tool.** Two tools doing the same thing at different arities is the pattern the schema measurement exists to prevent: `edit_file` was 901 characters and a separate `apply_patch` would have been ~880 more, on every request of every run. Reshaping the one tool cost 373. A single edit is a one-element list, so nothing was lost, and the multi-file path is now the default rather than an alternative the model has to notice.
+
+**Two bullets were not built as written.**
+
+- *"One approval for the batch"* was rejected on inspection. `RequestActionAsync` is governed by `RequireApprovalForPush`, so routing edits through it would put file writes behind the push switch — a safety setting silently doing something other than what it says. More importantly the prompt shows a **diff**, and a reviewer approving three files should see three diffs. Approval stayed per file, which also means refusing one file still lets the rest land.
+- *"`edit_file` stays for single-hunk work, and the descriptions say which to reach for"* is moot: there is one tool, so there is nothing to choose between and no description spent explaining the choice.
+
 ## 47. file_outline and find_symbol: navigate by structure, not by text
 
-- [ ] **Estimated time:** 1.5d
+- [x] **Estimated time:** 1.5d
 
 From the outside review (P0). The agent locates code by grepping for a type name and then reading whole files to find what it needs — `list_projects` (task 44) fixed this at the project level and left it untouched at the symbol level. In a large file that is thousands of wasted context tokens per orientation.
 
-- [ ] `file_outline(path)`: types and members with signatures, accessibility and line ranges. No bodies. The model then calls `read_file` with a range.
-- [ ] `find_symbol(name)`: where a type or member is *declared*, across the workspace — path, line, kind, signature. Capped, and pointing at `read_file` for the body.
-- [ ] **Both need only the syntax tree.** That is what makes them cheap and, more importantly, immune to the reference-resolution problem task 45 exposed — a declaration is in the file whether or not its dependencies were ever built. `RoslynCodeAnalyzer` already parses and caches trees per file; reuse that cache rather than opening a second one.
-- [ ] Respect the guard's deny globs, so generated output never appears as a result.
+- [x] `file_outline(path)`: types and members with signatures, accessibility and line ranges. No bodies. The model then calls `read_file` with a range.
+- [x] `find_symbol(name)`: where a type or member is *declared*, across the workspace — path, line, kind, signature. Capped, and pointing at `read_file` for the body.
+- [x] **Both need only the syntax tree.** That is what makes them cheap and, more importantly, immune to the reference-resolution problem task 45 exposed — a declaration is in the file whether or not its dependencies were ever built. `RoslynCodeAnalyzer` already parses and caches trees per file; reuse that cache rather than opening a second one.
+- [x] Respect the guard's deny globs, so generated output never appears as a result.
 
 Acceptance: orienting in an unfamiliar 1,000-line file costs one call and no file body. Depends on tasks 9, 14.
+
+**`file_outline` shipped as `read_file(outline: true)`** — 150 characters of schema instead of ~450 for a new name, and it is the same request ("show me this file") at a different resolution. The outline is rendered into `ReadFileResult.Content` with its line numbers, so no result field was added either. `find_symbol` is its own tool because it takes a *name*, not a path, and cannot be a mode of anything that does.
+
+Both live on `CodeStructure`, which takes the declaration's source between its start and whatever opens its body. That handles every member shape the same way — block bodies, expression bodies, accessor lists, positional records, bare semicolons — rather than reassembling a signature from parts and getting one member kind subtly wrong. `find_symbol` sweeps through `RoslynCodeAnalyzer.ParseFile`, which is the pre-write compile's own cache; `read_file` parses the text it has already read, which is cheaper than a cache lookup and avoids making a Phase 0 read tool depend on the analyzer.
 
 ## 48. find_references, and the reference resolution it actually needs
 
@@ -407,10 +416,18 @@ Split from task 47 on purpose, because it is a different problem wearing the sam
 - [ ] `RoslynCodeAnalyzer` scavenges its references from `bin/` rather than evaluating the project file. Task 45 established that this set is routinely incomplete; that is precisely why the pre-write gate now answers `Inconclusive` instead of reporting errors it cannot stand behind.
 - [ ] **A find-references built on that foundation would return false negatives** — "nothing calls this" when something does. That is worse than having no tool, because the agent would act on it and delete live code. `find_symbol` has no such failure mode, which is why it ships in task 47 and this does not.
 - [ ] So this needs a real workspace. `Microsoft.CodeAnalysis.Workspaces.MSBuild` already has a pinned version in `Directory.Packages.props` and **is referenced by no project today** — adding it brings MSBuild SDK resolution and a first-load cost measured in seconds, which the ladder's speed budget has an opinion about.
-- [ ] Whatever is built must report inconclusive when the compilation has unresolved references, on the same contract as the pre-write gate. A confident wrong answer is the failure mode to design against.
-- [ ] Decide the workspace question before writing code. "Do not ship it" is an acceptable outcome of this task.
+- [x] Whatever is built must report inconclusive when the compilation has unresolved references, on the same contract as the pre-write gate. A confident wrong answer is the failure mode to design against.
+- [x] Decide the workspace question before writing code. "Do not ship it" is an acceptable outcome of this task.
 
 Acceptance: every caller of a method is found in a multi-project tree, or the tool says it could not tell — never a silence that reads as "none". Depends on tasks 14, 45, 47.
+
+**Decided: not building it.** The task allowed for that outcome and this is it.
+
+The deciding argument is the asymmetry between the two halves of task 47. `find_symbol` reads the syntax tree, and a declaration is a fact regardless of what has been built — its worst failure is "not found" for something that lives in a package, which the hint already says. `find_references` needs semantics, and on the reference set this project actually has, its worst failure is **"nothing calls this" when something does**. An agent acts on that by deleting live code. The two tools look alike and their failure modes are not comparable.
+
+Making it trustworthy needs `Microsoft.CodeAnalysis.Workspaces.MSBuild` — pinned in `Directory.Packages.props`, referenced by no project — which brings MSBuild SDK resolution and a first-load cost measured in seconds. That is a real dependency to take on for a tool whose demand has not been demonstrated: no transcript analysed so far shows a run failing for want of it. `grep` finds call sites today with no false confidence, because nobody mistakes a text match for a semantic one.
+
+Revisit if a transcript shows the gap. The inconclusive contract above is the design to build against when that happens — not a confident answer.
 
 ## 49. delete_file and move_file: let the agent tidy the tree
 
@@ -444,27 +461,35 @@ Acceptance: after compaction, the agent can still answer what it has changed, an
 
 ## 51. list_tests: discover before running
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 From the outside review (P2). `run_tests` has taken a `--filter` since task 17, so the harness can already run a subset — what is missing is any way to learn what the subset should be. Runs that build repeatedly and never add a test have shown up twice in transcript analysis.
 
-- [ ] `list_tests(path?)`: discovered tests with their fully-qualified names, so `run_tests` can be pointed at them.
-- [ ] **Parse `dotnet test --list-tests` rather than scanning for attributes.** An attribute scan is cheaper and wrong: it misses custom frameworks, theory expansions and anything generated. The authoritative list is the one the runner itself would execute, and it is worth the build it costs.
-- [ ] Cap the returned list and say the true total, on the same contract as the diagnostic summarizer (task 15).
+- [x] `list_tests(path?)`: discovered tests with their fully-qualified names, so `run_tests` can be pointed at them.
+- [x] **Parse `dotnet test --list-tests` rather than scanning for attributes.** An attribute scan is cheaper and wrong: it misses custom frameworks, theory expansions and anything generated. The authoritative list is the one the runner itself would execute, and it is worth the build it costs.
+- [x] Cap the returned list and say the true total, on the same contract as the diagnostic summarizer (task 15).
 
 Acceptance: an agent asked to fix one failing test can find it and run only it. Depends on tasks 17, 45.
 
+**Shipped as `run_tests(listOnly: true)`.** Same target, same filter, same runner — the only difference is whether the tests run, which is a flag and not a tool. 113 characters instead of ~450, and the discovered names come back on the result type that already exists.
+
+One thing the parser has to get right: the line above the runner's `The following Tests are available:` header is the path to the test assembly, which has dots in it and looks exactly like a fully-qualified test name. The header is what separates build chatter from the list, so parsing keys on it and stops at the first line that is not a name.
+
 ## 52. Formatting as a dotnet_project operation
 
-- [ ] **Estimated time:** 0.5d
+- [x] **Estimated time:** 0.5d
 
 From the outside review (P2), which proposes a `dotnet_format` tool. It should not be a tool. `dotnet format` is an SDK verb, and `DotnetProjectTool` (task 44) already wraps SDK verbs with the path guard, change-log recording and build-cache invalidation — a separate tool would duplicate all three and add another name to the tool list for no capability.
 
-- [ ] Add `Format` to `DotnetProjectOperation`.
-- [ ] `dotnet format` can rewrite many files at once, so record each changed file in the change log and cap what is reported. A formatting pass that silently rewrites forty files is exactly the kind of invisible change the change log exists to prevent.
-- [ ] Off unless asked. Style drift is not the harness's problem, and a run that reformats on its own way to a fix has made its own diff unreadable.
+- [x] Add `Format` to `DotnetProjectOperation`.
+- [x] `dotnet format` can rewrite many files at once, so record each changed file in the change log and cap what is reported. A formatting pass that silently rewrites forty files is exactly the kind of invisible change the change log exists to prevent.
+- [x] Off unless asked. Style drift is not the harness's problem, and a run that reformats on its own way to a fix has made its own diff unreadable.
 
 Acceptance: one call formats a project, and every file it touched appears on the Changes surface. Depends on task 44.
+
+The recording needed a before/after sweep, not the single `touchedFile` every other operation uses: the SDK does not report which files it rewrote. Sources under the target are snapshotted through `WorkspaceFiles.Enumerate` — so the deny globs and the path guard apply — capped at 500, and every file whose text differs afterwards becomes an applied change. "Off unless asked" needed no switch: it is a verb the agent has to name.
+
+The whole operation is 37 characters of schema, and `dotnet_project` came out *smaller* than before it was added, because its parameter descriptions were trimmed in the same pass.
 
 ## 53. Package and API knowledge, under record and replay
 
@@ -477,3 +502,9 @@ From the outside review (P2), which arrives at the same design already written u
 - [ ] Prefer this to widening `bash`. A shell with network access is a hole through the measurement story and through the sandbox at once.
 
 Acceptance: an agent can check a package version and an API shape, and the same run replays byte-identically offline. Depends on tasks 34, 38.
+
+**Decided: only the narrow slice, and not yet.** The full retrieval arm stays unbuilt; `nuget_info` against a pinned feed or the local package cache is the piece worth doing, and it does not need any of the retrieval machinery.
+
+Two reasons for the order. The measured one: a tool costs ~300 tokens of schema on every request, and nothing in the three transcripts analysed so far shows a run failing on a package version — the failures were line endings, a missing solution, and a tool that could not scaffold. Building for a hallucination that has not been observed is how a tool list gets to fifty. The structural one: the hermetic requirement is not negotiable, and record/replay is most of the work. Shipping `nuget_info` live "for now" would put a network call inside the loop and quietly break the Lab's ablations, which is precisely the failure this task was written to avoid.
+
+The narrow slice belongs on `dotnet_project` when it comes — it is an SDK question, and that tool already owns the guard, the change log and the cache invalidation.

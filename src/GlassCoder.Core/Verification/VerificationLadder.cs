@@ -310,7 +310,7 @@ public sealed class VerificationLadder : IVerificationLadder
 
                 string? filter = rung == VerificationRung.UnitTests ? request.TestFilter : null;
                 ToolObservation<TestRunResult> observation = await _tests
-                    .RunTestsAsync(request.ProjectPath, filter, cancellationToken)
+                    .RunTestsAsync(request.ProjectPath, filter, listOnly: false, cancellationToken)
                     .ConfigureAwait(false);
 
                 if (!observation.Ok)

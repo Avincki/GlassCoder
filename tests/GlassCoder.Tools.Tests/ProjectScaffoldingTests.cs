@@ -250,6 +250,52 @@ public sealed class ProjectScaffoldingTests
         executor.Commands.ShouldBeEmpty();
     }
 
+    // ── Formatting (workplan task 52) ──
+
+    [Fact]
+    public async Task Formatting_is_an_operation_rather_than_a_tool_of_its_own()
+    {
+        // dotnet format is an SDK verb, and this tool already wraps SDK verbs with the path
+        // guard, the change log and the build cache. A separate tool would duplicate all three
+        // and add another name to a tool list that is re-sent on every request.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        await Tool(workspace, executor).RunAsync(DotnetProjectOperation.Format, "src/App/App.csproj");
+
+        List<string> arguments = [.. executor.Commands.Single().Arguments];
+        arguments[0].ShouldBe("format");
+        arguments[1].ShouldEndWith("App.csproj");
+    }
+
+    [Fact]
+    public async Task Every_file_a_formatting_pass_rewrites_reaches_the_change_log()
+    {
+        // The reason this needed a before/after sweep rather than one named file: a pass that
+        // silently reformats forty files is exactly the invisible change the log exists to
+        // prevent, and the SDK does not say which ones it touched.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/Tidy.cs", "class Tidy { }\n");
+        string untidy = workspace.WriteFile("src/App/Untidy.cs", "class   Untidy   {   }\n");
+
+        ChangeLog changes = new();
+        RewritingExecutor executor = new(untidy, "class Untidy { }\n");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.Format, "src/App/App.csproj");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("1 file(s) rewritten");
+
+        CodeChange recorded = changes.All().ShouldHaveSingleItem();
+        recorded.Path.ShouldBe("src/App/Untidy.cs", "the file it left alone is not a change");
+        recorded.Status.ShouldBe(ChangeStatus.Applied);
+        recorded.AfterText.ShouldBe("class Untidy { }\n");
+    }
+
     [Fact]
     public async Task A_failed_command_is_an_observation_rather_than_a_tool_fault()
     {
@@ -268,6 +314,24 @@ public sealed class ProjectScaffoldingTests
 
     private static DotnetProjectTool Tool(TempWorkspace workspace, ICommandExecutor executor) =>
         new(executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()));
+
+    /// <summary>
+    /// An executor that rewrites a file, the way <c>dotnet format</c> does. The scripted executor
+    /// has no side effects, and a formatting test that never changes a file would assert only
+    /// that nothing was recorded.
+    /// </summary>
+    private sealed class RewritingExecutor(string path, string content) : ICommandExecutor
+    {
+        public string Sandbox => "test";
+
+        public Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<CommandResult> ExecuteAsync(CommandRequest request, CancellationToken cancellationToken = default)
+        {
+            File.WriteAllText(path, content);
+            return Task.FromResult(new CommandResult(0, string.Empty, string.Empty, TimeSpan.Zero, false, Sandbox));
+        }
+    }
 
     private static string Project(string? reference = null) =>
         $"""

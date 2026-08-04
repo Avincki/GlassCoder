@@ -18,17 +18,23 @@ namespace GlassCoder.Tools.Build;
 /// <param name="Output">Tail of the run output, for context on the failures.</param>
 /// <param name="DurationMs">Wall-clock for the run.</param>
 /// <param name="Sandbox">Where it ran: <c>docker</c> or <c>host</c>.</param>
+/// <param name="Tests">Discovered test names, when the call was a discovery rather than a run.</param>
+/// <param name="Truncated">Whether the discovered list was capped.</param>
 public sealed record TestRunResult(
     [property: Description("The project or directory that was tested.")] string Path,
     [property: Description("True when no test failed.")] bool Ok,
     [property: Description("Number of tests that passed.")] int Passed,
     [property: Description("Number of tests that failed.")] int Failed,
     [property: Description("Number of tests that were skipped.")] int Skipped,
-    [property: Description("Total number of tests that ran.")] int Total,
+    [property: Description("Total number of tests - that ran, or that were discovered.")] int Total,
     [property: Description("Names of the failing tests.")] IReadOnlyList<string> FailedTests,
     [property: Description("Tail of the test output.")] string Output,
     [property: Description("Wall-clock milliseconds the run took.")] double DurationMs,
-    [property: Description("Where the tests ran: docker or host.")] string Sandbox);
+    [property: Description("Where the tests ran: docker or host.")] string Sandbox,
+    [property: Description("Discovered test names, when listOnly was set. Pass one to filter.")]
+    IReadOnlyList<string>? Tests = null,
+    [property: Description("True when more tests were discovered than are listed here.")]
+    bool Truncated = false);
 
 /// <summary>
 /// <c>run_tests</c> - the behavioural oracle (CLAUDE.md §7, §8; workplan task 17).
@@ -41,6 +47,9 @@ public sealed class RunTestsTool : IToolSet
 {
     private const string ToolName = "run_tests";
     private const int MaxOutputCharacters = 4000;
+
+    /// <summary>How many discovered names to return. The count is always the true one.</summary>
+    private const int MaxDiscoveredTests = 100;
 
     private readonly ICommandExecutor _executor;
     private readonly IPathGuard _guard;
@@ -58,13 +67,15 @@ public sealed class RunTestsTool : IToolSet
 
     /// <summary>Runs the tests for a project, solution or directory.</summary>
     [GlassCoderTool(ToolName, Order = 60)]
-    [Description("Run tests with dotnet test and report pass, fail and skip counts plus the names of failing "
-        + "tests. Build first: tests on code that does not compile tell you nothing.")]
+    [Description("Run tests with dotnet test, reporting pass, fail and skip counts and the names of failing "
+        + "tests. Build first. Set listOnly to discover test names instead of running them.")]
     public async Task<ToolObservation<TestRunResult>> RunTestsAsync(
-        [Description("Project, solution or directory to test, relative to the repository root. Use '.' for everything.")]
+        [Description("Repo-relative project, solution or directory. '.' is everything.")]
         string path = ".",
-        [Description("Optional dotnet test --filter expression, for example 'FullyQualifiedName~AgentLoopTests'.")]
+        [Description("dotnet test --filter expression, e.g. 'FullyQualifiedName~AgentLoopTests'.")]
         string? filter = null,
+        [Description("List the tests that would run, without running them.")]
+        bool listOnly = false,
         CancellationToken cancellationToken = default)
     {
         PathGuardResult verdict = _guard.Resolve(path, PathAccess.Read);
@@ -86,6 +97,11 @@ public sealed class RunTestsTool : IToolSet
         {
             arguments.Add("--filter");
             arguments.Add(filter);
+        }
+
+        if (listOnly)
+        {
+            arguments.Add("--list-tests");
         }
 
         CommandResult result = await _executor.ExecuteAsync(
@@ -115,6 +131,11 @@ public sealed class RunTestsTool : IToolSet
                 "Narrow the run with a --filter expression.");
         }
 
+        if (listOnly)
+        {
+            return Discovered(verdict.RelativePath!, result);
+        }
+
         TestOutcome outcome = TestOutputParser.Parse(result.CombinedOutput);
         TestRunResult payload = new(
             verdict.RelativePath!,
@@ -131,6 +152,46 @@ public sealed class RunTestsTool : IToolSet
         string summary = payload.Ok
             ? $"All {outcome.Total} tests passed."
             : $"{outcome.Failed} of {outcome.Total} tests failed.";
+
+        return Observation.Ok(ToolName, payload, summary);
+    }
+
+    /// <summary>
+    /// Turns a discovery run into an observation: the names, capped, and the true total.
+    /// <para>
+    /// The cap is on the same contract as the diagnostic summariser - say how many there are,
+    /// then show a bounded number of them. Four hundred test names is not orientation, it is the
+    /// context window spent on something a filter expression would have narrowed.
+    /// </para>
+    /// </summary>
+    private static ToolObservation<TestRunResult> Discovered(string path, CommandResult result)
+    {
+        IReadOnlyList<string> all = TestOutputParser.ParseDiscovered(result.CombinedOutput);
+
+        if (all.Count == 0)
+        {
+            // Exit code alone does not separate "no tests here" from "the build failed", and the
+            // agent needs to know which. The output is the only thing that can say.
+            return Observation.Ok(
+                ToolName,
+                new TestRunResult(
+                    path, result.ExitCode == 0, 0, 0, 0, 0, [], Tail(result.CombinedOutput),
+                    result.Duration.TotalMilliseconds, result.Sandbox, [], false),
+                result.ExitCode == 0
+                    ? $"No tests found in '{path}'."
+                    : $"Could not list the tests in '{path}'; discovery has to build first.");
+        }
+
+        bool truncated = all.Count > MaxDiscoveredTests;
+        IReadOnlyList<string> listed = truncated ? [.. all.Take(MaxDiscoveredTests)] : all;
+
+        TestRunResult payload = new(
+            path, true, 0, 0, 0, all.Count, [], string.Empty,
+            result.Duration.TotalMilliseconds, result.Sandbox, listed, truncated);
+
+        string summary = truncated
+            ? $"{all.Count} tests in '{path}'; listing the first {listed.Count}. Narrow with a filter."
+            : $"{all.Count} tests in '{path}'.";
 
         return Observation.Ok(ToolName, payload, summary);
     }

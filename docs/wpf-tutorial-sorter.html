@@ -670,18 +670,21 @@
       </p>
 
       <ul class="prose">
-        <li><code>create_file(path, content)</code> writes a whole new file, and
-            <b>refuses to overwrite</b>. Anything already at that path is an error.</li>
-        <li><code>edit_file(path, oldText, newText)</code> replaces one <b>exact, unique</b> string
-            in a file that already exists, and errors if the target is missing <em>or</em> appears
-            more than once.</li>
+        <li><code>create_file(path, content, overwrite)</code> writes a whole file. It
+            <b>refuses to overwrite unless you ask it to</b>: anything already at that path is an
+            error until <code>overwrite: true</code> says otherwise.</li>
+        <li><code>edit_file(edits)</code> takes a list of <code>{path, oldText, newText}</code>.
+            Each replaces one <b>exact, unique</b> string in a file that already exists, and errors
+            if the target is missing <em>or</em> appears more than once. Edits to the same file
+            apply in order and that file is written once — all of them or none.</li>
       </ul>
 
       <p>
         Keeping them apart is the point. <code>edit_file</code>'s guarantee is that an edit can
-        never land silently in the wrong place — and an upserting create tool, one that quietly
-        replaced a file's whole contents when it happened to exist, would be a hole straight
-        through that guarantee. So the failure modes are sharp, and you will meet all four:
+        never land silently in the wrong place — and a create tool that overwrote <em>by default</em>,
+        quietly replacing a file's whole contents whenever it happened to exist, would be a hole
+        straight through that guarantee. Asking for it explicitly is a different thing from getting
+        it by accident. So the failure modes are sharp, and you will meet all four:
       </p>
 
       <div class="scroller">

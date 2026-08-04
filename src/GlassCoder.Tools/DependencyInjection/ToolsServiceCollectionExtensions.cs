@@ -61,7 +61,10 @@ public static class ToolsServiceCollectionExtensions
 
         // Compiler feedback: rungs 1-2 in process, and the summariser that stands between any
         // diagnostic and the model (CLAUDE.md §8.2).
-        services.TryAddSingleton<ICodeAnalyzer, RoslynCodeAnalyzer>();
+        // Registered concretely as well, so find_symbol can sweep the workspace through the same
+        // syntax-tree cache the pre-write compile fills rather than opening a second one.
+        services.TryAddSingleton<RoslynCodeAnalyzer>();
+        services.TryAddSingleton<ICodeAnalyzer>(sp => sp.GetRequiredService<RoslynCodeAnalyzer>());
         services.TryAddSingleton<DiagnosticSummarizer>();
 
         // Execution: a build is arbitrary code execution, so it goes through the sandbox seam.
@@ -109,11 +112,13 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<TodoTool>();
         services.TryAddSingleton<ListProjectsTool>();
         services.TryAddSingleton<ListChangesTool>();
+        services.TryAddSingleton<FindSymbolTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<TodoTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListChangesTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ReadFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GrepTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<FindSymbolTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GlobTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListProjectsTool>());
         return services;

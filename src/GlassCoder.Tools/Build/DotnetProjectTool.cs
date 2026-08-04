@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json.Serialization;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
+using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
 using Microsoft.Extensions.Options;
@@ -29,6 +30,9 @@ public enum DotnetProjectOperation
 
     /// <summary>Restore NuGet packages.</summary>
     Restore,
+
+    /// <summary>Run <c>dotnet format</c> over a project or solution.</summary>
+    Format,
 }
 
 /// <summary>Result payload of <c>dotnet_project</c>.</summary>
@@ -65,6 +69,9 @@ public sealed class DotnetProjectTool : IToolSet
 {
     private const string ToolName = "dotnet_project";
 
+    /// <summary>How many sources a formatting pass will watch for rewrites.</summary>
+    private const int MaxFormattedFiles = 500;
+
     /// <summary>Templates worth offering. Anything else is a build system this cannot vouch for.</summary>
     private static readonly string[] KnownTemplates =
         ["xunit", "nunit", "mstest", "classlib", "console", "web", "webapi", "worker", "blazor"];
@@ -94,16 +101,16 @@ public sealed class DotnetProjectTool : IToolSet
 
     /// <summary>Creates or wires up a project.</summary>
     [GlassCoderTool(ToolName, Order = 55)]
-    [Description("Create and wire up .NET projects with the dotnet CLI. Use this rather than hand-editing a "
-        + ".csproj. A test project is normally new, then add_reference, then build.")]
+    [Description("Create and wire up .NET projects with the dotnet CLI rather than hand-editing a .csproj. "
+        + "A test project is normally new, then add_reference, then build.")]
     public async Task<ToolObservation<DotnetProjectResult>> RunAsync(
         [Description("What to do.")]
         DotnetProjectOperation operation,
-        [Description("Repo-relative target. For new, the directory to create the project in; its name comes "
-            + "from that directory. Otherwise the project or solution being changed.")]
+        [Description("Repo-relative target: for new, the directory to create the project in, which names it; "
+            + "otherwise the project or solution to change.")]
         string path,
-        [Description("Template for new (xunit, classlib, console, ...); referenced project for add_reference; "
-            + "package id for add_package; project to add for add_to_solution. Unused by restore.")]
+        [Description("Template for new (xunit, classlib, console...); the project for add_reference and "
+            + "add_to_solution; the package id for add_package. Unused otherwise.")]
         string? argument = null,
         [Description("Package version for add_package. Omit for the latest.")]
         string? version = null,
@@ -143,6 +150,13 @@ public sealed class DotnetProjectTool : IToolSet
         string? before = touchedFile is not null && File.Exists(touchedFile)
             ? await ReadOrNullAsync(touchedFile).ConfigureAwait(false)
             : null;
+
+        // Formatting rewrites whatever it likes. Snapshotting first is the only way the change
+        // log can show it: a pass that silently reformats forty files is exactly the invisible
+        // change the log exists to prevent.
+        Dictionary<string, string> sources = operation == DotnetProjectOperation.Format
+            ? Snapshot(verdict.FullPath, cancellationToken)
+            : [];
 
         CommandResult result = await _executor.ExecuteAsync(
             new CommandRequest("dotnet", arguments)
@@ -188,7 +202,55 @@ public sealed class DotnetProjectTool : IToolSet
         _cache?.Invalidate();
         RecordChange(touchedFile, before);
 
-        return Observation.Ok(ToolName, payload, Success(operation, verdict.RelativePath!, argument));
+        int reformatted = RecordRewrites(sources);
+        string summary = operation == DotnetProjectOperation.Format
+            ? $"Formatted '{verdict.RelativePath}': {reformatted} file(s) rewritten."
+            : Success(operation, verdict.RelativePath!, argument);
+
+        return Observation.Ok(ToolName, payload, summary);
+    }
+
+    /// <summary>
+    /// Reads every C# source under a target, so a later sweep can tell which ones changed.
+    /// Capped: past a few hundred files this is a whole-project read on the way to a formatting
+    /// pass, and the cap is reported rather than silently applied.
+    /// </summary>
+    private Dictionary<string, string> Snapshot(string fullPath, CancellationToken cancellationToken)
+    {
+        string directory = Directory.Exists(fullPath)
+            ? fullPath
+            : Path.GetDirectoryName(fullPath) ?? fullPath;
+
+        Dictionary<string, string> sources = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string file in WorkspaceFiles.Enumerate(
+            _guard, directory, "**/*.cs", MaxFormattedFiles, cancellationToken))
+        {
+            if (ReadOrNull(file) is { } text)
+            {
+                sources[file] = text;
+            }
+        }
+
+        return sources;
+    }
+
+    /// <summary>Puts every file the command rewrote into the change log, and says how many.</summary>
+    private int RecordRewrites(Dictionary<string, string> sources)
+    {
+        int changed = 0;
+        foreach ((string file, string before) in sources)
+        {
+            if (ReadOrNull(file) is not { } after || string.Equals(before, after, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            CodeChange change = _changes.Propose(_guard.ToRelativePath(file), ToolName, before, after);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            changed++;
+        }
+
+        return changed;
     }
 
     /// <summary>
@@ -254,6 +316,11 @@ public sealed class DotnetProjectTool : IToolSet
             case DotnetProjectOperation.Restore:
                 return (["restore", full], root, null);
 
+            // The only operation that rewrites files it was not pointed at, which is why the
+            // change log is fed by a before/after sweep rather than by a single named file.
+            case DotnetProjectOperation.Format:
+                return (["format", full], root, null);
+
             default:
                 throw new ArgumentOutOfRangeException(nameof(operation));
         }
@@ -305,15 +372,29 @@ public sealed class DotnetProjectTool : IToolSet
         }
     }
 
+    private static string? ReadOrNull(string path)
+    {
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static bool RequiresArgument(DotnetProjectOperation operation) => operation is
         DotnetProjectOperation.New or
         DotnetProjectOperation.AddToSolution or
         DotnetProjectOperation.AddReference or
         DotnetProjectOperation.AddPackage;
 
+    // format restores before it formats, unless told not to.
     private static bool NeedsNetwork(DotnetProjectOperation operation) => operation is
         DotnetProjectOperation.AddPackage or
         DotnetProjectOperation.Restore or
+        DotnetProjectOperation.Format or
         DotnetProjectOperation.New;
 
     private static string Describe(DotnetProjectOperation operation) => operation switch
@@ -323,6 +404,7 @@ public sealed class DotnetProjectTool : IToolSet
         DotnetProjectOperation.AddToSolution => "add_to_solution",
         DotnetProjectOperation.AddReference => "add_reference",
         DotnetProjectOperation.AddPackage => "add_package",
+        DotnetProjectOperation.Format => "format",
         _ => "restore",
     };
 

@@ -48,18 +48,18 @@ public sealed class GrepTool : IToolSet
 
     /// <summary>Searches workspace files for a regular expression.</summary>
     [GlassCoderTool(ToolName, Order = 20)]
-    [Description("Search the workspace for a .NET regular expression and return matching lines with their file and line number. "
-        + "This is the cheapest way to locate code - prefer it over reading whole files.")]
+    [Description("Search the workspace with a .NET regular expression, returning matching lines with their "
+        + "file and line number. The cheapest way to locate code - prefer it to reading whole files.")]
     public ToolObservation<GrepResult> Grep(
-        [Description("The .NET regular expression to search for, for example 'class\\s+AgentLoop'.")]
+        [Description("The .NET regular expression, for example 'class\\s+AgentLoop'.")]
         string pattern,
-        [Description("Directory to search, relative to the repository root. Use '.' for the whole repository.")]
+        [Description("Repo-relative directory to search. '.' is everything.")]
         string path = ".",
-        [Description("Glob limiting which files are searched, for example '**/*.cs'.")]
+        [Description("Glob limiting which files are searched, e.g. '**/*.cs'.")]
         string glob = "**/*",
         [Description("Whether the search ignores case.")]
         bool ignoreCase = false,
-        [Description("Maximum number of matches to return.")]
+        [Description("Maximum matches to return.")]
         int maxResults = 100,
         CancellationToken cancellationToken = default)
     {

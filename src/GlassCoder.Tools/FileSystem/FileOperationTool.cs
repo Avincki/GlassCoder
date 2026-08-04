@@ -75,8 +75,7 @@ public sealed class FileOperationTool : IToolSet
 
     /// <summary>Deletes, moves or reverts a file.</summary>
     [GlassCoderTool(ToolName, Order = 41)]
-    [Description("Delete a file, move or rename one, or revert one to how this run found it. Use move to fix "
-        + "a layout problem such as a project nested inside another.")]
+    [Description("Delete a file, move or rename one, or revert one to how this run found it.")]
     public async Task<ToolObservation<FileOperationResult>> RunAsync(
         [Description("What to do.")]
         FileOperation operation,

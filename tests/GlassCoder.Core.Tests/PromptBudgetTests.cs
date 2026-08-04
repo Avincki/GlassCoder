@@ -2,7 +2,10 @@ using System.Text.Json;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.DependencyInjection;
 using GlassCoder.TestSupport;
+using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
+using GlassCoder.Tools.Registry;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -46,7 +49,24 @@ public sealed class PromptBudgetTests : IDisposable
     /// four schemas instead, because at roughly 300 tokens each the flat version would have cost
     /// about 2,700 tokens on every request - against a step-0 conversation of roughly 130.
     /// Capability belongs on the tools that already exist. The next tool to be added should trim
-    /// something, not raise this again: the schemas are 95.9% of a step-0 request as it stands.
+    /// something, not raise this again: the schemas are 96% of a step-0 request as it stands.
+    /// </para>
+    /// <para>
+    /// That instruction was then followed rather than waived. Batch 2 (tasks 46, 47, 51, 52) added
+    /// four capabilities - multi-file edits, file outlines, symbol search, test discovery and a
+    /// formatting verb - and the total moved from 13,547 to 13,726, about 45 tokens. Three of the
+    /// five arrived as parameters on tools that already existed, and the descriptions of eleven
+    /// others were cut to pay for the one new name (<c>find_symbol</c>, 531). What was cut was
+    /// rationale: a model does not need to be told that <c>list_projects</c> "answers in one step
+    /// what globbing for *.csproj answers in four" - that sentence was for a human reading the
+    /// source, and it was being re-sent on every request of every run.
+    /// </para>
+    /// <para>
+    /// Roughly a fifth of what is counted here is whitespace, and it is not ours. The schemas this
+    /// harness generates are compact; the OpenAI client re-serialises them through
+    /// <c>AIJsonUtilities.DefaultOptions</c>, which writes indented. <c>update_todos</c> is 567
+    /// characters leaving <see cref="Microsoft.Extensions.AI.AIFunction.JsonSchema"/> and 1,186 on
+    /// the wire. Worth knowing before anyone reads a number here as prose they can shorten.
     /// </para>
     /// </summary>
     private const int ToolSchemaCharacterBudget = 14000;
@@ -93,6 +113,38 @@ public sealed class PromptBudgetTests : IDisposable
         toolChars.ShouldBeLessThanOrEqualTo(
             ToolSchemaCharacterBudget,
             "the tool schemas are re-sent on every model call - growing them slows every step of every run");
+    }
+
+    /// <summary>
+    /// Tool observations reach the conversation without pretty-printing.
+    /// <para>
+    /// <c>AIJsonUtilities.DefaultOptions</c> sets <c>WriteIndented</c>, which is right for a
+    /// library whose output a human reads and wrong for everything here: this JSON goes on the
+    /// wire. Every tool result the loop fed back was indented, and unlike a schema - re-sent once
+    /// per step - a tool result is written into the conversation and then carried for the rest of
+    /// the run. A grep returning forty matches paid for its own indentation on every subsequent
+    /// step until it was compacted away.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Tool_observations_reach_the_conversation_without_indentation()
+    {
+        GrepResult result = new(
+            [.. Enumerable.Range(1, 40).Select(line => new GrepMatch("src/Widget.cs", line, 5, "int Size => 1;"))],
+            40,
+            3,
+            Truncated: false);
+
+        // The same call AgentLoop makes to turn an observation into the tool message.
+        string sent = JsonSerializer.Serialize(result, ToolFunctionFactory.SerializerOptions);
+        string indented = JsonSerializer.Serialize(result, AIJsonUtilities.DefaultOptions);
+
+        _output.WriteLine(
+            $"a 40-match grep result: {sent.Length} chars sent, {indented.Length} indented " +
+            $"(~{(indented.Length - sent.Length) / CharactersPerToken:F0} tokens of whitespace avoided)");
+
+        sent.ShouldNotContain("\n", Case.Sensitive, "a tool result is carried for the rest of the run");
+        sent.Length.ShouldBeLessThan(indented.Length);
     }
 
     /// <summary>

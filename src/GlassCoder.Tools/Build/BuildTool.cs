@@ -67,13 +67,12 @@ public sealed class BuildTool : IToolSet
 
     /// <summary>Builds a project, solution or directory.</summary>
     [GlassCoderTool(ToolName, Order = 50)]
-    [Description("Build the project, solution or directory with dotnet build. This is the authoritative check "
-        + "that the code compiles - run it after editing and before running tests. Returns a summary of the "
-        + "first errors, not the whole build log.")]
+    [Description("Build with dotnet build - the authoritative check that the code compiles. Run it after "
+        + "editing and before running tests.")]
     public async Task<ToolObservation<BuildResult>> BuildAsync(
-        [Description("Project, solution or directory to build, relative to the repository root. Use '.' for everything.")]
+        [Description("Repo-relative project, solution or directory. '.' is everything.")]
         string path = ".",
-        [Description("Whether the build may restore NuGet packages, which needs network access.")]
+        [Description("Allow a NuGet restore, which needs network.")]
         bool allowRestore = true,
         CancellationToken cancellationToken = default)
     {
