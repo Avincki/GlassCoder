@@ -114,6 +114,40 @@ public static class TextFile
     }
 
     /// <summary>
+    /// Every non-overlapping occurrence of <paramref name="needle"/>, line endings matched
+    /// flexibly, as spans of the original text in order of appearance. This is what
+    /// <c>replaceAll</c> stands on: the ambiguity guard refuses two identical targets, and
+    /// "change all of them" is the request that guard cannot serve.
+    /// </summary>
+    public static IReadOnlyList<Match> FindAll(string haystack, string needle)
+    {
+        ArgumentNullException.ThrowIfNull(haystack);
+        ArgumentNullException.ThrowIfNull(needle);
+
+        if (needle.Length == 0)
+        {
+            return [];
+        }
+
+        (string normalisedHaystack, int[] map) = Normalise(haystack);
+        string normalisedNeedle = needle.ReplaceLineEndings(Lf);
+
+        List<Match> matches = [];
+        int index = 0;
+        while ((index = normalisedHaystack.IndexOf(normalisedNeedle, index, StringComparison.Ordinal)) >= 0)
+        {
+            int end = index + normalisedNeedle.Length;
+            int originalStart = map[index];
+            int originalEnd = end < map.Length ? map[end] : haystack.Length;
+
+            matches.Add(new Match(originalStart, originalEnd - originalStart));
+            index = end;
+        }
+
+        return matches;
+    }
+
+    /// <summary>
     /// Collapses every line ending to <c>\n</c>, and records where each surviving character
     /// began in the original so a match can be mapped back.
     /// </summary>

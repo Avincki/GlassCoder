@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
@@ -12,12 +13,13 @@ namespace GlassCoder.Tools.FileSystem;
 /// <param name="Path">Repo-relative file to change.</param>
 /// <param name="OldText">Exact text to replace, unique in the file as it stands.</param>
 /// <param name="NewText">What to put there instead.</param>
+/// <param name="ReplaceAll">Replace every occurrence instead of requiring exactly one.</param>
 /// <remarks>
-/// No <c>[Description]</c> on any of the three, deliberately: the tool declares parameters of the
+/// No <c>[Description]</c> on any of them, deliberately: the tool declares parameters of the
 /// same names immediately above this, and describing them twice put 350 characters on every
 /// request to say the same thing in two places.
 /// </remarks>
-public sealed record FileEdit(string Path, string OldText, string NewText);
+public sealed record FileEdit(string Path, string OldText, string NewText, bool ReplaceAll = false);
 
 /// <summary>What happened to one file.</summary>
 /// <param name="Path">Repo-relative file.</param>
@@ -59,7 +61,10 @@ public sealed record EditFileResult(
 /// Each edit replaces one <em>exact, unique</em> string. Not a line range, not a regex, not a
 /// fuzzy match: an edit that can silently land in the wrong place is worse than an edit that
 /// fails, because the loop will not notice. Absent target and ambiguous target are both errors,
-/// and both are observations the agent can act on.
+/// and both are observations the agent can act on. The one sanctioned exception is
+/// <c>replaceAll</c>: five byte-identical call sites cost one run five separate steps, each
+/// quoting a whole method to satisfy the uniqueness rule, when the actual request was "change
+/// every occurrence" - which is safe precisely because it is explicit.
 /// </para>
 /// <para>
 /// <strong>Two shapes, and the flat one is primary.</strong> <c>edit_file(path, oldText,
@@ -107,6 +112,12 @@ public sealed class EditFileTool : IToolSet
         "Call it either way: edit_file(path, oldText, newText) for one replacement, or "
         + "edit_file(edits: [{path, oldText, newText}, ...]) for several.";
 
+    /// <summary>Shared by both match paths: a unique target that is absent, and a replace-all with no hits.</summary>
+    private const string NotFoundHint =
+        "Line endings are already matched flexibly, so the difference is in the characters "
+        + "themselves - indentation, most often. Read the file again and copy the target from "
+        + "what it returns. To replace the whole file instead, use create_file with overwrite: true.";
+
     private readonly IPathGuard _guard;
     private readonly ICodeAnalyzer _analyzer;
     private readonly DiagnosticSummarizer _summarizer;
@@ -148,11 +159,13 @@ public sealed class EditFileTool : IToolSet
         string? oldText = null,
         [Description("The replacement text.")]
         string? newText = null,
-        [Description("Several replacements at once, instead of the three above.")]
+        [Description("Replace every occurrence of oldText instead of exactly one.")]
+        bool replaceAll = false,
+        [Description("Several replacements at once, instead of the flat shape.")]
         IReadOnlyList<FileEdit>? edits = null,
         CancellationToken cancellationToken = default)
     {
-        (List<FileEdit> planned, string? complaint) = Plan(path, oldText, newText, edits);
+        (List<FileEdit> planned, string? complaint) = Plan(path, oldText, newText, replaceAll, edits);
         if (complaint is not null)
         {
             return Observation.Fail<EditFileResult>(ToolName, ToolErrorCodes.InvalidArgument, complaint, ShapeHint);
@@ -203,7 +216,7 @@ public sealed class EditFileTool : IToolSet
     /// </para>
     /// </summary>
     private static (List<FileEdit> Edits, string? Complaint) Plan(
-        string? path, string? oldText, string? newText, IReadOnlyList<FileEdit>? edits)
+        string? path, string? oldText, string? newText, bool replaceAll, IReadOnlyList<FileEdit>? edits)
     {
         if (edits is { Count: > 0 })
         {
@@ -222,7 +235,9 @@ public sealed class EditFileTool : IToolSet
                         + "top-level path to fall back on.");
                 }
 
-                planned.Add(edit with { Path = where });
+                // A top-level replaceAll spreads to the edits for the same reason the path does:
+                // when the intent arrived at the wrong level, refusing it is a technicality.
+                planned.Add(edit with { Path = where, ReplaceAll = edit.ReplaceAll || replaceAll });
             }
 
             return (planned, null);
@@ -243,7 +258,7 @@ public sealed class EditFileTool : IToolSet
             return ([], $"oldText is required: it is the text to replace in '{path}'.");
         }
 
-        return ([new FileEdit(path, oldText, newText ?? string.Empty)], null);
+        return ([new FileEdit(path, oldText, newText ?? string.Empty, replaceAll)], null);
     }
 
     /// <summary>
@@ -315,6 +330,7 @@ public sealed class EditFileTool : IToolSet
 
         string newLine = TextFile.DominantNewLine(original);
         string updated = original;
+        int replacements = 0;
 
         for (int i = 0; i < hunks.Count; i++)
         {
@@ -325,6 +341,7 @@ public sealed class EditFileTool : IToolSet
             }
 
             updated = step.Text;
+            replacements += step.Replacements;
         }
 
         // Every change is recorded before it is applied, so a change that was refused is as
@@ -378,13 +395,13 @@ public sealed class EditFileTool : IToolSet
 
         _logger.LogInformation(
             "Edited {Path}: {Edits} replacement(s), {LinesBefore} → {LinesAfter} lines",
-            path, hunks.Count, CountLines(original) + 1, CountLines(updated) + 1);
+            path, replacements, CountLines(original) + 1, CountLines(updated) + 1);
 
         return new FileOutcome(
             new FileEditResult(
                 path,
                 Applied: true,
-                hunks.Count,
+                replacements,
                 range?.Start ?? 1,
                 range?.End ?? 1,
                 CountLines(original) + 1,
@@ -417,6 +434,11 @@ public sealed class EditFileTool : IToolSet
         // Line endings are matched flexibly. The model emits \n; a file from dotnet new on
         // Windows holds \r\n; and demanding the two agree byte for byte is a contract no model
         // reliably honours - it cost one run seventeen consecutive failures on a seven-line file.
+        if (hunk.ReplaceAll)
+        {
+            return ReplaceEverywhere(text, hunk, newLine, which, path);
+        }
+
         TextFile.Match? found = TextFile.Find(text, hunk.OldText, out int occurrences);
 
         if (found is null && occurrences > 1)
@@ -424,7 +446,8 @@ public sealed class EditFileTool : IToolSet
             return HunkResult.Refused(
                 ToolErrorCodes.AmbiguousTarget,
                 $"{which}the text to replace appears {occurrences} times in '{path}'.",
-                "Include more surrounding context so the target is unique.");
+                "Pass replaceAll: true to change every occurrence, or include more surrounding "
+                    + "context so the target is unique.");
         }
 
         if (found is not { } match)
@@ -432,9 +455,7 @@ public sealed class EditFileTool : IToolSet
             return HunkResult.Refused(
                 ToolErrorCodes.NotFound,
                 $"{which}the text to replace was not found in '{path}'. {Nearest(text, hunk.OldText)}",
-                "Line endings are already matched flexibly, so the difference is in the characters "
-                    + "themselves - indentation, most often. Read the file again and copy the target from "
-                    + "what it returns. To replace the whole file instead, use create_file with overwrite: true.");
+                NotFoundHint);
         }
 
         return new HunkResult(
@@ -445,6 +466,36 @@ public sealed class EditFileTool : IToolSet
             null,
             null,
             null);
+    }
+
+    /// <summary>
+    /// Replaces every occurrence - the request the ambiguity guard exists to refuse, made safe by
+    /// being explicit. Five identical call sites cost one run five separate steps, each quoting a
+    /// whole method to be unique; asked for as "all of them", they are one hunk and one step.
+    /// </summary>
+    private static HunkResult ReplaceEverywhere(string text, FileEdit hunk, string newLine, string which, string path)
+    {
+        IReadOnlyList<TextFile.Match> matches = TextFile.FindAll(text, hunk.OldText);
+        if (matches.Count == 0)
+        {
+            return HunkResult.Refused(
+                ToolErrorCodes.NotFound,
+                $"{which}the text to replace was not found in '{path}'. {Nearest(text, hunk.OldText)}",
+                NotFoundHint);
+        }
+
+        StringBuilder updated = new(text.Length);
+        string replacement = TextFile.WithNewLine(hunk.NewText, newLine);
+        int consumed = 0;
+
+        foreach (TextFile.Match match in matches)
+        {
+            updated.Append(text, consumed, match.Start - consumed).Append(replacement);
+            consumed = match.Start + match.Length;
+        }
+
+        updated.Append(text, consumed, text.Length - consumed);
+        return new HunkResult(updated.ToString(), null, null, null, matches.Count);
     }
 
     /// <summary>Names the hunk when there is more than one, so a failure says which edit stopped.</summary>
@@ -587,7 +638,8 @@ public sealed class EditFileTool : IToolSet
     private sealed record FileOutcome(FileEditResult Result, string? Code, string? Hint);
 
     /// <summary>The text after one hunk, or the reason there is none.</summary>
-    private readonly record struct HunkResult(string? Text, string? Code, string? Message, string? Hint)
+    /// <remarks><c>Replacements</c> is 1 for a unique match and the occurrence count for replace-all.</remarks>
+    private readonly record struct HunkResult(string? Text, string? Code, string? Message, string? Hint, int Replacements = 1)
     {
         public static HunkResult Refused(string code, string message, string? hint = null) =>
             new(null, code, message, hint);
