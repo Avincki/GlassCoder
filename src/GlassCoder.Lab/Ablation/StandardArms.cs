@@ -1,6 +1,8 @@
 using GlassCoder.Core.Context;
+using GlassCoder.Core.Orchestration;
 using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
+using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Verification;
 
 namespace GlassCoder.Lab.Ablation;
@@ -65,6 +67,35 @@ public static class StandardArms
             [$"{CritiqueOptions.SectionName}:Enabled"] = "true",
         });
 
+    /// <summary>Capability lever: do sub-agents earn their fan-out?</summary>
+    public static AblationArm WithOrchestration { get; } = new(
+        "with-orchestration",
+        "Sub-agent orchestration enabled. Watch steps/tokens-to-solve and wall-clock.",
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [$"{OrchestrationOptions.SectionName}:Enabled"] = "true",
+        });
+
+    /// <summary>Capability lever: does a shell change outcomes the typed tools cannot reach?</summary>
+    public static AblationArm WithBash { get; } = new(
+        "with-bash",
+        "The bash tool enabled inside the existing sandbox. Watch pass@1 and validity.",
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [$"{SandboxOptions.SectionName}:EnableBashTool"] = "true",
+        });
+
+    /// <summary>The combination: every dormant capability at once, read against each one alone.</summary>
+    public static AblationArm AllCapabilities { get; } = new(
+        "all-capabilities",
+        "Critique, orchestration and bash together - the task 38 combination row.",
+        new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            [$"{CritiqueOptions.SectionName}:Enabled"] = "true",
+            [$"{OrchestrationOptions.SectionName}:Enabled"] = "true",
+            [$"{SandboxOptions.SectionName}:EnableBashTool"] = "true",
+        });
+
     /// <summary>The default comparison: baseline against each single-lever variant.</summary>
     public static IReadOnlyList<AblationArm> Default { get; } =
     [
@@ -74,4 +105,72 @@ public static class StandardArms
         NoContext,
         UnsummarisedDiagnostics,
     ];
+
+    /// <summary>
+    /// The task 38 grid: baseline, each dormant capability in isolation, then all of them
+    /// together. Isolation says what a capability does; the combination says whether they
+    /// still do it in each other's company.
+    /// </summary>
+    public static IReadOnlyList<AblationArm> Capabilities { get; } =
+    [
+        Baseline,
+        WithCritique,
+        WithOrchestration,
+        WithBash,
+        AllCapabilities,
+    ];
+
+    /// <summary>Every named arm, for selection by name.</summary>
+    public static IReadOnlyList<AblationArm> All { get; } =
+    [
+        Baseline,
+        NoConstrainedDecoding,
+        NoPreWriteVerification,
+        NoContext,
+        UnsummarisedDiagnostics,
+        WithCritique,
+        WithOrchestration,
+        WithBash,
+        AllCapabilities,
+    ];
+
+    /// <summary>
+    /// Resolves an arm selection: a set name (<c>default</c> or <c>capabilities</c>) or
+    /// comma-separated arm names, deduplicated in the order given. Null or blank selects
+    /// <see cref="Default"/>.
+    /// </summary>
+    /// <returns>The arms, or null when a name matches nothing - <paramref name="unknown"/> says which.</returns>
+    public static IReadOnlyList<AblationArm>? Resolve(string? selection, out string? unknown)
+    {
+        unknown = null;
+
+        if (string.IsNullOrWhiteSpace(selection)
+            || selection.Equals("default", StringComparison.OrdinalIgnoreCase))
+        {
+            return Default;
+        }
+
+        if (selection.Equals("capabilities", StringComparison.OrdinalIgnoreCase))
+        {
+            return Capabilities;
+        }
+
+        List<AblationArm> arms = [];
+        foreach (string name in selection.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            AblationArm? arm = All.FirstOrDefault(a => a.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (arm is null)
+            {
+                unknown = name;
+                return null;
+            }
+
+            if (!arms.Contains(arm))
+            {
+                arms.Add(arm);
+            }
+        }
+
+        return arms.Count == 0 ? Default : arms;
+    }
 }

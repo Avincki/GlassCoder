@@ -23,6 +23,9 @@ public sealed record HostCommand
     /// <summary>Suite task to run, or null for all of them.</summary>
     public string? SuiteTask { get; init; }
 
+    /// <summary>Arm selection for <c>ablate</c>: names or a set alias, or null for the default set.</summary>
+    public string? Arms { get; init; }
+
     /// <summary>Directory to materialise suite fixtures into.</summary>
     public string? WorkDirectory { get; init; }
 
@@ -40,7 +43,7 @@ public static class CommandLine
         USAGE
           glasscoder run    --goal "<goal>" [--task <id>] [options]
           glasscoder suite  [--suite-task <id>] [--work <dir>] [options]
-          glasscoder ablate [--work <dir>] [options]
+          glasscoder ablate [--arms <names>] [--suite-task <id>] [--work <dir>] [options]
           glasscoder fixtures [--work <dir>] [options]
           glasscoder tools
           glasscoder help
@@ -51,6 +54,9 @@ public static class CommandLine
           --repo <path>     Repository the agent works on. Defaults to the working directory.
           --task <id>       Task identifier recorded in metrics and transcripts.
           --suite-task <id> Run one suite task instead of all of them.
+          --arms <names>    Ablation arms: comma-separated arm names, or a set -
+                            'default' (the harness levers) or 'capabilities' (each
+                            dormant capability alone, then all together).
           --work <dir>      Where suite fixtures are materialised.
 
         EXIT CODES
@@ -97,6 +103,7 @@ public static class CommandLine
             Goal = Value(options, "goal"),
             TaskId = Value(options, "task"),
             SuiteTask = Value(options, "suite-task"),
+            Arms = Value(options, "arms"),
             WorkDirectory = Value(options, "work"),
         };
 

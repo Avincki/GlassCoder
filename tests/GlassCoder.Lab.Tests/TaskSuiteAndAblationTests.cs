@@ -123,13 +123,64 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
     [Fact]
     public void Arms_are_configuration_only_and_carry_real_configuration_keys()
     {
-        foreach (AblationArm arm in StandardArms.Default)
+        foreach (AblationArm arm in StandardArms.All)
         {
             foreach (string key in arm.Settings.Keys)
             {
                 key.ShouldStartWith("GlassCoder:", customMessage: arm.Name);
             }
         }
+    }
+
+    [Fact]
+    public void Arm_names_are_unique_across_the_whole_catalogue()
+    {
+        StandardArms.All.Select(a => a.Name).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count().ShouldBe(StandardArms.All.Count);
+    }
+
+    [Fact]
+    public void Each_capability_arm_enables_exactly_one_dormant_capability()
+    {
+        foreach (AblationArm arm in StandardArms.Capabilities.Where(a =>
+            a.Name != StandardArms.Baseline.Name && a.Name != StandardArms.AllCapabilities.Name))
+        {
+            arm.Settings.Count.ShouldBe(1, arm.Name);
+            arm.Settings.Values.ShouldAllBe(v => v == "true");
+        }
+    }
+
+    [Fact]
+    public void The_combination_arm_is_exactly_the_union_of_the_isolation_arms()
+    {
+        // Task 38 asks for isolation and combination. The combined arm must move the same
+        // levers the isolation arms move and nothing else, or reading them against each
+        // other stops meaning anything.
+        Dictionary<string, string?> union = StandardArms.Capabilities
+            .Where(a => a.Name != StandardArms.Baseline.Name && a.Name != StandardArms.AllCapabilities.Name)
+            .SelectMany(a => a.Settings)
+            .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+
+        StandardArms.AllCapabilities.Settings.Count.ShouldBe(union.Count);
+        foreach ((string key, string? value) in union)
+        {
+            StandardArms.AllCapabilities.Settings.ShouldContainKeyAndValue(key, value);
+        }
+    }
+
+    [Fact]
+    public void Arm_selection_resolves_names_and_sets_and_refuses_the_unknown()
+    {
+        StandardArms.Resolve(null, out _).ShouldBe(StandardArms.Default);
+        StandardArms.Resolve("default", out _).ShouldBe(StandardArms.Default);
+        StandardArms.Resolve("capabilities", out _).ShouldBe(StandardArms.Capabilities);
+
+        StandardArms.Resolve("baseline, with-bash", out _)!
+            .Select(a => a.Name).ShouldBe(["baseline", "with-bash"]);
+        StandardArms.Resolve("with-bash,with-bash", out _)!.Count.ShouldBe(1);
+
+        StandardArms.Resolve("no-such-arm", out string? unknown).ShouldBeNull();
+        unknown.ShouldBe("no-such-arm");
     }
 
     [Fact]

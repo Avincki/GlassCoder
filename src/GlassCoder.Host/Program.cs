@@ -220,6 +220,14 @@ static async Task<int> CheckFixturesAsync(IHost host, HostCommand command, Cance
 
 static async Task<int> RunAblationAsync(IHost host, HostCommand command, CancellationToken cancellationToken)
 {
+    IReadOnlyList<AblationArm>? arms = StandardArms.Resolve(command.Arms, out string? unknown);
+    if (arms is null)
+    {
+        Console.Error.WriteLine($"No ablation arm named '{unknown}'.");
+        Console.Error.WriteLine($"Arms: {string.Join(", ", StandardArms.All.Select(a => a.Name))}. Sets: default, capabilities.");
+        return HostExitCode.ConfigurationError;
+    }
+
     string work = Path.GetFullPath(command.WorkDirectory ?? Path.Combine(Path.GetTempPath(), "glasscoder-ablation"));
 
     AblationRunner runner = new(
@@ -232,13 +240,14 @@ static async Task<int> RunAblationAsync(IHost host, HostCommand command, Cancell
         : TaskSuiteDefinition.Find(command.SuiteTask) is { } single ? [single] : TaskSuiteDefinition.All;
 
     AblationReport report = await runner
-        .RunAsync(StandardArms.Default, tasks, work, cancellationToken)
+        .RunAsync(arms, tasks, work, cancellationToken)
         .ConfigureAwait(false);
 
     Console.WriteLine();
     Console.WriteLine(report.ToText());
 
-    return report.PassRate(StandardArms.Baseline.Name) > 0 ? HostExitCode.Success : HostExitCode.TaskFailed;
+    // The first selected arm is the reference row - for both standard sets that is the baseline.
+    return report.PassRate(arms[0].Name) > 0 ? HostExitCode.Success : HostExitCode.TaskFailed;
 }
 
 static int ExitCodeFor(AgentStopReason reason) => reason switch
