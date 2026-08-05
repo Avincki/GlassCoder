@@ -8,7 +8,12 @@ public sealed class LoggingOptions
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "GlassCoder:Logging";
 
-    /// <summary>Directory for log files, relative to the working directory unless absolute.</summary>
+    /// <summary>
+    /// Directory for log files. Relative values anchor under the per-user data root
+    /// (<c>%LOCALAPPDATA%\GlassCoder</c>, or <c>GLASSCODER_DATA_DIR</c>), never the working
+    /// directory; absolute values are used as-is. See
+    /// <see cref="Configuration.AppPaths.ResolveDataDirectory"/>.
+    /// </summary>
     public string Directory { get; set; } = "logs";
 
     /// <summary>

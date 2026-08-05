@@ -865,7 +865,7 @@
                   <TextBox Text="{Binding Settings.Logging.TextFileName}" />
                 </DockPanel>
                 <TextBlock Style="{StaticResource Hint}"
-                           Text="Machine-readable and human-readable side by side. The trailing dash is where the rolling date goes." />
+                           Text="Machine-readable and human-readable side by side. The trailing dash is where the rolling date goes. A relative directory lands under %LOCALAPPDATA%\GlassCoder, not the working directory." />
                 <DockPanel Style="{StaticResource Field}">
                   <TextBlock Style="{StaticResource Label}" Text="Minimum level" />
                   <ComboBox IsEditable="True" ItemsSource="{Binding LogLevels}"

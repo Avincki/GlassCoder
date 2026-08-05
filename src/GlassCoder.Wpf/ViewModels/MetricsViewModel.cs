@@ -131,7 +131,7 @@ public sealed class MetricsViewModel : ViewModelBase
     {
         Rows.Clear();
 
-        string path = Path.Combine(Path.GetFullPath(_options.Directory), _options.FileName);
+        string path = _options.ResolveFilePath();
         if (!File.Exists(path))
         {
             Status = $"No metrics yet at {path}.";

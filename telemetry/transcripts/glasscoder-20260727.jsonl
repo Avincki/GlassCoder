@@ -1,0 +1,64 @@
+{"@t":"2026-07-27T13:12:49.3119337Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:12:49.3460756Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:12:49.3467554Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:16:45.9497956Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:16:45.9834687Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:16:45.9840837Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:44.2760270Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:44.3181082Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:44.3189806Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:59.0650477Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:59.1045746Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T13:58:59.1052875Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:15:44.4022129Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:15:44.4449743Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:15:44.4457031Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:15:44.4488400Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"GlassCoder.Wpf.App","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:25.4351533Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:25.4762309Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:25.4771125Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:25.4823883Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:25.9374723Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:26.2099084Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:26.2544649Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:26.2552612Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:26.2589494Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T14:56:26.3359030Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:02:47.6028163Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:02:47.6374646Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:02:47.6381424Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:02:47.6410972Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:02:48.0695020Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:07:41.0625229Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:07:41.1030308Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:07:41.1037761Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:07:41.1077523Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:07:41.1836837Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:09:54.7700475Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:09:54.8124120Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:09:54.8131369Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:09:54.8169048Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:09:54.8958888Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:10:49.6498879Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:10:49.6843990Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:10:49.6850352Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:10:49.6880702Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"Program","Application":"GlassCoder"}
+{"@t":"2026-07-27T15:10:49.7538738Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:26.6783134Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:26.7714071Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:26.7719882Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:26.7751484Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"GlassCoder.Wpf.App","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:31.8231210Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:46.0631444Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:46.0964119Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:46.0971289Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:46.1001426Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"GlassCoder.Wpf.App","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:23:50.4426717Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:35:00.1927153Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:35:00.2247709Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:35:00.2253516Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:35:00.2281692Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"GlassCoder.Wpf.App","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:36:05.8092618Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:36:05.8440474Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:36:05.8447032Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Wpf\\bin\\Debug\\net10.0-windows\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-27T19:36:05.8475569Z","@mt":"Workspace root: {RepoRoot}","RepoRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder","SourceContext":"GlassCoder.Wpf.App","Application":"GlassCoder"}

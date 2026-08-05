@@ -1,0 +1,4 @@
+{"@t":"2026-07-23T14:47:14.5393670Z","@mt":"Application started. Press Ctrl+C to shut down.","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-23T14:47:14.5740255Z","@mt":"Hosting environment: {EnvName}","EnvName":"Production","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-23T14:47:14.5746820Z","@mt":"Content root path: {ContentRoot}","ContentRoot":"C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder\\src\\GlassCoder.Host\\bin\\Debug\\net10.0\\","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
+{"@t":"2026-07-23T14:47:14.8384703Z","@mt":"Application is shutting down...","SourceContext":"Microsoft.Hosting.Lifetime","Application":"GlassCoder"}
