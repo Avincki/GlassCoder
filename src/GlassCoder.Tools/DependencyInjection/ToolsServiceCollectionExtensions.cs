@@ -61,7 +61,10 @@ public static class ToolsServiceCollectionExtensions
 
         // Compiler feedback: rungs 1-2 in process, and the summariser that stands between any
         // diagnostic and the model (CLAUDE.md §8.2).
-        services.TryAddSingleton<ICodeAnalyzer, RoslynCodeAnalyzer>();
+        // Registered concretely as well, so find_symbol can sweep the workspace through the same
+        // syntax-tree cache the pre-write compile fills rather than opening a second one.
+        services.TryAddSingleton<RoslynCodeAnalyzer>();
+        services.TryAddSingleton<ICodeAnalyzer>(sp => sp.GetRequiredService<RoslynCodeAnalyzer>());
         services.TryAddSingleton<DiagnosticSummarizer>();
 
         // Execution: a build is arbitrary code execution, so it goes through the sandbox seam.
@@ -107,11 +110,17 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<GrepTool>();
         services.TryAddSingleton<GlobTool>();
         services.TryAddSingleton<TodoTool>();
+        services.TryAddSingleton<ListProjectsTool>();
+        services.TryAddSingleton<ListChangesTool>();
+        services.TryAddSingleton<FindSymbolTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<TodoTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListChangesTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ReadFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GrepTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<FindSymbolTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GlobTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<ListProjectsTool>());
         return services;
     }
 
@@ -123,13 +132,21 @@ public static class ToolsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        // Shared by the build tool, which fills it, and the project tool, which empties it when
+        // the SDK rewrites a project file behind the change log's back.
+        services.TryAddSingleton<BuildCache>();
+
         services.TryAddSingleton<CreateFileTool>();
         services.TryAddSingleton<EditFileTool>();
+        services.TryAddSingleton<FileOperationTool>();
         services.TryAddSingleton<BuildTool>();
         services.TryAddSingleton<RunTestsTool>();
+        services.TryAddSingleton<DotnetProjectTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<FileOperationTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<DotnetProjectTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());
         return services;

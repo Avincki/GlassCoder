@@ -21,11 +21,19 @@ public sealed class MetricsOptions
     /// <summary>Whether metrics are written at all.</summary>
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Directory the JSONL files live in.</summary>
+    /// <summary>
+    /// Directory the JSONL files live in. Relative values anchor under the per-user data
+    /// root (<c>%LOCALAPPDATA%\GlassCoder</c>, or <c>GLASSCODER_DATA_DIR</c>), never the
+    /// working directory; absolute values are used as-is.
+    /// </summary>
     public string Directory { get; set; } = "metrics";
 
     /// <summary>File name. One JSON object per line, appended.</summary>
     public string FileName { get; set; } = "metrics.jsonl";
+
+    /// <summary>Absolute path of the metrics file these options describe.</summary>
+    public string ResolveFilePath() =>
+        Path.Combine(Configuration.AppPaths.ResolveDataDirectory(Directory), FileName);
 }
 
 /// <summary>
@@ -58,7 +66,7 @@ public sealed class JsonlMetricsRecorder : IMetricsRecorder
     }
 
     /// <summary>Full path of the file being appended to.</summary>
-    public string FilePath => Path.Combine(Path.GetFullPath(_options.Directory), _options.FileName);
+    public string FilePath => _options.ResolveFilePath();
 
     /// <inheritdoc />
     public void Record(RunMetrics metrics)

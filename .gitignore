@@ -38,6 +38,15 @@ appsettings.Development.json
 appsettings.Local.json
 *.env
 secrets.json
+## Token drops, matched at any depth. Deliberately not "token.*": core.ignorecase
+## is true on Windows, so that pattern would also swallow a future Token.cs.
+token.txt
+token.zip
 
 ## Debug scratch output from launch profiles
 .debug/
+
+## File reviews written by the viewer's Review button (task 43). They are put inside the
+## workspace on purpose - so they show in the tree and the agent can read them - but they are
+## one operator's notes on one afternoon, not a fact about the repository.
+.glasscoder/

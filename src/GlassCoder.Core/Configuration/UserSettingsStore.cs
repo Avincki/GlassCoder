@@ -1,7 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
-using GlassCoder.Models.Configuration;
 
 namespace GlassCoder.Core.Configuration;
 
@@ -25,14 +23,6 @@ public sealed class UserSettingsStore : IUserSettingsStore
 
     /// <summary>Overrides the settings directory. Set it to make a portable or test install.</summary>
     public const string DirectoryEnvironmentVariable = "GLASSCODER_SETTINGS_DIR";
-
-    private static readonly JsonSerializerOptions FileJson = new()
-    {
-        WriteIndented = true,
-        // Enums as names: SandboxMode is Docker or Local in the file, not 0 or 1. The binder
-        // reads either, but only one of them survives a human reading the file.
-        Converters = { new JsonStringEnumConverter() },
-    };
 
     private readonly ISecretProtector _protector;
 
@@ -71,8 +61,7 @@ public sealed class UserSettingsStore : IUserSettingsStore
     public bool Exists => File.Exists(SettingsFilePath) || File.Exists(SecretsFilePath);
 
     /// <summary>The configuration key an API key for <paramref name="role"/> is bound from.</summary>
-    public static string ApiKeyConfigurationKey(string role) =>
-        $"{ModelsOptions.SectionName}:Roles:{role}:{nameof(ModelRoleOptions.ApiKey)}";
+    public static string ApiKeyConfigurationKey(string role) => SettingsDocument.ApiKeyConfigurationKey(role);
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, string?> LoadSecrets()
@@ -115,18 +104,15 @@ public sealed class UserSettingsStore : IUserSettingsStore
 
         Directory.CreateDirectory(DirectoryPath);
 
-        JsonObject document = new()
-        {
-            [GlassCoderSettings.RootSectionName] = JsonSerializer.SerializeToNode(settings, FileJson),
-        };
+        JsonObject document = SettingsDocument.Serialize(settings);
+        Dictionary<string, string> secrets = SettingsDocument.LiftApiKeys(settings, document, _protector);
 
-        Dictionary<string, string> secrets = ExtractSecrets(settings, document);
-
-        WriteAtomically(SettingsFilePath, document.ToJsonString(FileJson));
+        SettingsDocument.WriteAtomically(SettingsFilePath, document.ToJsonString(SettingsDocument.FileJson));
 
         if (secrets.Count > 0)
         {
-            WriteAtomically(SecretsFilePath, JsonSerializer.Serialize(secrets, FileJson));
+            SettingsDocument.WriteAtomically(
+                SecretsFilePath, JsonSerializer.Serialize(secrets, SettingsDocument.FileJson));
         }
         else if (File.Exists(SecretsFilePath))
         {
@@ -161,39 +147,4 @@ public sealed class UserSettingsStore : IUserSettingsStore
         return Path.Combine(applicationData, "GlassCoder");
     }
 
-    /// <summary>
-    /// Lifts every role's API key out of the serialised document and into the protected set.
-    /// The <c>ApiKey</c> property is <em>removed</em> rather than nulled, so the settings file
-    /// contains no trace of a key having been there.
-    /// </summary>
-    private Dictionary<string, string> ExtractSecrets(GlassCoderSettings settings, JsonObject document)
-    {
-        Dictionary<string, string> secrets = new(StringComparer.OrdinalIgnoreCase);
-
-        JsonNode? roles = document[GlassCoderSettings.RootSectionName]?[nameof(GlassCoderSettings.Models)]
-            ?[nameof(ModelsOptions.Roles)];
-
-        foreach ((string role, ModelRoleOptions options) in settings.Models.Roles)
-        {
-            (roles?[role] as JsonObject)?.Remove(nameof(ModelRoleOptions.ApiKey));
-
-            if (!string.IsNullOrWhiteSpace(options.ApiKey))
-            {
-                secrets[ApiKeyConfigurationKey(role)] = _protector.Protect(options.ApiKey);
-            }
-        }
-
-        return secrets;
-    }
-
-    /// <summary>
-    /// Writes through a temporary file so an interrupted save leaves the previous settings
-    /// intact rather than a half-written file the harness cannot start from.
-    /// </summary>
-    private static void WriteAtomically(string path, string content)
-    {
-        string temporary = path + ".tmp";
-        File.WriteAllText(temporary, content);
-        File.Move(temporary, path, overwrite: true);
-    }
 }

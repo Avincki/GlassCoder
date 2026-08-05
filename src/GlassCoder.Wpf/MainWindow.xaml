@@ -28,7 +28,7 @@
   </Window.InputBindings>
 
   <DockPanel>
-    <Border DockPanel.Dock="Top" Background="#1F2933" Padding="12,10">
+    <Border DockPanel.Dock="Top" Background="{StaticResource ChromeBackground}" Padding="12,10">
       <!-- DockPanel, not a Grid: a right-docked child reserves its full width before the filling
            child measures, so the button column cannot be starved by the wrapping goal box. The
            equivalent Grid ([Auto][*][Auto]) let the star column consume the buttons' width and
@@ -118,20 +118,59 @@
         <ColumnDefinition Width="280" MinWidth="160" />
       </Grid.ColumnDefinitions>
 
+      <!-- Pane chrome: the navigation belongs to the frame, not to the surface it selects. A step
+           lighter than the header, which keeps the header reading as the top of the hierarchy. -->
       <ListBox Grid.Column="0" Margin="0" BorderThickness="0,0,1,0"
+               Background="{StaticResource PaneBackground}"
+               BorderBrush="{StaticResource PaneBorder}"
+               Foreground="{StaticResource PaneForeground}"
                ItemsSource="{Binding Surfaces}" SelectedItem="{Binding SelectedSurface}">
         <ListBox.ItemContainerStyle>
+          <!--
+            Templated rather than merely recoloured. The stock item paints the system highlight -
+            a pale blue behind near-black text - which on this background is the one combination
+            that reads worse than no styling at all. The template also lets selection show as an
+            accent bar as well as a fill: a fill alone is a weak signal at this contrast, and the
+            selected surface is the one thing this list has to communicate.
+          -->
           <Style TargetType="ListBoxItem">
             <Setter Property="Padding" Value="14,10" />
             <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{StaticResource PaneForeground}" />
+            <Setter Property="Template">
+              <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                  <Grid Background="Transparent">
+                    <Border x:Name="Fill" Background="Transparent" />
+                    <Border x:Name="Accent" Width="3" HorizontalAlignment="Left"
+                            Background="Transparent" />
+                    <ContentPresenter Margin="{TemplateBinding Padding}"
+                                      VerticalAlignment="Center" />
+                  </Grid>
+                  <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                      <Setter TargetName="Fill" Property="Background" Value="{StaticResource PaneHover}" />
+                    </Trigger>
+                    <Trigger Property="IsSelected" Value="True">
+                      <Setter TargetName="Fill" Property="Background" Value="{StaticResource PaneSelected}" />
+                      <Setter TargetName="Accent" Property="Background" Value="{StaticResource PaneAccent}" />
+                      <Setter Property="Foreground" Value="White" />
+                      <Setter Property="FontWeight" Value="SemiBold" />
+                    </Trigger>
+                  </ControlTemplate.Triggers>
+                </ControlTemplate>
+              </Setter.Value>
+            </Setter>
           </Style>
         </ListBox.ItemContainerStyle>
       </ListBox>
 
       <ContentControl Grid.Column="1" Content="{Binding CurrentView}" />
 
-      <!-- Doubles as the pane's left border, so no separate separator is needed. -->
-      <GridSplitter Grid.Column="2" Width="5" Background="#DDDDDD"
+      <!-- Doubles as the pane's left border, so no separate separator is needed. Chrome-coloured
+           now that the pane is: a light grey bar between a light surface and a dark pane would
+           read as a gap in the frame rather than the edge of it. -->
+      <GridSplitter Grid.Column="2" Width="5" Background="{StaticResource PaneBackground}"
                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
                     ToolTip="Drag to resize the workspace pane." />

@@ -4,9 +4,19 @@
   <Grid Margin="8">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="*" />
+      <RowDefinition Height="2*" />
       <RowDefinition Height="Auto" />
-      <RowDefinition Height="200" />
+      <!--
+        Starred rather than the fixed 200px it was, so the detail pane keeps its share of the
+        window instead of staying letterbox-thin on a maximised one. A third of the space the
+        list and the pane divide is about a quarter of the window once the header, the status bar
+        and this label have taken theirs.
+
+        The floor is what actually binds at the default 760x1240 window - a third of the space
+        there is thinner than this - so the pane opens at a readable block of JSON rather than a
+        few lines, and the ratio takes over once the window is tall enough to give more.
+      -->
+      <RowDefinition Height="1*" MinHeight="220" />
     </Grid.RowDefinitions>
 
     <!-- Filter by step, tool and severity (CLAUDE.md §9). -->
@@ -37,6 +47,8 @@
         <DataGridTextColumn Header="Outcome" Binding="{Binding Outcome}" Width="90" />
         <DataGridTextColumn Header="Tokens" Binding="{Binding Tokens}" Width="70" />
         <DataGridTextColumn Header="Latency" Binding="{Binding Latency}" Width="80" />
+        <!-- How far into the run the step finished, counted from the run's first step. -->
+        <DataGridTextColumn Header="Elapsed" Binding="{Binding Elapsed}" Width="70" />
         <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*" />
       </DataGrid.Columns>
       <DataGrid.RowStyle>

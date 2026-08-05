@@ -52,9 +52,11 @@ public sealed class ToolRegistry : IToolRegistry
     {
         ArgumentNullException.ThrowIfNull(call);
 
-        IReadOnlyDictionary<string, object?>? arguments = call.Arguments is null
-            ? null
-            : new Dictionary<string, object?>(call.Arguments, StringComparer.Ordinal);
+        // Unwrapped for the record, not for the invocation: a JsonElement serialises through the
+        // log as {"ValueKind":"String"} with its value gone, which makes a transcript that cannot
+        // answer what the model actually asked for (CLAUDE.md §9). Two diagnoses of a failing run
+        // had to infer an argument from artefacts on disk because of it.
+        IReadOnlyDictionary<string, object?>? arguments = Describe(call.Arguments);
 
         if (!_byName.TryGetValue(call.Name, out AIFunction? function))
         {
@@ -94,6 +96,11 @@ public sealed class ToolRegistry : IToolRegistry
                 Arguments = arguments,
                 Duration = duration,
                 Result = result,
+
+                // Carried up so the loop can tell one failure from the same failure again,
+                // without reaching into the observation's payload type.
+                ErrorMessage = ReportsSuccess(result) ? null : DescribeFailure(result),
+                Summary = SummaryOf(result),
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -143,6 +150,102 @@ public sealed class ToolRegistry : IToolRegistry
     /// Reads the <c>ok</c> flag out of whatever shape the function marshalled its observation
     /// into, so a handled tool failure is not counted as a hard fault.
     /// </summary>
+    /// <summary>
+    /// Copies the model's arguments into values a log can actually hold.
+    /// <para>
+    /// The values arrive as <see cref="JsonElement"/>, whose public surface is its kind rather
+    /// than its content - so serialising one records that a string was passed and not which
+    /// string. Unwrapping here keeps the transcript reconstructable, which is the whole point of
+    /// recording arguments at all.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyDictionary<string, object?>? Describe(IEnumerable<KeyValuePair<string, object?>>? arguments)
+    {
+        if (arguments is null)
+        {
+            return null;
+        }
+
+        Dictionary<string, object?> described = new(StringComparer.Ordinal);
+        foreach ((string name, object? value) in arguments)
+        {
+            described[name] = Unwrap(value);
+        }
+
+        return described;
+    }
+
+    private static object? Unwrap(object? value) => value switch
+    {
+        JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
+        JsonElement { ValueKind: JsonValueKind.True } => true,
+        JsonElement { ValueKind: JsonValueKind.False } => false,
+        JsonElement { ValueKind: JsonValueKind.Null } => null,
+        JsonElement { ValueKind: JsonValueKind.Number } element =>
+            element.TryGetInt64(out long whole) ? whole : element.GetDouble(),
+
+        // Objects and arrays keep their JSON text: structured enough to read back, and it cannot
+        // drag an arbitrary object graph into the log.
+        JsonElement element => element.GetRawText(),
+        _ => value,
+    };
+
+    /// <summary>
+    /// A stable description of <em>how</em> a call failed: its error code and summary, which
+    /// together are the same string every time the same thing goes wrong. That sameness is what
+    /// lets the loop notice it is repeating itself.
+    /// </summary>
+    private static string? DescribeFailure(object? result)
+    {
+        (string? code, string? summary) = Read(result);
+        return Combine(code, summary);
+    }
+
+    /// <summary>
+    /// The observation's own one-line account of what it did, whether or not it went well.
+    /// <para>
+    /// Carried up so the transcript's console line can say what happened rather than only whether
+    /// the call ran. A build that compiled nothing logged as <c>build:Succeeded</c> - true of the
+    /// call, and read by every human as a claim about the build.
+    /// </para>
+    /// </summary>
+    private static string? SummaryOf(object? result) => Read(result).Summary;
+
+    /// <summary>Pulls the error code and summary off an observation, whatever shape it arrived in.</summary>
+    private static (string? Code, string? Summary) Read(object? result)
+    {
+        if (result is null)
+        {
+            return (null, null);
+        }
+
+        if (result is JsonElement { ValueKind: JsonValueKind.Object } element)
+        {
+            return (
+                element.TryGetProperty("error", out JsonElement error) &&
+                    error.TryGetProperty("code", out JsonElement code)
+                        ? code.GetString()
+                        : null,
+                element.TryGetProperty("summary", out JsonElement summary) ? summary.GetString() : null);
+        }
+
+        Type type = result.GetType();
+        object? errorValue = type.GetProperty("Error", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result);
+
+        return (
+            errorValue?.GetType().GetProperty("Code", BindingFlags.Public | BindingFlags.Instance)
+                ?.GetValue(errorValue) as string,
+            type.GetProperty("Summary", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result) as string);
+    }
+
+    private static string? Combine(string? code, string? summary) => (code, summary) switch
+    {
+        (null, null) => null,
+        (null, { } only) => only,
+        ({ } only, null) => only,
+        _ => $"{code}: {summary}",
+    };
+
     private static bool ReportsSuccess(object? result)
     {
         switch (result)

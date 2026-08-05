@@ -9,6 +9,896 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-04 — The gate judged the fix against a library that no longer exists
+
+**Shipped.** Three fixes from reading run `e8f9186a`. 538 tests green, +8.
+
+**What the run said.** Goal: *"change the multiplication of the elements from value 10 to a
+parameter set in the calling function"* — inherently a two-project change. 21 steps, 205k tokens,
+stopped at TimeLimit with the workspace half-migrated. Step 6 changed the library signature,
+verified against the library project alone, and passed. Then the model did the right thing eight
+times — updated the test project's call sites, in the flat shape, the `edits` list, and finally
+all six call sites in one call — and the write-time gate refused six of them with
+`CS1501: No overload for 'SortAndMultiply' takes 2 arguments`.
+
+The gate compiles the edited file against DLLs scavenged from the project's own `bin`, and the
+test project's copy of `MyMathLib.dll` predated the signature change. That made the refusal a
+**deadlock**, not a transient: the gate only believes the DLL, the DLL only refreshes on a
+successful build of the test project, and the test project cannot build until the very edit being
+refused has landed. No sequence of tool calls escapes. The model even tried — step 18 called
+`build "."`, was told to use `list_projects`, never did, and went back to editing.
+
+**Decided**
+
+- **A gate that cannot know must not gate.** The scavenger now records each DLL's write time, and
+  a reference older than any source of the project it was built from makes the compile
+  *inconclusive* — the same answer an unbuilt reference already got, for the same reason: the
+  diagnostics would be about the reference set, not the code. `EditFileTool` already lets
+  inconclusive through with a note, so the fix is one new check, not a new pathway. It errs only
+  in the safe direction: a wrongly-suspected reference costs one unverified write, never a wrong
+  refusal.
+- **The ladder builds what a library change can break, not what it cannot.** When one project owns
+  the change, `ResolveBuildTarget` now finds the projects that transitively reference it and
+  targets the dependent at the top of the chain — building it builds the owner first, so one
+  target covers the affected closure. Two unrelated dependents fall back to the root solution;
+  without one, the owner. At step 6 this would have said "5 call sites broke" instead of green.
+- **`build "."` names the projects in the answer.** Pointing at `list_projects` is a hop the
+  model demonstrably does not take. Same lesson as the `edit_file` hint repair: the information
+  has to be in the message the model is already reading.
+
+**Worth knowing**
+
+- **This failure class is invisible to tool-call validity.** Every one of the eight failed calls
+  parsed and executed; the run scores 1.00. What the metrics cannot see is a *correct* edit
+  refused on stale evidence — worth remembering when a run looks clean in the numbers and dead in
+  the transcript.
+- The refusal's wording asserted the opposite of the truth ("it would break") — the same shape as
+  `path_not_allowed`: a confident wrong reason sends the model somewhere it can never recover
+  from.
+- The staleness comparison leans on MSBuild's copy preserving write times, which is what makes
+  "DLL older than the sources of its project" readable straight off the file system.
+
+**Open**
+
+- `GlassCoderTest` is deliberately left half-migrated — two-parameter library, one-parameter test
+  calls — as a ready-made retry: the same goal again should now complete in ~10 steps, and is the
+  end-to-end validation these fixes still lack.
+- The deeper fix — compiling workspace `ProjectReference`s from source so the gate stays
+  *authoritative* across projects instead of merely humble — was weighed and deferred until it
+  earns its machinery (transitive references, caching).
+
+---
+
+## 2026-08-04 — The clock that lagged the run by one action
+
+**Shipped.** The transcript's elapsed column now reads the run's clock at each step's *end*.
+530 tests green — none added; the elapsed suite was re-pinned rather than grown.
+
+**What was wrong.** `Elapsed` was `StartedAt − runStart`: the clock at the moment the step
+*began*. But a row only appears once its step completes — the record is written after the tool and
+the ladder — so the newest row always understated the run by exactly the action it had just
+watched. With the worker at ~13 s a step, the transcript's bottom line was permanently a step in
+the past, and the first row of every run read `0:00` after visibly working for a dozen seconds.
+
+**Decided**
+
+- **The anchor is `StartedAt + StepLatencyMs`.** `StepLatencyMs` is the whole step — model call,
+  tool, verification ladder — because `AgentLoop` stamps it when it writes the record, which is
+  also the moment the row appears. Clock and row now agree about what "now" is.
+- **The origin stays the first step's start.** So a run's first row now reads its own duration
+  rather than `0:00` — intended, not an off-by-one. Latency beside it still answers "how long did
+  this one step take"; elapsed answers "how deep into the run were we when this landed".
+
+**Worth knowing.** The old test helper's 120 ms step latency is invisible at second granularity,
+which is why the original suite could not have caught this: pre- and post-action elapsed format
+identically when the action costs nothing. The re-pinned first test uses multi-second latencies so
+the two behaviors read differently; the other three cases (per-run restart, hour field, backwards
+clamp) hold as they were.
+
+---
+
+## 2026-08-04 — The change log does not get to say what exists
+
+**Shipped.** One guard in the workspace pane, three tests. 530 tests green, +2.
+
+**What was seen.** A file the run deleted stayed in the tree — green, semibold, counts and all. It
+was not actually *remaining*: it was removed correctly and resurrected seconds later, which is why
+it read as odd rather than as broken.
+
+1. `file_operation` deletes the file and marks its change Applied. The pane's `Record` runs first —
+   change events post at Normal priority, the watcher's drain at Background — and paints the
+   still-present node green.
+2. The drain rescans the path, sees it is gone, removes the node. For a moment the tree is right.
+3. The ladder finishes its build and `AgentLoop` re-updates every applied change of the step to
+   attach the verification summary. `ChangeLog.Update` raises `Changed` on *every* update, "deleted"
+   is not a concept `FileChangeSummary` has — a delete is just an Applied change whose after-text is
+   empty — and `Apply` called `EnsureNode`, which creates whatever it cannot find. The dead file
+   returns, ancestors forced open.
+
+The drain takes milliseconds and the ladder seconds, so step 3 lands after step 2 every time —
+deterministic with `VerifyAppliedChanges` on, which is how it runs. The same mechanism resurrected
+the old path of every move (its removal change gets the same re-update), and Refresh brought the
+whole set back again through `Summarise`.
+
+**Decided**
+
+- **The change log colours the tree; existence is the watcher's to say.** That was already the
+  stated design — "two sources answering two different questions" — but `Apply` → `EnsureNode` let
+  one source answer the other's question. The fix is one gate: `Apply` returns before marking when
+  the file is not on disk. The live path and the Refresh replay both go through it, so the delete
+  ghost, the move ghost and the Refresh ghost close together.
+- **Creation is unaffected because every tool writes before it records Applied.** Which is also why
+  `A_change_to_a_file_the_tree_has_not_seen_creates_it_expanded` had to change: it recorded a change
+  for a file that never touched disk — a shortcut no tool takes, and exactly the gap the bug lived
+  in.
+
+**Worth knowing**
+
+- The regression tests replay the sequence rather than assert the summary: apply, delete on disk,
+  pump until the watcher has dropped the node, then re-raise the change the way `AgentLoop` does.
+  Raised on the dispatcher thread, `Record` runs synchronously, so the assertion needs no second
+  pump.
+- The suite ran in Release because the app was open — watching this bug, fittingly — and holds the
+  Debug binaries. The open instance keeps the ghost until it restarts.
+
+**Open** — the rest of the same review, seen from the operator's chair and not addressed here:
+
+- The run latch takes the first `Changed` event of *any* run id after Run is pressed. A human revert
+  in the gap before the run's first change latches the wrong run, and the whole run paints nothing.
+- Every applied change re-expands the folders above it, so collapsing a folder mid-run is futile.
+- A deletion leaves no trace in the run's story — the file just vanishes, with the −N nowhere.
+  Whether deletions deserve their own visual (a struck-through row?) is undecided.
+- Refresh rebuilds every node: expansion choices, selection and scroll are lost — and a watcher
+  buffer overflow triggers that rebuild unprompted, because the deny globs filter events after the
+  OS buffer, not before it.
+
+---
+
+## 2026-08-04 — The run that failed on the tool I had just reshaped
+
+**Shipped.** Three fixes to `edit_file`, from reading run `9fad0808`. 528 tests green, +5.
+
+**What the run said.** Same goal as `8a77ee00` four hours earlier, same model, one difference: batch 2
+had made `edit_file` take a list of edits and nothing else.
+
+| | `8a77ee00` (12:06) | `9fad0808` (13:26) |
+|---|---|---|
+| Steps | 19, Completed | 22, **Cancelled** |
+| Tokens | 117,319 | 157,355 |
+| Tool-call validity | **1.00** | **0.86** |
+| Tests written | 5, passing | 0 |
+
+0.86 is the worst of the twelve runs in `metrics.jsonl`; the next worst is 0.96. Steps 0–13 were
+good — it scaffolded a classlib, **used `file_operation Move`** to relocate the source into it (the
+first real use of that tool), built green, scaffolded xunit, added the reference. Then eight
+consecutive steps on `edit_file`, cycling three shapes:
+
+- Steps 14, 17, 20: the flat `{path, oldText, newText}`. Step 14 was the run's *first* `edit_file`
+  call, so it was not copying a bad example from context — that is what the model does unprompted.
+- Steps 15, 21: `edits` with `path` left at the top level and omitted from each edit. The harness
+  answered `path_not_allowed: Path is required.`
+- Step 18: the one well-formed call, correctly refused for `CS1513: } expected`.
+
+One correct shape in six attempts, and `UnitTest1.cs` was still the untouched template stub.
+
+**Decided**
+
+- **The flat shape is primary again, with `edits` alongside it.** Six runs at 1.00 validity say
+  `edit_file(path, oldText, newText)` is what this model emits; the list stays for the multi-file
+  case that motivated task 46. This is the same lesson line-ending tolerance taught: *a shape the
+  model does not reliably produce is a contract the harness should not insist on.* I had the
+  precedent in hand and went the other way with it.
+- **A top-level `path` fills in for edits that omit it.** Not politeness — the information was there
+  five times over and the harness refused on a technicality.
+- **`path_not_allowed` was the wrong code and that is why the run never recovered.** It sent the
+  model to inspect the writable set instead of its own arguments. Malformed calls now answer
+  `invalid_argument` with both shapes spelled out in the hint.
+
+**Worth knowing**
+
+- **I optimised the number I could measure.** The batch-2 argument was that a second tool costs ~880
+  schema characters, about 150 tokens a request. The reshape cost ~40,000 tokens and a cancelled run
+  on one task. `PromptBudgetTests` measures prefill; it cannot see whether the model can drive the
+  schema at all, and that is worth more than the characters. Said so in the test, next to the number.
+- Declaring both shapes cost 414 characters, paid for by dropping the descriptions duplicated between
+  the flat parameters and `FileEdit`'s properties — the same text was on the wire twice — and by
+  trimming the six git tools, which nothing had touched yet. **13,687 total, below where batch 2 left
+  it.**
+- The new tests go through `ToolRegistry.InvokeAsync` with argument bags rather than calling the
+  method, because binding is where the run failed and a direct call would prove nothing. One of them
+  pins that a double-encoded `edits` string still binds, which the model did three times.
+
+**Confirmed by the re-run** (`6b9118b8`, then `12df72e1`, both Completed at 1.00 validity).
+
+`12df72e1` is "add unittests" — the task that produced the first failure ever analysed here. Step 8
+is `edit_file` in the flat shape, parsed, succeeded, first attempt: byte for byte the call that
+failed six times the run before.
+
+| Run | Steps | Outcome | Tokens | Validity | Tests |
+|---|---|---|---|---|---|
+| `bee2e874` | 30 | StepLimit | 257k | 1.00 | 0 |
+| `bb0af8f6` | 30 | StepLimit | 220k | 1.00 | 0 |
+| `9fad0808` | 22 | Cancelled | 157k | 0.86 | 0 |
+| `12df72e1` | **11** | **Completed** | **57k** | 1.00 | **6 passing** |
+
+Six tests, all green, verified against the working tree rather than taken from the transcript.
+
+**The diagnosis needed one correction.** Both runs sent `update_todos` with `items` as a
+*double-encoded JSON string* — `{"items": "[{\"id\": ...}]"}` — exactly as they had sent `edits`, and
+it bound without complaint, as it always has. So the model can produce array parameters. What it
+could not do was stop producing the flat shape it already knew. **The failure was the absence of the
+familiar shape, not the presence of the array** — which is a more useful rule than "arrays are hard",
+and a narrower one: an array is fine as an *addition*, and dangerous as a *replacement*.
+
+**Worth knowing, second pass**
+
+- Neither run called `build` or `run_tests`. The ladder ran them and reported back, which is what
+  `builds: 1, testRuns: 1` in the metrics means against a trace containing neither. The agent's
+  closing "All tests pass" was grounded: after step 8 it received *"Automatic verification of your
+  change passed (reached UnitTests)… 6 tests passed."* I had it down as a possible hallucination
+  before checking the prompt.
+- `update_todos` is being used as ceremony. Both runs called it once, at the very end, with a single
+  item already marked `Completed`. It is the most expensive schema in the harness at 1,186
+  characters and it is writing a receipt.
+- Steps 6 and 7 of `12df72e1` are the same `read_file` twice in a row. Ten seconds, and the kind of
+  thing that was invisible before argument logging.
+
+**Open**
+
+- **Batch 2 remains entirely unproven.** No run has yet called `find_symbol`, `read_file(outline:)`,
+  `run_tests(listOnly:)` or `list_changes`. What these two runs exercised was task 44/45 work —
+  `dotnet_project`, `create_file` overwrite, the MSB1003 hint — plus the `edit_file` repair. The
+  harness is measurably better than it was before batch 2, and none of that improvement is batch 2's.
+- `update_todos` is the next thing to weigh against its cost, on the evidence above.
+- `GlassCoderTest` is clean again: `src/MyMathLib` and `tests/MyMathLib.Tests`, six passing tests, no
+  stubs left over. The `ArrayUtils` wreckage from the cancelled run is gone.
+
+---
+
+## 2026-08-04 — Batch 2: four capabilities for forty-five tokens, and the whitespace nobody was counting
+
+**Shipped.** Tasks 46, 47, 51 and 52, plus decisions recorded for 48 and 53. 523 tests green, +35.
+
+**The number that matters.** The advertised schemas went from **13,547 to 13,726 characters** — about
+45 tokens per request — and bought multi-file edits, file outlines, symbol search, test discovery and
+a formatting verb. The previous entry left this with ~450 characters of headroom and an instruction:
+*the next tool to be added should trim something, not raise this again.* It was followed.
+
+**Decided**
+
+- **Three of the five arrived as parameters, not tools.** `file_outline` became
+  `read_file(outline: true)` (150 chars, not ~450). `list_tests` became `run_tests(listOnly: true)`
+  (113, not ~450). `dotnet format` became a `DotnetProjectOperation` (37). Each is the same request
+  at a different setting, and a setting is a flag.
+- **`apply_patch` did not ship; `edit_file` grew a list instead.** Two tools doing the same thing at
+  different arities is exactly the pattern the budget test exists to catch — `edit_file` was 901
+  characters and a second tool would have been ~880 more, on every request of every run. Reshaping
+  the one tool cost 373. A single edit is a one-element list, and the multi-file path is now the
+  default rather than an alternative the model has to notice.
+- **The workplan's "one approval for the batch" was rejected on inspection.** `RequestActionAsync`
+  is governed by `RequireApprovalForPush`, so routing file writes through it would have put them
+  behind the *push* switch — a safety setting silently doing something other than what it says. And
+  the prompt shows a diff: a reviewer approving three files should see three diffs. Approval stayed
+  per file, which also means refusing one file still lets the rest land.
+- **`find_references` is not being built** (task 48), and the reason is the asymmetry with its
+  sibling. `find_symbol` reads the syntax tree, so its worst failure is "not found" for something
+  that lives in a package. `find_references` needs semantics, and on a reference set scavenged from
+  `bin/` its worst failure is **"nothing calls this" when something does** — which an agent acts on
+  by deleting live code. The two look alike; their failure modes are not comparable.
+- **Package knowledge (task 53) waits for record/replay.** No transcript analysed so far shows a run
+  failing on a package version — the failures were line endings, a missing solution, and a tool that
+  could not scaffold. Shipping `nuget_info` live "for now" would put a network call in the loop and
+  quietly break the Lab's ablations, which is the failure the task was written to avoid.
+
+**Worth knowing**
+
+- **`AIJsonUtilities.DefaultOptions` writes indented, and it was serialising every tool observation
+  fed back into the conversation.** Unlike a schema — re-sent once per step — a tool result is
+  written *into* the conversation and then carried for the rest of the run, so a grep returning
+  forty matches paid for its own whitespace on every subsequent step until compaction. Fixed by
+  copying the options with `WriteIndented = false`; `PromptBudgetTests` now measures it.
+- **About a fifth of the "schema budget" is whitespace we do not control.** `update_todos` is 567
+  characters leaving `AIFunction.JsonSchema` and 1,186 on the wire: the OpenAI client re-serialises
+  the schema through the library's own indented options. Worth knowing before someone reads a number
+  in that test as prose they can shorten.
+- **What got cut to pay for this was rationale, not guidance.** `list_projects` used to tell the
+  model it "answers in one step what globbing for *.csproj answers in four". That sentence was for a
+  human reading the source, and it was being re-sent on every request of every run. Eleven
+  descriptions were trimmed the same way; `build` lost a third of its size and none of its meaning.
+- The Lab's Phase 1 checkpoint drives `edit_file` through the registry with scripted JSON, so its
+  fixtures now carry the nested `edits` array. That it passes is the end-to-end evidence that the
+  new wire shape deserialises — worth more than a unit test of the same thing.
+
+**Open**
+
+- `find_symbol` is the one new tool name (531 chars) and it has not yet been called by a real run.
+  `file_operation` and `list_changes` from the previous batch are still in the same position. If a
+  run finishes without touching any of them, that is worth reading as evidence.
+- `dotnet_project Format` snapshots up to 500 sources to work out what the SDK rewrote, because the
+  SDK will not say. Fine for a project, wasteful for a solution.
+- The tutorial docs describe an eight-tool harness; there are now thirteen without git.
+
+---
+
+## 2026-08-04 — The workspace pane stops reporting the change log and starts reporting the workspace
+
+**Shipped.** Three asks from watching the pane during a run, all in `WorkspaceViewModel`. 488
+tests green, +10.
+
+**The bug behind all three.** The tree was built from the change log, so it showed what the
+*harness had recorded*, not what the workspace *held*. `dotnet new` writes three files and
+`DotnetProjectTool` records one — the other two existed on disk and nowhere on screen until
+someone pressed Refresh. And the green was per-session, so the previous run's colouring was still
+on the tree while the next run was being read.
+
+**Decided**
+
+- **Two sources, answering two different questions.** A `FileSystemWatcher` says what the
+  workspace *contains*; the change log says what *this run did to it*. Keeping them separate is
+  what lets a file appear the moment its path exists — whoever made it, and whether or not
+  anything has finished writing to it — while green still means "this run touched it" and nothing
+  weaker.
+- **Watcher events are "look at this path again", not facts.** The drain asks the file system
+  what is actually there rather than trusting the event's own verb. That single choice is what
+  makes create-then-delete, rename, and a file still open for writing all come out right with no
+  special case for any of them. Names are watched, not content: a create, a delete and a rename
+  change the shape of the tree, and a write does not.
+- **Deny globs are applied on the watcher thread, before anything is posted.** A build writes
+  thousands of paths under `bin/` and `obj/`; forwarding them would cost thousands of posts to
+  the UI thread to decide thousands of times to do nothing. The drain is posted once per burst at
+  `Background` priority for the same reason — a checkout is one tree edit, not ten thousand.
+- **The run id is latched, not passed.** `BeginRun()` runs when Run is pressed, and at that
+  moment there is no run id: the loop mints it. So the pane clears the marking and latches onto
+  the first change the run produces, ignoring every other run's. The alternative — plumbing a run
+  id from the loop back into a view model — would put harness bookkeeping in the pane's
+  constructor to learn something the first change already carries.
+- **Folders start open.** A tree that starts closed shows one row per top-level folder, which is
+  a pane whose whole purpose is hidden behind a disclosure triangle.
+
+**Worth knowing**
+
+- `ChangeLog.Update` preserves a change's original run id. That is what makes reverting this
+  run's work still unmark the file, however long after the run it happens — the per-run filter
+  would otherwise drop the revert on the floor and leave the file green forever.
+- `Remove` drops the whole subtree from the index, not just the node. An index still holding
+  nodes nothing can reach would let a recreated file adopt the stats of the deleted one.
+- `OnChanged` now records inline when it is already on the UI thread. The Changes surface raises
+  changes from the UI thread on a manual apply or revert, where the dispatcher hop only meant the
+  tree lagged its own window by a turn.
+- **`Dispatcher.CurrentDispatcher` gives you a queue with no loop.** Anything posted to it sits
+  there forever unless something pumps — fine for the composition tests, which post nothing, and
+  the whole difficulty for anything watcher-driven. `UiThread.Pump` pushes a frame and posts its
+  own exit at `Background`, so it drains what is already in front of it. Ten tests driving the
+  real watcher over a real temp directory run in ~600 ms and were stable over five consecutive
+  runs before the suite was trusted.
+
+**Open**
+
+- The tree removes a node when its file leaves the disk, including a file the run deleted on
+  purpose. That is right — the tree shows the workspace, and the Changes surface is where
+  deletions live — but it means `file_operation delete` is invisible in the pane. Worth revisiting
+  if it reads as a lost change rather than a completed one.
+- Batch 2 of the tool work (`apply_patch`, `find_symbol`, `read_file(outline:)`) is still planned
+  and unbuilt, still needing ~1,700 characters of schema against ~450 of headroom.
+
+---
+
+## 2026-08-04 — The first run that finished, and what the budget test said about tools
+
+**Shipped.** Tasks 49 and 50, and two defects found by reading a run that *worked*. 478 tests
+green across all five assemblies — the WPF project rebuilt and is verified against this tree
+again, which it had not been since the previous entry.
+
+**The run.** `8a77ee00`: **19 steps, Completed, 117k tokens, 4m15, zero failed tool calls.** The
+goal was a function that sorts doubles descending and multiplies by six; it produced that, a test
+project, five passing tests and a solution that builds. Set against the two before it — 30 steps
+to StepLimit with 257k and 220k tokens, and no tests written at all — the harness work is what
+changed, because nothing about the model did.
+
+Three things the transcript proves rather than suggests:
+
+- **Line endings.** Step 5's `oldText` is `namespace MyMathLib;\n\npublic class Class1\n{\n\n}` —
+  LF — against a file `dotnet new` wrote as CRLF. That is byte-for-byte the call that failed
+  seventeen consecutive times a run earlier. It succeeded first try.
+- **Argument logging.** That `oldText` was read straight out of the log. Two analyses before it,
+  the same argument had to be inferred from bytes on disk.
+- **The MSB1003 message steered the agent.** Step 12 built `"."`, got back *"'.' is not a project
+  or solution… use list_projects to see what this repository holds"*, and answered it by creating
+  a solution at steps 13–15, which made 16 and 17 work. The harness taught the model its way out
+  of a dead end. That is what "errors are observations" is supposed to look like.
+
+**Decided**
+
+- **Nine proposed tools became four schemas, because the schemas were measured.** The outside
+  review's P0–P2 list would have added nine top-level tools. Step-0 requests across five runs put
+  a tool at roughly 300 tokens, re-sent every call, against an assembled conversation of about
+  130 — schemas are **96% of a step-0 request**. Nine would have cost ~2,700 tokens on every
+  step of every run. So `delete_file`/`move_file`/`revert_file` became verbs on one
+  `file_operation`, `list_tests` will be a flag on `run_tests`, and formatting a verb on
+  `dotnet_project`. Capability belongs on the tools that already exist. This is the same
+  reasoning `dotnet_project` itself was built on.
+- **`PromptBudgetTests` caught it, and its instruction was followed rather than its number
+  edited.** The test says the question on failure is not "what should the number be" but "is this
+  tool worth 200 tokens on every step of every run". Answering it found that
+  **`dotnet_project` was the most expensive tool in the harness at 1,818 characters** — larger
+  than `update_todos`, and written by this project three days ago. Trimming it and three other
+  descriptions took the total from 14,448 to 13,547, about 225 tokens off every step. Only then
+  was the ceiling raised, to 14,000, with the new per-tool figures written into the test.
+- **A successful run is worth reading too.** Both defects fixed this session came out of the run
+  that finished, not one that failed. `NewSolution` given `src/MyMathLib.sln` built a *directory*
+  of that name holding `MyMathLib.sln.slnx` — it worked by accident, and nearly-right that
+  survives a whole run is the kind that reaches the next person unexamined. And a build that hit
+  MSB1003 and compiled nothing logged as `build:Succeeded`, because the *call* had succeeded.
+
+**Worth knowing**
+
+- `ToolCallStatus` is about the call, not the outcome, and a failed build deliberately returns
+  `ok: true` — a handled outcome is not a tool fault. That is right, and it made the console line
+  misleading, so the step line now carries the observation's own summary. It is a separate field
+  on `ToolCallRecord` rather than parsed back out of `Result`, because content redaction blanks
+  the result entirely and would take the summary with it — losing the line exactly when the log
+  matters most.
+- **`file_operation` and `list_changes` were registered and never called** in that run. They cost
+  about 174 tokens on every request and returned nothing. The task needed neither; the
+  nested-project hazard is what `move` exists for. Worth recording rather than leaving behind a
+  claim of usefulness the transcript does not support.
+
+**Open**
+
+- Batch 2 — `apply_patch`, `find_symbol`, `read_file(outline:)` — is planned and unbuilt. It has
+  about 450 characters of schema headroom and will need roughly 1,700, so it has to pay for
+  itself: `update_todos` (1,356) and `grep` (1,191) are the untouched candidates.
+- `AddToSolution` takes one project per call; three steps of the run were one operation.
+- `GlassCoderTest/src/MyMathLib.sln/` still holds the misshapen solution the fixed bug produced.
+- Tasks 48 and 53 remain decisions rather than work: `find_references` needs a real MSBuild
+  workspace or it inherits the false-negative problem, and package knowledge is not worth
+  shipping without record/replay.
+
+---
+
+## 2026-08-04 — Two failed runs, and the six-plus-five fixes they bought
+
+**Shipped.** Tasks 44 and 45, both written from transcripts rather than from guesses. 425 tests
+green across Core, Tools, Models and Lab. The 34 WPF tests could not be rebuilt at the end of the
+session — the running app and Visual Studio hold `GlassCoder.Core.dll` and `GlassCoder.Tools.dll`
+in the WPF output folder — so they are **unverified against this tree**. Close both and rebuild
+before trusting a run: the binaries in `bin/Debug/net10.0-windows/` are older than this commit.
+
+**The method is the point.** Both tasks came from reading `glasscoder-20260804.jsonl` for a run
+that failed, finding the step where the harness rather than the model went wrong, and fixing that.
+Every change below names the step it came from. This is the first time the transcript has paid for
+itself as a design input rather than as a debugging aid, and it is worth keeping up.
+
+**Run one** (`bee2e874`, 30 steps, 257k tokens, StepLimit) was asked to add unit tests to a tree
+whose projects live under `src/` with no root solution. It produced **no tests at all**, with
+tool-call validity at 100 %. The model was never at fault — it wrote a correct test project and
+the harness refused to let it write a single test file. Four causes, all harness:
+
+- **The pre-write compile gate rejected correct code.** `RoslynCodeAnalyzer` scavenges its
+  reference set from build output rather than evaluating the project file, so a project whose
+  dependencies have not been built yet reports CS0246 for every type it imports. `create_file`
+  turned that into "nothing has been written", three times, on a file whose `using Utils;` was
+  right. It now returns `Inconclusive` when it can see its reference set is incomplete — the
+  machinery already existed and simply was not used for this case.
+- **The compile rung built `"."`, always.** `AgentLoop` never set `VerificationRequest.ProjectPath`
+  and the record's default was `"."`, so every edit was followed by `MSB1003` in 330 ms — while
+  the `build` *tool*, which takes a path, succeeded on the same tree in the same run. New
+  `ProjectLocator` resolves owning project → root solution → sole project → nothing, and nothing
+  means skip rather than fail.
+- **Nothing could manipulate a project.** Scaffolding meant hand-writing `.csproj` XML through
+  `edit_file`, and one of those edits failed outright. New `dotnet_project` wraps the SDK.
+- **Eight builds in thirty steps**, three consecutive with no edit between them. New `BuildCache`,
+  invalidated by the change log and by hand from `dotnet_project`.
+
+**Run two** (`bb0af8f6`) cleared all of that — `list_projects` at step 1, `dotnet_project` at step
+2, a real compile rung passing in 2.2 s — and then failed anyway, on **seventeen consecutive
+`edit_file` failures against a seven-line file**. The file came from `dotnet new` and held CRLF;
+the model emitted LF; the match was ordinal. Nothing the model could have done would have worked.
+
+**Decided**
+
+- **A tool that promises exactness must be fed by a tool that delivers it.** The real defect was
+  not the ordinal match on its own — it was that `read_file` read with `ReadAllLines` and rejoined
+  with `Environment.NewLine`, handing the model a *reconstruction* while `edit_file` demanded the
+  original. Fixing only the matcher would have left the contract broken in the other direction.
+  Both were changed together, and `read_file` now reports `LineEndings` and `ClippedLines`.
+- **Match flexibly, write consistently.** Normalising for the match is half the fix. The one edit
+  that did land in run two left a bare `\n` inside a CRLF file, so replacements now adopt the
+  file's own ending.
+- **`create_file` gained `overwrite: true`, and the doc comment that said it never would is gone.**
+  Creation and modification stayed separate verbs for a long time on purpose, but that left no way
+  to replace a generated stub — which is exactly the trap run two never escaped. Explicit, defaults
+  to false, and goes through the same change log, pre-write check and approval gate.
+- **A valid call that cannot be satisfied has to count toward something.** `MaxConsecutiveInvalid
+  ToolCalls` counts calls the registry could not *bind*; these bound and executed perfectly.
+  Nothing counted them, which is how a run ground through seventeen with validity reading 100 %.
+  New `AgentStopReason.RepeatedToolFailure` and `Agent:MaxIdenticalToolFailures` (nudge at 3, stop
+  at 8), kept deliberately distinct so the validity metric stays honest — a test asserts the rate
+  is still 1.0 when the new limit trips.
+- **The step budget is told to the model, once.** Run one spent its last five steps rebuilding an
+  unchanged tree; it could not pace itself against a ceiling nothing had mentioned. Sent at a
+  quarter remaining, floored at three, because repeating it would spend the budget it warns about.
+
+**Worth knowing**
+
+- **Tool-call arguments were not in the transcript.** They arrive as `JsonElement`, whose public
+  surface is its kind rather than its content, so the log recorded `{"ValueKind":"String"}` and the
+  value was gone. Two diagnoses in this session had to infer an argument from bytes on disk before
+  `ToolRegistry` was taught to unwrap them. CLAUDE.md §9 has required this all along.
+- **`CompileAsync` had only ever been handed a directory.** Now that it receives a resolved build
+  target it can get a `.csproj`, and enumerating a file as a directory throws. Caught by the test
+  for the `ProjectPath` override, not by a run.
+- **`ConfigurationBinder` appends to get-only collections rather than replacing them**, so
+  `FileReviewOptions.AllowedTools` is settable — otherwise "restrict the reviewer to Read" would
+  silently leave Grep and Glob on.
+
+**Open**
+
+- `GlassCoderTest` carries damage from run two: `src/MyMathLib/Class1.cs` has mixed line endings
+  and a stray `// test` comment. Fine as a test of the new matcher, not a clean starting point.
+- The nesting hazard `list_projects` now reports — a project directory containing another project,
+  so the SDK glob compiles the inner sources into the outer — is *diagnosable* but not fixable by
+  the agent, which has no move or delete tool. That is the next gap.
+
+---
+
+## 2026-08-04 — A second opinion on one file, from headless Claude Code
+
+**Shipped.** Task 43: a Review button on the file viewer that asks headless Claude Code what is
+wrong with the file, shows the report beside the code, and writes the actions you tick to a
+Markdown work order under `.glasscoder/reviews`.
+
+**Decided**
+
+- **A subprocess, not the model seam — the one deliberate exception to CLAUDE.md §4.** The seam
+  sends one file's text. A review of `WorkspaceViewModel.cs` that cannot open `WorkspacePane.xaml`
+  cannot tell whether the command it is reading is bound to anything. The CLI brings its own agent
+  loop and file tools, so the reviewer opens the callers, the types and the tests first. The
+  alternative was considered and rejected on that single ground.
+- **The allow-list is the safety argument.** `--allowedTools Read,Grep,Glob` with
+  `--permission-mode plan`: the subprocess can read and search the workspace and can do nothing
+  else to it. It runs outside the sandbox for the same reason `GitTool` does (task 40) — the
+  sandbox has neither network nor credentials. `FileReviewerTests` asserts the allow-list so a
+  tool cannot quietly join it.
+- **The two-field answer is enforced by `--json-schema`, not asked for in prose.** A prompt-JSON
+  fallback stays for older CLIs. Verified against 2.1.221: `--json-schema` is present,
+  `--max-turns` is *not*, so the run is bounded by `--max-budget-usd` and the process timeout.
+- **Not gated on `Critique:Enabled`.** That ships false, and sharing its switch would grey the
+  button out on every fresh install for a feature that is not part of the verification ladder.
+- **The API key is not injected unless configured.** The CLI has its own credentials; handing it a
+  key it did not ask for silently moves where the run is billed.
+- **Ported from `ClaudeContextGenerator3`'s `IntentAgentRunner`** rather than designed fresh — the
+  CLI probe, the argument assembly, the envelope parsing and the stderr redaction are all proven
+  there. Worth remembering that sibling exists.
+
+**Worth knowing**
+
+The work-order format writes *every* proposal with `[x]` marking the accepted ones, not just the
+accepted ones. The rejected proposals are the context that explains the accepted ones, and the
+consumer's rule stays "do the ticked ones". `ReviewActionFile.TryParse` ships with the renderer so
+the round-trip is provable now, while the format is still cheap to change.
+
+**Open**
+
+Nothing consumes the work order yet — composing a goal from the ticked items is a separate task,
+deliberately left until the format settled. And **a live review has still never run end to end**:
+the sandbox blocks the CLI's OAuth refresh, so it returns `Not logged in`. The failure path is
+proven; the success path is not.
+
+---
+
+## 2026-08-03 — An icon, and the generator that made it
+
+**Shipped.** The app had no icon at all - no `.ico`, no `ApplicationIcon`, no `Icon` on any
+window - so every title bar, the taskbar and Alt-Tab showed the default shell icon.
+`src/GlassCoder.Wpf/Assets/glasscoder.ico` now carries the mark at ten sizes, and
+`tools/IconGen` is the source that renders it. 361 tests green.
+
+**Decided**
+
+- **The mark is drawn from the house language rather than invented.** The kintsunai logo is
+  kintsugi: pale ceramic plates joined by gold seams. The icon is a pane of glass whose fracture
+  has been filled with gold, where the seam takes the shape of a terminal prompt, `>_`. Glass
+  because the loop is meant to be visible, gold in the seam for the house, the prompt because
+  without it a bare chevron is read as an arrow - which is not a guess, it is what the first three
+  renderings actually looked like. The rejected passes are written down in the tool's README so the
+  next person does not repeat them.
+- **Each size is rendered, not scaled.** One 256px bitmap downsampled to 16 is a grey smudge. Every
+  size comes from the same unit-square geometry with its own weights, and detail drops out as it
+  shrinks: gloss below 24px, keyline below 32, molten highlight below 96, and the vein taper
+  flattens toward uniform so the tips do not thin to nothing.
+- **`ApplicationIcon` alone, no XAML.** A WPF `Window` with no `Icon` of its own falls back to the
+  executable's, so both windows follow from one line in the csproj and neither has to name the file.
+- **The generator is in the tree but out of the solution.** A committed binary with no source is
+  unmaintainable - no new sizes, no adjustments. But it builds a brand asset that changes about
+  once a year, and putting it in `GlassCoder.sln` would run it through every build and every CI
+  pass for nothing. `GlassCoder.sln` lists projects explicitly, so `tools/` is simply never built.
+
+**Worth knowing**
+
+`System.IO` is *not* in the implicit-using set for a `UseWPF` project, though it is for a plain
+console one. Stripping it as redundant is a build break that only shows up on the WPF-flavoured
+project.
+
+---
+
+## 2026-08-03 — The drafter role, retired to a comment
+
+**Shipped.** `Models:Roles:drafter` is commented out in `config/appsettings.json`
+rather than deleted, and the DGX Spark guide no longer contradicts itself about
+what standing one up would cost. No code changed; 361 tests green.
+
+**Why it was ever there**, because the trace is not obvious from the source and
+took a git archaeology pass to recover. `drafter` entered in the first
+implementation commit (`1382d58`, tasks 1–10) because workplan task 4 said "one
+per served role (`worker`, `drafter`, `critic`)" — and that phrasing came from
+the hardware plan in `LocalAICodingAgent-LearningGuide.md`, where a drafter is a
+real thing: the 480B model that handles planning and hard edits in an 8-GPU
+serving layout. It was a *serving* role that got copied into a *harness* role
+list. `ModelRoles.cs` has exactly one commit in its whole history, and this file
+had never once mentioned the role — that silence, next to `critic-remote`'s four
+entries, is the tell. One was built; the other was only declared.
+
+**Decided**
+
+- **The reason to retire it is the connection check, not the memory.** Clients
+  are built lazily (`GetOrAdd` inside `GetClient`), so a configured-but-uncalled
+  role never opens a socket and never costs a byte. What it did cost was
+  `TestAllAsync`, which probes *every* configured role: with nothing serving
+  :8002, "Test all" reported a standing failure forever. A check that is always
+  partly red is a check that stops being read, which defeats the reason it was
+  built. That is the whole argument — "it wastes memory" was never true.
+- **Commented, not deleted.** The block is the only place a reader learns the
+  intended shape and that :8002 is the port the serving layout reserves, and
+  ladder phase 4 still plans to point the harness at a larger drafter. Deleting
+  it would move that knowledge into prose only. The binder skips comments, so
+  the cost of keeping it is zero.
+- **`ModelRoles.Drafter` stays.** Nothing references it, but it is a documented
+  `const` that costs nothing, and `ModelRoles` already states that config may
+  define any number of roles and that none of these are required. Removing it is
+  a source-breaking change to a public surface that buys nothing.
+- **"Remove it from the UI" turned out not to be a UI task, and that is the
+  design working.** The settings dialog has no hardcoded role list — `BuildRoles`
+  enumerates `Settings.Models.Roles`, and `RoleNames` feeds the three editable
+  combo boxes. Dropping the config entry removed the row and all three dropdown
+  entries with no XAML, ViewModel or test change. Worth writing down because the
+  next role question will sound like a UI change too, and won't be one.
+
+**The thing that will surprise you later**
+
+Editing `appsettings.json` does **not** remove the drafter from a machine that
+has ever saved settings. Configuration layering is additive per key — it merges,
+it never deletes — and saved settings sit *above* `appsettings.json`, while
+`CollectRoles` rewrites the full `Roles` dictionary on every Save. So any
+`settings.json` written before today still carries a complete drafter block and
+will keep showing the row. Clearing it is the dialog's **Remove** button (enabled
+whenever more than one role exists) or **Reset**. This cuts both ways: it is also
+why a user who *wants* the drafter never needed us to ship it configured.
+
+**The guide's contradiction, and what replaced it**
+
+`dgx-spark-setup.html` said in section 4 that a second machine serving `drafter`
+needs "one line of configuration and no code change", and then said in a caution
+six days newer that nothing in the harness calls it. Both were still in the file.
+The claim is true of relocating a role the harness *does* call, and false of this
+one. It now says so explicitly: the seam is open at the configuration layer and
+not at the call layer, so standing up a drafter is a harness change, not an
+endpoint change.
+
+**Open**
+
+What a drafter is actually handed, and when. That is the missing call site and
+the real content of ladder phase 4 — a decision about how work is split between
+a fast worker and a slow strong model, which is exactly the kind of thing the
+metrics exist to answer. Until it is made, the alias stays commented.
+
+---
+
+## 2026-07-28 — Settings that travel: per project, and between machines
+
+**Shipped.** Three files now carry settings instead of one pair. The per-user
+`settings.json` / `secrets.json` are unchanged; a project can carry
+`.glasscoder.json` at its root; and `Export…` / `Import…` move a whole
+configuration as a `.glassconfig` file with the API keys re-encrypted under a
+passphrase. 361 tests green.
+
+**Decided**
+
+- **Copying settings never needed a feature; carrying the keys did.** The
+  settings folder was already openable and `settings.json` is already plain
+  JSON, so an export button over that is a wrapper around Explorer. The thing
+  file-copying cannot do is the keys: DPAPI ciphertext is bound to one Windows
+  account, so a copied `secrets.json` arrives decrypting to nothing. That is the
+  whole justification for the export format, and it is why the passphrase is not
+  optional decoration.
+- **There is no "include keys in plain text" option.** Empty passphrase means
+  the keys are left out. An export is exactly the kind of file that gets
+  attached to a message, and a file that quietly contains a usable credential is
+  how keys reach places nobody meant to send them.
+- **AES-GCM rather than CBC, and PBKDF2 at 600k iterations.** GCM authenticates,
+  so a wrong passphrase is *reported* rather than yielding a plausible wrong key
+  that only fails later at the endpoint as a puzzling 401. All values failing to
+  decrypt is therefore a certainty about the passphrase, not a guess.
+- **A section belongs to the project when its values name things inside the
+  repository.** Workspace, Context, Verification, VerificationLadder, Git,
+  Provenance. Everything else — the served roles, the sandbox, budgets, sinks —
+  describes the machine or the experiment and stays where one copy serves every
+  project. One rule, not a taste, so the next section added has an obvious home.
+- **The project file never carries a key, unconditionally.** Not "only when one
+  is set" — the strip runs whether or not there is anything to strip, because
+  `.glasscoder.json` is one `git add` from being public and a conditional is a
+  thing a caller could get wrong.
+- **It omits `Workspace:RepoRoot` too.** The file's location *is* the root, so an
+  absolute path inside it would only be a way to be wrong after somebody clones
+  the project elsewhere. The configuration layer supplies the containing
+  directory instead.
+- **The project layer sits in the same band as saved settings** — above the
+  machine, below the environment and `--config`. A project is a saved preference
+  like any other and must not redefine what an arm means.
+- **Import populates, it does not apply.** The imported keys go back under DPAPI
+  through the ordinary `Save`, not through a second write path that would have
+  to get the same thing right twice. The workspace root is deliberately not
+  imported: a path from another machine names nothing here.
+- **`SettingsDocument` exists so that lifting keys out of a document has exactly
+  one implementation.** Three writers now produce settings files; a second copy
+  of that step would be a second chance to leave a key in one.
+
+**The bug worth remembering**
+
+`AddJsonFile` given an absolute path resolves a `PhysicalFileProvider` with
+`ExclusionFilters.Sensitive`, which **refuses to serve dot-prefixed files**. So
+`.glasscoder.json` was skipped — and skipped in silence, because the source is
+optional. No error, no log line, no file: the feature simply did nothing. The
+provider is now constructed explicitly with `ExclusionFilters.None`.
+
+This was caught only because the layering test asserted the project value
+actually won, rather than that the file had been written. A test that stopped at
+"the file exists" would have passed.
+
+**Verified**
+
+Beyond the 13 new unit tests, the dialog was driven in the real window through
+UI Automation: `Save to project` wrote a file whose sections were exactly
+`Workspace, Context, Verification, VerificationLadder, Git, Provenance` with no
+`Models`, no `ApiKey` and no `RepoRoot`; `Export…` produced `aes-gcm-pbkdf2` at
+600000 iterations with no plaintext key; and that app-produced file was then
+imported back to the exact key the app held — confirming the passphrase typed
+into the `PasswordBox` is the one that opens it.
+
+**Open**
+
+- The eight tab screenshots in `docs/settings.html` predate the three new footer
+  buttons. A separate footer figure documents them; regenerating all eight would
+  mean re-tuning roughly thirty hand-placed callout percentages.
+- `--config` is still ignored by the WPF app. The console host parses it
+  (`CommandLine.cs`); `App.xaml.cs` passes `e.Args` but never a `configPath`.
+  Pre-existing, and a one-line fix.
+- Removing a *default* list entry still does not survive a reload — the binder
+  appends to lists, so `appsettings.json` reasserts it and the deduplicating
+  reader can only collapse duplicates. Pre-existing; it affects import the same
+  way it already affects save.
+
+---
+
+## 2026-07-27 — Dark chrome around the content
+
+**Shipped.** The surface list and the workspace pane are now dark blue
+(`#3A5A7D`), framing a content area that stays light. The header keeps
+`#1F2933` and was explicitly left alone. 348 tests green.
+
+**Decided**
+
+- **The header stays darker than the panes.** It holds the goal and the run
+  controls; being the darkest thing in the window is what keeps it reading as
+  the top of a hierarchy rather than a third panel. That is why `Chrome*` and
+  `Pane*` are two palettes and not one.
+- **The palette is `Color` resources with the brushes derived from them**, not
+  brushes alone. The tree recolours selection by overriding four `SystemColors`
+  brush keys, and those need raw `Color` values — as hardcoded hex they would
+  have gone on matching the *old* pane colour after any recolour, silently. The
+  first version of this change had exactly that bug in it.
+- **Selection is templated, not merely recoloured.** The stock `ListBoxItem`
+  and `TreeViewItem` paint the system highlight, a pale blue behind near-black
+  text, which on a dark ground is worse than no styling at all. The list gets a
+  full template (fill plus an accent bar, since a fill alone is weak at this
+  contrast); the tree gets the four brush overrides instead, because its default
+  template also owns the expander glyph and the indentation and neither needed
+  changing. Inactive selection is styled too — the tree loses focus whenever the
+  goal box is used, and a selection that vanishes then reads as a click that did
+  not register.
+- **The modified-file green and red are lightened here and left alone on the
+  Changes surface.** `#1B5E20` and `#B00020` are chosen against white. The panes
+  agree on the hue, which is the part that carries meaning; agreeing on the hex
+  would only mean one of the two is invisible.
+
+**Verified**
+
+Every candidate was built, captured and compared as a real window rather than
+reasoned about. Two traps cost a round each and are worth writing down:
+
+- Capture with **`PrintWindow(hwnd, hdc, 2)`** — flag 2 is
+  `PW_RENDERFULLCONTENT`. `CopyFromScreen` grabs whatever is on top and is
+  offset by the invisible resize border; plain `PrintWindow` without flag 2
+  captures a WPF window as solid black.
+- Call **`SetProcessDpiAwarenessContext(-4)` before any window measurement**.
+  This display runs at 125%, so a DPI-unaware process gets virtualised
+  coordinates from `GetWindowRect`, sizes the bitmap in logical units, and
+  `PrintWindow` then fills only the top-left corner. The tell is a capture that
+  is sharp and correctly framed but missing content — 1400x950 against a real
+  1550x950.
+
+Tree selection was checked by driving UI Automation to select a node and
+capturing that, rather than assuming the brush overrides took.
+
+---
+
+## 2026-07-27 — The window that never opened
+
+**Shipped.** A fix for a startup deadlock, the desktop composition root pulled
+out of `App.OnStartup` so it can be built by something other than the
+application, and `tests/GlassCoder.Wpf.Tests` to build it. 348 tests green.
+Reported as "when I launch the app from the debugger, the application hangs" —
+and it hung outside the debugger too; the debugger was incidental.
+
+**What it was.** Enabling the git tools closed a cycle in the graph:
+`ChangesViewModel` takes `GitTool` so it can decide whether to show its git
+controls, `GitTool` takes `IApprovalGate` so a push still asks a human, and
+`WpfApprovalGate` took `ChangesViewModel` to ask with. It appeared the moment
+the previous session's Git tab was used to switch the tools on — the settings
+file grew `Git:Enabled: true` three minutes after that commit, and from then on
+the window never appeared.
+
+**Decided**
+
+- **The cycle is broken at the gate, which takes `Func<ChangesViewModel>`.**
+  Of the three edges that is the one that is genuinely late: the gate needs the
+  view only when something is waiting on a decision, whereas the change view
+  needs to know at construction whether to show its buttons, and `GitTool`
+  needs a gate it can rely on. Breaking a different edge would have made a
+  constructor lie about when its dependency is really used.
+- **The composition root moved to `AddGlassCoderDesktop`.** Registrations that
+  live inside `OnStartup` can only be exercised by starting the application,
+  which is why a defect this total went out. `App.OnStartup` is now the shared
+  bootstrap plus that one call, and the test makes the same two calls.
+- **The test resolves under a timeout, on an STA thread.** This class of bug
+  does not throw. `Microsoft.Extensions.DependencyInjection` detects cycles
+  while building call sites, and a factory registration is opaque to that — so
+  instead of `InvalidOperationException` the resolver recursed, its `StackGuard`
+  handed the work to a thread pool thread, and that thread blocked on the
+  singleton lock the resolving thread still held. Silent, at 0% CPU, with
+  nothing in the log. A test calling `GetRequiredService` directly would have
+  hung the run rather than failed a case, so `UiThread.Run` gives the graph 30
+  seconds on a background STA thread and fails with a `TimeoutException` that
+  names the likely cause.
+- **`ValidateOnBuild` would not have caught this** and was not reached for. It
+  builds call sites, and the cycle is invisible at that level for the same
+  reason cycle detection is.
+- **Tests resolve view models, never windows.** A `Window` wants a running
+  `Application`, and none of this is about rendering.
+
+**Verified**
+
+The diagnosis came from a stack, not a reading: `dotnet-stack` against the hung
+process showed the UI thread recursing through the `ChangesViewModel` factory —
+five turns of the loop visible — and a second thread parked in
+`Monitor.Enter_Slowpath` inside `VisitRootCache`, which is the other half of the
+deadlock. Confirmed by launching with `GlassCoder__Git__Enabled=false`, which
+opened the window.
+
+The regression test was then checked against the bug rather than merely run: the
+`Func<ChangesViewModel>` registration was temporarily made to resolve eagerly,
+recreating the exact cycle. The git-enabled case failed on timeout, the
+git-disabled case passed, and the change was reverted. A test for a hang that
+has never been watched to fail is a test that might be asserting nothing.
+
+**Still open**
+
+The approval flow is covered as far as the graph and no further — that the gate
+and the shell share one `ChangesViewModel`, not that a request reaches the strip
+and a decision comes back. That needs a pumped dispatcher.
+
+---
+
 ## 2026-07-27 — The git settings, in the dialog
 
 **Shipped.** A Git tab in the settings dialog with every `GitOptions` value

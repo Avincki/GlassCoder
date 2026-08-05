@@ -207,9 +207,15 @@ public sealed class AgentLoopVerificationTests
         FakeChatClient client = new(
             FakeChatClient.ToolCall("edit_file", new Dictionary<string, object?>
             {
-                ["path"] = "src/Pager.cs",
-                ["oldText"] = "int X => 1",
-                ["newText"] = "int X => 2",
+                ["edits"] = new[]
+                {
+                    new Dictionary<string, object?>
+                    {
+                        ["path"] = "src/Pager.cs",
+                        ["oldText"] = "int X => 1",
+                        ["newText"] = "int X => 2",
+                    },
+                },
             }),
             FakeChatClient.Text("done"));
 
@@ -221,6 +227,7 @@ public sealed class AgentLoopVerificationTests
             new CriticPanel(
                 new FakeChatClientFactory(client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
                 Options.Create(new CritiqueOptions())),
+            guard,
             Options.Create(new VerificationLadderOptions()));
 
         RecordingStepLogger stepLogger = new();

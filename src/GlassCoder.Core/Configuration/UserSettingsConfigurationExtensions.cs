@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.EnvironmentVariables;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.FileProviders.Physical;
 
 namespace GlassCoder.Core.Configuration;
 
@@ -36,6 +38,74 @@ public static class UserSettingsConfigurationExtensions
         ArgumentNullException.ThrowIfNull(builder);
         ArgumentNullException.ThrowIfNull(store);
 
+        InsertBeforeEnvironment(builder, BuildSources(store));
+        return builder;
+    }
+
+    /// <summary>
+    /// Layers a project's own <c>.glasscoder.json</c> over the per-user settings.
+    /// <para>
+    /// It goes in <em>after</em> the per-user file and still ahead of the environment, so the
+    /// project wins over the machine-wide default - which is the whole point, since the machine
+    /// cannot know one project's writable paths from another's - while an ablation arm still wins
+    /// over the project.
+    /// </para>
+    /// <para>
+    /// The root is also asserted here rather than read from the file. The file's location is the
+    /// root; a path written inside it would only be a way to be wrong once the project is moved or
+    /// cloned somewhere else.
+    /// </para>
+    /// </summary>
+    /// <param name="builder">The configuration being built.</param>
+    /// <param name="projectRoot">The repository the agent is working on.</param>
+    public static IConfigurationBuilder AddGlassCoderProjectSettings(
+        this IConfigurationBuilder builder,
+        string projectRoot)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (string.IsNullOrWhiteSpace(projectRoot))
+        {
+            return builder;
+        }
+
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(projectRoot));
+        string path = Path.Combine(root, ProjectSettingsStore.ProjectFileName);
+
+        if (!File.Exists(path))
+        {
+            // Nothing is inserted at all when there is no file. An optional source pointing at a
+            // path that does not exist would work, but it would also make every launch look as
+            // though a project layer were in force.
+            return builder;
+        }
+
+        // The file provider is built by hand, and that is not incidental. AddJsonFile(absolutePath)
+        // resolves a PhysicalFileProvider with ExclusionFilters.Sensitive, which refuses to serve
+        // any dot-prefixed file - so a project file named like every other project file would be
+        // skipped, and skipped silently, because the source is optional.
+        ConfigurationBuilder scratch = new();
+        scratch.AddJsonFile(
+            new PhysicalFileProvider(root, ExclusionFilters.None),
+            ProjectSettingsStore.ProjectFileName,
+            optional: true,
+            reloadOnChange: false);
+
+        scratch.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            [$"{GlassCoder.Tools.Guardrails.WorkspaceOptions.SectionName}:RepoRoot"] = root,
+        });
+
+        InsertBeforeEnvironment(builder, [.. scratch.Sources]);
+        return builder;
+    }
+
+    /// <summary>
+    /// Inserts sources immediately ahead of the last environment-variable source, preserving the
+    /// order they are given in.
+    /// </summary>
+    private static void InsertBeforeEnvironment(IConfigurationBuilder builder, List<IConfigurationSource> sources)
+    {
         int index = builder.Sources.Count;
         for (int i = builder.Sources.Count - 1; i >= 0; i--)
         {
@@ -46,12 +116,10 @@ public static class UserSettingsConfigurationExtensions
             }
         }
 
-        foreach (IConfigurationSource source in BuildSources(store))
+        foreach (IConfigurationSource source in sources)
         {
             builder.Sources.Insert(index++, source);
         }
-
-        return builder;
     }
 
     private static List<IConfigurationSource> BuildSources(IUserSettingsStore store)

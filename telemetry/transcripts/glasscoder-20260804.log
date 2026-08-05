@@ -1,0 +1,520 @@
+[09:39:35 INF] Application started. Press Ctrl+C to shut down.
+[09:39:35 INF] Hosting environment: Production
+[09:39:35 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[09:39:35 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[09:40:00 INF] Application is shutting down...
+[10:39:03 INF] Application started. Press Ctrl+C to shut down.
+[10:39:03 INF] Hosting environment: Production
+[10:39:03 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[10:39:03 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[11:07:50 INF] Application is shutting down...
+[11:07:54 INF] Application started. Press Ctrl+C to shut down.
+[11:07:54 INF] Hosting environment: Production
+[11:07:54 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[11:07:54 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[11:08:39 INF] Run f80bcf1019374516af2a98aae8fd42ea started for task desktop on role worker with 13 tools
+[11:08:58 INF] Step 0 · continued · glob:Succeeded · 2814 tokens · 19111 ms
+[11:09:04 INF] Step 1 · continued · glob:Succeeded · 2942 tokens · 6457 ms
+[11:09:29 INF] Created src/Utils/ArrayOperations.cs: 28 lines
+[11:09:29 INF] Verification rung "Syntax": passed in 2 ms
+[11:09:29 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:09:29 INF] Verification rung "Compile": FAILED in 380 ms
+[11:09:29 INF] Verification after step: FAILED at rung "Compile" in 384 ms
+[11:09:29 INF] Step 2 · continued · create_file:Succeeded · 3585 tokens · 24874 ms
+[11:09:46 INF] Created src/ArrayOperations.csproj: 10 lines
+[11:09:46 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:09:47 INF] Verification rung "Compile": FAILED in 326 ms
+[11:09:47 INF] Verification after step: FAILED at rung "Compile" in 326 ms
+[11:09:47 INF] Step 3 · continued · create_file:Succeeded · 3805 tokens · 17368 ms
+[11:09:52 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:09:54 INF] Step 4 · continued · build:Succeeded · 3799 tokens · 7617 ms
+[11:10:05 INF] Edited src/ArrayOperations.csproj: lines 1-9, 10 → 9 lines
+[11:10:05 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:10:05 INF] Verification rung "Compile": FAILED in 293 ms
+[11:10:05 INF] Verification after step: FAILED at rung "Compile" in 293 ms
+[11:10:05 INF] Step 5 · continued · edit_file:Succeeded · 4195 tokens · 10786 ms
+[11:10:32 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:10:33 INF] Step 6 · continued · build:Succeeded · 4985 tokens · 28253 ms
+[11:11:07 INF] Step 7 · continued · read_file:Succeeded · 5331 tokens · 33686 ms
+[11:11:15 INF] Step 8 · Completed · no tool call · 5106 tokens · 8556 ms
+[11:11:15 INF] Recorded metrics for run f80bcf1019374516af2a98aae8fd42ea: 9 steps, 36562 tokens, tool-call validity 100 %
+[11:11:15 INF] Run f80bcf1019374516af2a98aae8fd42ea stopped: "Completed" after 9 steps, 36562 tokens, 156.7s, tool-call validity 100 %
+[11:13:01 INF] Run bee2e874b223478194552bc89a3fb0d4 started for task desktop on role worker with 13 tools
+[11:13:05 INF] Step 0 · continued · glob:Succeeded · 2763 tokens · 4414 ms
+[11:13:12 INF] Step 1 · continued · read_file:Succeeded · 2933 tokens · 6125 ms
+[11:13:16 INF] Step 2 · continued · glob:Succeeded · 3313 tokens · 4202 ms
+[11:13:21 INF] Step 3 · continued · glob:Succeeded · 3477 tokens · 5710 ms
+[11:13:42 INF] Plan updated: 0/3 complete
+[11:13:42 INF] Step 4 · continued · update_todos:Succeeded · 3986 tokens · 20052 ms
+[11:13:47 INF] Step 5 · continued · read_file:Succeeded · 3926 tokens · 5590 ms
+[11:13:55 INF] Step 6 · continued · glob:Succeeded · 4217 tokens · 7576 ms
+[11:14:13 INF] Created src/ArrayOperations.Tests/ArrayOperations.Tests.csproj: 27 lines
+[11:14:13 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:14:13 INF] Verification rung "Compile": FAILED in 330 ms
+[11:14:13 INF] Verification after step: FAILED at rung "Compile" in 330 ms
+[11:14:13 INF] Step 7 · continued · create_file:Succeeded · 4662 tokens · 18739 ms
+[11:14:39 INF] Step 8 · continued · read_file:Succeeded · 5299 tokens · 25408 ms
+[11:14:52 INF] Plan updated: 1/3 complete
+[11:14:52 INF] Step 9 · continued · update_todos:Succeeded · 5484 tokens · 12887 ms
+[11:15:26 INF] Step 10 · continued · create_file:Failed · 6560 tokens · 34280 ms
+[11:16:25 INF] Step 11 · continued · create_file:Failed · 8410 tokens · 58753 ms
+[11:16:32 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:16:41 INF] Step 12 · continued · build:Succeeded · 8132 tokens · 16393 ms
+[11:17:00 INF] Step 13 · continued · glob:Succeeded · 8711 tokens · 18842 ms
+[11:17:15 INF] Step 14 · continued · glob:Succeeded · 8733 tokens · 14550 ms
+[11:17:35 INF] Step 15 · continued · edit_file:Failed · 9036 tokens · 19936 ms
+[11:17:42 INF] Step 16 · continued · read_file:Succeeded · 8937 tokens · 7244 ms
+[11:17:54 INF] Edited src/ArrayOperations.Tests/ArrayOperations.Tests.csproj: lines 10-12, 27 → 27 lines
+[11:17:54 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:17:55 INF] Verification rung "Compile": FAILED in 337 ms
+[11:17:55 INF] Verification after step: FAILED at rung "Compile" in 337 ms
+[11:17:55 INF] Step 17 · continued · edit_file:Succeeded · 9584 tokens · 12852 ms
+[11:18:03 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:18:05 INF] Step 18 · continued · build:Succeeded · 9826 tokens · 10253 ms
+[11:18:44 INF] Step 19 · continued · create_file:Failed · 10995 tokens · 38766 ms
+[11:19:03 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:19:04 INF] Step 20 · continued · build:Succeeded · 11535 tokens · 20862 ms
+[11:19:18 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:19:19 INF] Step 21 · continued · build:Succeeded · 11579 tokens · 14765 ms
+[11:19:29 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:19:29 INF] Step 22 · continued · build:Succeeded · 11674 tokens · 10163 ms
+[11:19:46 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:19:47 INF] Step 23 · continued · run_tests:Succeeded · 12076 tokens · 17964 ms
+[11:20:14 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:20:15 INF] Step 24 · continued · build:Succeeded · 13362 tokens · 27611 ms
+[11:20:26 INF] Step 25 · continued · read_file:Succeeded · 13129 tokens · 10983 ms
+[11:20:41 INF] Step 26 · continued · glob:Succeeded · 13466 tokens · 15399 ms
+[11:21:03 INF] Edited src/ArrayOperations.csproj: lines 3-8, 9 → 10 lines
+[11:21:03 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:21:03 INF] Verification rung "Compile": FAILED in 337 ms
+[11:21:03 INF] Verification after step: FAILED at rung "Compile" in 337 ms
+[11:21:03 INF] Step 27 · continued · edit_file:Succeeded · 13783 tokens · 22081 ms
+[11:21:14 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:21:15 INF] Step 28 · continued · build:Succeeded · 13854 tokens · 11495 ms
+[11:21:26 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:21:27 INF] Step 29 · continued · build:Succeeded · 14060 tokens · 12258 ms
+[11:21:27 INF] Recorded metrics for run bee2e874b223478194552bc89a3fb0d4: 30 steps, 257502 tokens, tool-call validity 100 %
+[11:21:27 INF] Run bee2e874b223478194552bc89a3fb0d4 stopped: "StepLimit" after 30 steps, 257502 tokens, 506.2s, tool-call validity 100 %
+[11:43:53 INF] Application is shutting down...
+[11:52:44 INF] Application started. Press Ctrl+C to shut down.
+[11:52:44 INF] Hosting environment: Production
+[11:52:44 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[11:52:44 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[11:53:37 INF] Run bb0af8f6aa4c440eaca05d3f13aa6e8c started for task desktop on role worker with 15 tools
+[11:53:43 INF] Step 0 · continued · glob:Succeeded · 3315 tokens · 5667 ms
+[11:53:47 INF] Step 1 · continued · list_projects:Succeeded · 3391 tokens · 4233 ms
+[11:54:00 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[11:54:01 INF] Step 2 · continued · dotnet_project:Succeeded · 3724 tokens · 13865 ms
+[11:54:06 INF] Step 3 · continued · glob:Succeeded · 3824 tokens · 4895 ms
+[11:54:12 INF] Step 4 · continued · read_file:Succeeded · 4000 tokens · 5836 ms
+[11:54:26 INF] Step 5 · continued · edit_file:Failed · 4440 tokens · 13771 ms
+[11:54:30 INF] Step 6 · continued · read_file:Succeeded · 4445 tokens · 4750 ms
+[11:54:56 INF] Step 7 · continued · edit_file:Failed · 5289 tokens · 26148 ms
+[11:55:13 INF] Step 8 · continued · edit_file:Failed · 5277 tokens · 17012 ms
+[11:55:25 INF] Step 9 · continued · read_file:Succeeded · 5370 tokens · 11506 ms
+[11:55:44 INF] Step 10 · continued · edit_file:Failed · 5801 tokens · 18511 ms
+[11:55:52 INF] Step 11 · continued · read_file:Succeeded · 5834 tokens · 8787 ms
+[11:56:06 INF] Step 12 · continued · edit_file:Failed · 6178 tokens · 13403 ms
+[11:56:18 INF] Step 13 · continued · read_file:Succeeded · 6385 tokens · 12222 ms
+[11:56:35 INF] Step 14 · continued · edit_file:Failed · 6816 tokens · 17354 ms
+[11:57:00 INF] Step 15 · continued · edit_file:Failed · 7308 tokens · 24681 ms
+[11:57:44 INF] Step 16 · continued · edit_file:Failed · 8054 tokens · 44421 ms
+[11:58:02 INF] Step 17 · continued · edit_file:Failed · 7721 tokens · 17602 ms
+[11:58:13 INF] Step 18 · continued · read_file:Succeeded · 7807 tokens · 11292 ms
+[11:58:30 INF] Step 19 · continued · edit_file:Failed · 8159 tokens · 16235 ms
+[11:58:49 INF] Step 20 · continued · edit_file:Failed · 8612 tokens · 19503 ms
+[11:59:06 INF] Step 21 · continued · edit_file:Failed · 8786 tokens · 16782 ms
+[11:59:25 INF] Step 22 · continued · edit_file:Failed · 9157 tokens · 19538 ms
+[12:00:06 INF] Step 23 · continued · edit_file:Failed · 10136 tokens · 40348 ms
+[12:00:24 INF] Step 24 · continued · edit_file:Failed · 9785 tokens · 18424 ms
+[12:00:36 INF] Step 25 · continued · read_file:Succeeded · 9937 tokens · 12353 ms
+[12:00:52 INF] Step 26 · continued · edit_file:Failed · 10227 tokens · 15077 ms
+[12:01:09 INF] Step 27 · continued · edit_file:Failed · 10576 tokens · 17732 ms
+[12:06:35 INF] Edited src/MyMathLib/Class1.cs: lines 3-4, 7 → 8 lines
+[12:06:35 INF] Verification rung "Syntax": passed in 2 ms
+[12:06:35 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[12:06:37 INF] Verification rung "Compile": passed in 2205 ms
+[12:06:37 INF] Verification rung "Analyzers": passed in 29 ms
+[12:06:37 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[12:06:38 INF] Verification rung "UnitTests": passed in 950 ms
+[12:06:38 INF] Verification after step: passed at rung "UnitTests" in 3193 ms
+[12:06:38 INF] Step 28 · continued · edit_file:Succeeded · 18866 tokens · 328912 ms
+[12:06:48 INF] Step 29 · continued · read_file:Succeeded · 10952 tokens · 9959 ms
+[12:06:48 INF] Recorded metrics for run bb0af8f6aa4c440eaca05d3f13aa6e8c: 30 steps, 220172 tokens, tool-call validity 100 %
+[12:06:48 INF] Run bb0af8f6aa4c440eaca05d3f13aa6e8c stopped: "StepLimit" after 30 steps, 220172 tokens, 790.9s, tool-call validity 100 %
+[13:05:12 INF] Application is shutting down...
+[13:05:37 INF] Application started. Press Ctrl+C to shut down.
+[13:05:37 INF] Hosting environment: Production
+[13:05:37 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[13:05:37 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[13:06:28 INF] Run ab51534baed8455aa51dce9c656a791d started for task desktop on role worker with 15 tools
+[13:06:38 INF] Step 0 · continued · glob:Succeeded · 3542 tokens · 10463 ms
+[13:06:43 INF] Step 1 · continued · list_projects:Succeeded · 3492 tokens · 4608 ms
+[13:07:00 INF] Step 2 · continued · dotnet_project:Failed · 3942 tokens · 17472 ms
+[13:07:07 INF] Step 3 · continued · glob:Succeeded · 3962 tokens · 6863 ms
+[13:07:14 INF] Step 4 · continued · glob:Succeeded · 4070 tokens · 6301 ms
+[13:07:27 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:07:28 INF] Step 5 · continued · dotnet_project:Succeeded · 4344 tokens · 14170 ms
+[13:07:51 INF] Created src/MyApp/MathOperations.cs: 33 lines
+[13:07:51 INF] Verification rung "Syntax": passed in 2 ms
+[13:07:51 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:07:53 INF] Verification rung "Compile": passed in 2384 ms
+[13:07:53 INF] Verification rung "Analyzers": passed in 81 ms
+[13:07:53 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:07:54 INF] Verification rung "UnitTests": passed in 942 ms
+[13:07:54 INF] Verification after step: passed at rung "UnitTests" in 3415 ms
+[13:07:54 INF] Step 6 · continued · create_file:Succeeded · 4889 tokens · 26175 ms
+[13:07:59 INF] Step 7 · continued · read_file:Succeeded · 4888 tokens · 5496 ms
+[13:08:11 INF] Step 8 · continued · edit_file:Failed · 5254 tokens · 11395 ms
+[13:08:22 INF] Edited src/MyApp/Program.cs: lines 1-17, 2 → 18 lines
+[13:08:22 INF] Verification rung "Syntax": passed in 0 ms
+[13:08:22 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:08:23 INF] Verification rung "Compile": passed in 1271 ms
+[13:08:23 INF] Verification rung "Analyzers": passed in 28 ms
+[13:08:23 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:08:24 INF] Verification rung "UnitTests": passed in 986 ms
+[13:08:24 INF] Verification after step: passed at rung "UnitTests" in 2285 ms
+[13:08:24 INF] Step 9 · continued · edit_file:Succeeded · 5736 tokens · 13196 ms
+[13:08:30 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:08:31 INF] Step 10 · continued · build:Succeeded · 6133 tokens · 7167 ms
+[13:08:39 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:08:40 INF] Step 11 · continued · run_tests:Succeeded · 6339 tokens · 8391 ms
+[13:09:10 INF] Step 12 · Completed · no tool call · 7207 tokens · 30446 ms
+[13:09:10 INF] Recorded metrics for run ab51534baed8455aa51dce9c656a791d: 13 steps, 63798 tokens, tool-call validity 100 %
+[13:09:10 INF] Run ab51534baed8455aa51dce9c656a791d stopped: "Completed" after 13 steps, 63798 tokens, 162.2s, tool-call validity 100 %
+[13:09:26 INF] Run 152b24e39ea940a8b2728a7b57f1a9a1 started for task desktop on role worker with 15 tools
+[13:09:33 INF] Step 0 · continued · glob:Succeeded · 3416 tokens · 6693 ms
+[13:09:37 INF] Step 1 · continued · read_file:Succeeded · 3522 tokens · 4761 ms
+[13:09:49 INF] Step 2 · continued · list_projects:Succeeded · 4107 tokens · 11390 ms
+[13:09:59 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:10:04 INF] Step 3 · continued · dotnet_project:Succeeded · 4286 tokens · 14946 ms
+[13:10:10 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:10:10 INF] Step 4 · continued · dotnet_project:Succeeded · 4491 tokens · 6548 ms
+[13:10:54 INF] Created src/MyApp.Tests/MathOperationsTests.cs: 73 lines
+[13:10:54 INF] Verification rung "Syntax": passed in 0 ms
+[13:10:54 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:10:58 INF] Verification rung "Compile": passed in 4596 ms
+[13:10:59 INF] Verification rung "Analyzers": passed in 649 ms
+[13:10:59 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:11:01 INF] Verification rung "UnitTests": passed in 2090 ms
+[13:11:01 INF] Verification after step: passed at rung "UnitTests" in 7336 ms
+[13:11:01 INF] Step 5 · continued · create_file:Succeeded · 5908 tokens · 50750 ms
+[13:11:12 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[13:11:14 INF] Step 6 · continued · run_tests:Succeeded · 5696 tokens · 12571 ms
+[13:11:23 INF] Plan updated: 1/1 complete
+[13:11:23 INF] Step 7 · continued · update_todos:Succeeded · 6119 tokens · 9396 ms
+[13:11:31 INF] Step 8 · Completed · no tool call · 6270 tokens · 8081 ms
+[13:11:31 INF] Recorded metrics for run 152b24e39ea940a8b2728a7b57f1a9a1: 9 steps, 43815 tokens, tool-call validity 100 %
+[13:11:31 INF] Run 152b24e39ea940a8b2728a7b57f1a9a1 stopped: "Completed" after 9 steps, 43815 tokens, 125.1s, tool-call validity 100 %
+[13:29:06 INF] Application is shutting down...
+[14:05:26 INF] Application started. Press Ctrl+C to shut down.
+[14:05:26 INF] Hosting environment: Production
+[14:05:26 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[14:05:26 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[14:06:04 INF] Run 8a77ee008ccc4dd7b46986e9652ac3e4 started for task desktop on role worker with 17 tools
+[14:06:10 INF] Step 0 · continued · glob:Succeeded · 3576 tokens · 6082 ms
+[14:06:16 INF] Step 1 · continued · list_projects:Succeeded · 3697 tokens · 6260 ms
+[14:06:29 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:06:30 INF] Step 2 · continued · dotnet_project:Succeeded · 3966 tokens · 13430 ms
+[14:06:35 INF] Step 3 · continued · glob:Succeeded · 4092 tokens · 5463 ms
+[14:06:41 INF] Step 4 · continued · read_file:Succeeded · 4241 tokens · 5653 ms
+[14:06:57 INF] Edited src/MyMathLib/Class1.cs: lines 1-22, 7 → 23 lines
+[14:06:57 INF] Verification rung "Syntax": passed in 2 ms
+[14:06:57 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:06:59 INF] Verification rung "Compile": passed in 2320 ms
+[14:06:59 INF] Verification rung "Analyzers": passed in 36 ms
+[14:07:00 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:07:00 INF] Verification rung "UnitTests": passed in 961 ms
+[14:07:00 INF] Verification after step: passed at rung "UnitTests" in 3325 ms
+[14:07:00 INF] Step 5 · continued · edit_file:Succeeded · 4750 tokens · 19570 ms
+[14:07:54 INF] Edited src/MyMathLib/Class1.cs: lines 1-26, 23 → 27 lines
+[14:07:54 INF] Verification rung "Syntax": passed in 0 ms
+[14:07:54 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:07:55 INF] Verification rung "Compile": passed in 1173 ms
+[14:07:55 INF] Verification rung "Analyzers": passed in 24 ms
+[14:07:55 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:07:56 INF] Verification rung "UnitTests": passed in 951 ms
+[14:07:56 INF] Verification after step: passed at rung "UnitTests" in 2149 ms
+[14:07:56 INF] Step 6 · continued · edit_file:Succeeded · 6226 tokens · 55549 ms
+[14:08:19 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:08:20 INF] Step 7 · continued · dotnet_project:Succeeded · 5849 tokens · 24287 ms
+[14:08:27 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:08:28 INF] Step 8 · continued · dotnet_project:Succeeded · 5714 tokens · 7429 ms
+[14:08:33 INF] Step 9 · continued · glob:Succeeded · 5895 tokens · 5439 ms
+[14:08:38 INF] Step 10 · continued · read_file:Succeeded · 6057 tokens · 5395 ms
+[14:09:03 INF] Edited src/MyMathLib.Tests/UnitTest1.cs: lines 1-72, 11 → 73 lines
+[14:09:04 INF] Verification rung "Syntax": passed in 0 ms
+[14:09:04 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:08 INF] Verification rung "Compile": passed in 4559 ms
+[14:09:09 INF] Verification rung "Analyzers": passed in 640 ms
+[14:09:09 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:11 INF] Verification rung "UnitTests": passed in 2016 ms
+[14:09:11 INF] Verification after step: passed at rung "UnitTests" in 7215 ms
+[14:09:11 INF] Step 11 · continued · edit_file:Succeeded · 6956 tokens · 32247 ms
+[14:09:18 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:18 INF] Step 12 · continued · build:Succeeded · 7283 tokens · 7188 ms
+[14:09:27 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:27 INF] Step 13 · continued · dotnet_project:Succeeded · 7583 tokens · 9173 ms
+[14:09:34 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:35 INF] Step 14 · continued · dotnet_project:Succeeded · 7729 tokens · 7569 ms
+[14:09:42 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:43 INF] Step 15 · continued · dotnet_project:Succeeded · 7962 tokens · 7869 ms
+[14:09:52 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:09:53 INF] Step 16 · continued · build:Succeeded · 8241 tokens · 10806 ms
+[14:10:01 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[14:10:03 INF] Step 17 · continued · run_tests:Succeeded · 8371 tokens · 9359 ms
+[14:10:19 INF] Step 18 · Completed · no tool call · 9131 tokens · 16630 ms
+[14:10:19 INF] Recorded metrics for run 8a77ee008ccc4dd7b46986e9652ac3e4: 19 steps, 117319 tokens, tool-call validity 100 %
+[14:10:19 INF] Run 8a77ee008ccc4dd7b46986e9652ac3e4 stopped: "Completed" after 19 steps, 117319 tokens, 255.4s, tool-call validity 100 %
+[14:17:22 INF] Application is shutting down...
+[15:23:16 INF] Application started. Press Ctrl+C to shut down.
+[15:23:16 INF] Hosting environment: Production
+[15:23:16 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[15:23:16 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[15:24:46 INF] Run ce2621f45f0a4e68b6d90898ed3bf9e9 started for task desktop on role worker with 18 tools
+[15:25:46 WRN] gen_ai.client.operation.exception
+System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: The I/O operation has been aborted because of either a thread exit or an application request..
+ ---> System.Net.Sockets.SocketException (995): The I/O operation has been aborted because of either a thread exit or an application request.
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.InitialFillAsync(Boolean async)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.DiagnosticsHandler.SendAsyncCore(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.SocketsHttpHandler.<SendAsync>g__CreateHandlerAndSendAsync|115_0(HttpRequestMessage request, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   at System.ClientModel.Primitives.HttpClientPipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   at System.ClientModel.Primitives.HttpClientPipelineTransport.ProcessCoreAsync(PipelineMessage message)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   --- End of inner exception stack trace ---
+   at System.ClientModel.Internal.CancellationHelper.ThrowOperationCanceledException(Exception innerException, CancellationToken cancellationToken)
+   at System.ClientModel.Internal.CancellationHelper.ThrowIfCancellationRequested(CancellationToken cancellationToken, Exception innerException)
+   at System.ClientModel.Internal.CancellationHelper.ThrowIfCancellationRequestedOrTimeout(CancellationToken messageToken, CancellationToken timeoutToken, Exception innerException, TimeSpan timeout)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessAsync(PipelineMessage message)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.MessageLoggingPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.MessageLoggingPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ApiKeyAuthenticationPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at OpenAI.GenericActionPipelinePolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ClientPipeline.SendAsync(PipelineMessage message)
+   at OpenAI.ClientPipelineExtensions.ProcessMessageAsync(ClientPipeline pipeline, PipelineMessage message, RequestOptions options)
+   at OpenAI.Chat.ChatClient.CompleteChatAsync(BinaryContent content, RequestOptions options)
+   at OpenAI.Chat.ChatClient.CompleteChatAsync(IEnumerable`1 messages, ChatCompletionOptions options, RequestOptions requestOptions)
+   at Microsoft.Extensions.AI.OpenAIChatClient.GetResponseAsync(IEnumerable`1 messages, ChatOptions options, CancellationToken cancellationToken)
+   at Microsoft.Extensions.AI.OpenTelemetryChatClient.GetResponseAsync(IEnumerable`1 messages, ChatOptions options, CancellationToken cancellationToken)
+[15:25:46 INF] Step 0 · Cancelled · no tool call · 0 tokens · 59459 ms
+[15:25:46 INF] Recorded metrics for run ce2621f45f0a4e68b6d90898ed3bf9e9: 0 steps, 0 tokens, tool-call validity 100 %
+[15:25:46 INF] Run ce2621f45f0a4e68b6d90898ed3bf9e9 stopped: "Cancelled" after 0 steps, 0 tokens, 59.5s, tool-call validity 100 %
+[15:26:08 INF] Run 9fad08081f3546bc8cf3155eb060efd8 started for task desktop on role worker with 18 tools
+[15:26:15 INF] Step 0 · continued · glob:Succeeded — 0 paths matched '**/*.cs'. · 3694 tokens · 7462 ms
+[15:26:22 INF] Step 1 · continued · list_projects:Succeeded — No .NET projects found in this workspace. · 3750 tokens · 6177 ms
+[15:27:15 INF] Created src/ArrayUtils.cs: 34 lines
+[15:27:15 WRN] Nothing buildable found under C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest; the compile and test rungs will be skipped
+[15:27:15 INF] Verification rung "Syntax": passed in 2 ms
+[15:27:15 INF] Verification after step: passed at rung "Syntax" in 9 ms
+[15:27:15 INF] Step 2 · continued · create_file:Succeeded — Created src/ArrayUtils.cs (34 lines). · 5112 tokens · 53456 ms
+[15:27:31 INF] Step 3 · continued · read_file:Succeeded — Read lines 1-34 of 34 from src/ArrayUtils.cs. · 4542 tokens · 15757 ms
+[15:27:44 INF] Step 4 · continued · dotnet_project:Failed — Path '.' resolves to 'C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderT… · 4975 tokens · 12847 ms
+[15:27:58 INF] Step 5 · continued · glob:Succeeded — 1 paths matched 'src/*'. · 5304 tokens · 14222 ms
+[15:28:19 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:28:20 INF] Step 6 · continued · dotnet_project:Succeeded — Created a classlib project in 'src/ArrayUtils'. Add a reference to the code unde… · 5609 tokens · 22011 ms
+[15:28:28 INF] Moved src/ArrayUtils.cs to src/ArrayUtils/ArrayUtils.cs: 34 lines
+[15:28:28 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:28:30 INF] Verification rung "Compile": passed in 2315 ms
+[15:28:31 INF] Verification rung "Analyzers": passed in 1047 ms
+[15:28:31 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:28:32 INF] Verification rung "UnitTests": passed in 912 ms
+[15:28:32 INF] Verification after step: passed at rung "UnitTests" in 4277 ms
+[15:28:32 INF] Step 7 · continued · file_operation:Succeeded — Moved src/ArrayUtils.cs to src/ArrayUtils/ArrayUtils.cs. · 5576 tokens · 12403 ms
+[15:28:38 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:28:39 INF] Step 8 · continued · build:Succeeded — Build succeeded (0 warnings). · 5766 tokens · 6931 ms
+[15:28:54 INF] Step 9 · continued · glob:Succeeded — 0 paths matched 'tests/**'. · 6189 tokens · 14400 ms
+[15:29:00 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:29:02 INF] Step 10 · continued · dotnet_project:Succeeded — Created a xunit project in 'tests/ArrayUtilsTests'. Add a reference to the code … · 6091 tokens · 8268 ms
+[15:29:10 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[15:29:10 INF] Step 11 · continued · dotnet_project:Succeeded — 'tests/ArrayUtilsTests' now references 'src/ArrayUtils/ArrayUtils.csproj'. · 6412 tokens · 8124 ms
+[15:29:18 INF] Step 12 · continued · glob:Succeeded — 2 paths matched 'tests/ArrayUtilsTests/**/*'. · 6647 tokens · 7920 ms
+[15:29:24 INF] Step 13 · continued · read_file:Succeeded — Read lines 1-10 of 10 from tests/ArrayUtilsTests/UnitTest1.cs. · 6762 tokens · 6453 ms
+[15:29:58 WRN] Arguments for tool edit_file did not bind to its schema
+System.ArgumentException: The arguments dictionary is missing a value for the required parameter 'edits'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(String paramName, String message)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunctionDescriptor.<>c__DisplayClass40_0.<GetParameterMarshaller>b__3(AIFunctionArguments arguments, CancellationToken _)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at GlassCoder.Tools.Registry.ToolRegistry.InvokeAsync(FunctionCallContent call, CancellationToken cancellationToken) in C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Tools\Registry\ToolRegistry.cs:line 88
+[15:29:58 INF] Step 14 · continued · edit_file:InvalidArguments · 7899 tokens · 33456 ms
+[15:30:26 INF] Step 15 · continued · edit_file:Failed — Path is required. · 8462 tokens · 27782 ms
+[15:30:39 INF] Step 16 · continued · read_file:Succeeded — Read lines 1-10 of 10 from tests/ArrayUtilsTests/UnitTest1.cs. · 8705 tokens · 12976 ms
+[15:31:34 WRN] Arguments for tool edit_file did not bind to its schema
+System.ArgumentException: The arguments dictionary is missing a value for the required parameter 'edits'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(String paramName, String message)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunctionDescriptor.<>c__DisplayClass40_0.<GetParameterMarshaller>b__3(AIFunctionArguments arguments, CancellationToken _)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at GlassCoder.Tools.Registry.ToolRegistry.InvokeAsync(FunctionCallContent call, CancellationToken cancellationToken) in C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Tools\Registry\ToolRegistry.cs:line 88
+[15:31:34 INF] Step 17 · continued · edit_file:InvalidArguments · 10355 tokens · 55519 ms
+[15:32:08 INF] Step 18 · continued · edit_file:Failed — The edit was refused: it would break 'tests/ArrayUtilsTests/UnitTest1.cs'. Synta… · 10392 tokens · 34362 ms
+[15:32:18 INF] Step 19 · continued · read_file:Succeeded — Read lines 1-10 of 10 from tests/ArrayUtilsTests/UnitTest1.cs. · 10585 tokens · 9984 ms
+[15:33:12 WRN] Arguments for tool edit_file did not bind to its schema
+System.ArgumentException: The arguments dictionary is missing a value for the required parameter 'edits'. (Parameter 'arguments')
+   at Microsoft.Shared.Diagnostics.Throw.ArgumentException(String paramName, String message)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunctionDescriptor.<>c__DisplayClass40_0.<GetParameterMarshaller>b__3(AIFunctionArguments arguments, CancellationToken _)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at Microsoft.Extensions.AI.AIFunctionFactory.ReflectionAIFunction.InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
+   at GlassCoder.Tools.Registry.ToolRegistry.InvokeAsync(FunctionCallContent call, CancellationToken cancellationToken) in C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Tools\Registry\ToolRegistry.cs:line 88
+[15:33:12 INF] Step 20 · continued · edit_file:InvalidArguments · 12265 tokens · 53705 ms
+[15:33:42 INF] Step 21 · continued · edit_file:Failed — Path is required. · 12263 tokens · 29885 ms
+[15:34:06 WRN] gen_ai.client.operation.exception
+System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.Threading.Tasks.TaskCanceledException: The operation was canceled.
+ ---> System.IO.IOException: Unable to read data from the transport connection: The I/O operation has been aborted because of either a thread exit or an application request..
+ ---> System.Net.Sockets.SocketException (995): The I/O operation has been aborted because of either a thread exit or an application request.
+   --- End of inner exception stack trace ---
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error, CancellationToken cancellationToken)
+   at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.System.Threading.Tasks.Sources.IValueTaskSource<System.Int32>.GetResult(Int16 token)
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpConnectionPool.SendWithVersionDetectionAndRetryAsync(HttpRequestMessage request, Boolean async, Boolean doRequestAuth, CancellationToken cancellationToken)
+   at System.Net.Http.DiagnosticsHandler.SendAsyncCore(HttpRequestMessage request, Boolean async, CancellationToken cancellationToken)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   --- End of inner exception stack trace ---
+   at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted, HttpResponseMessage response, CancellationTokenSource cts, CancellationToken cancellationToken, CancellationTokenSource pendingRequestsCts)
+   at System.Net.Http.HttpClient.<SendAsync>g__Core|83_0(HttpRequestMessage request, HttpCompletionOption completionOption, CancellationTokenSource cts, Boolean disposeCts, CancellationTokenSource pendingRequestsCts, CancellationToken originalCancellationToken)
+   at System.ClientModel.Primitives.HttpClientPipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   at System.ClientModel.Primitives.HttpClientPipelineTransport.ProcessCoreAsync(PipelineMessage message)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   --- End of inner exception stack trace ---
+   at System.ClientModel.Internal.CancellationHelper.ThrowOperationCanceledException(Exception innerException, CancellationToken cancellationToken)
+   at System.ClientModel.Internal.CancellationHelper.ThrowIfCancellationRequested(CancellationToken cancellationToken, Exception innerException)
+   at System.ClientModel.Internal.CancellationHelper.ThrowIfCancellationRequestedOrTimeout(CancellationToken messageToken, CancellationToken timeoutToken, Exception innerException, TimeSpan timeout)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessSyncOrAsync(PipelineMessage message, Boolean async)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessAsync(PipelineMessage message)
+   at System.ClientModel.Primitives.PipelineTransport.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.MessageLoggingPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.MessageLoggingPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ApiKeyAuthenticationPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessSyncOrAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex, Boolean async)
+   at System.ClientModel.Primitives.ClientRetryPolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.PipelinePolicy.ProcessNextAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at OpenAI.GenericActionPipelinePolicy.ProcessAsync(PipelineMessage message, IReadOnlyList`1 pipeline, Int32 currentIndex)
+   at System.ClientModel.Primitives.ClientPipeline.SendAsync(PipelineMessage message)
+   at OpenAI.ClientPipelineExtensions.ProcessMessageAsync(ClientPipeline pipeline, PipelineMessage message, RequestOptions options)
+   at OpenAI.Chat.ChatClient.CompleteChatAsync(BinaryContent content, RequestOptions options)
+   at OpenAI.Chat.ChatClient.CompleteChatAsync(IEnumerable`1 messages, ChatCompletionOptions options, RequestOptions requestOptions)
+   at Microsoft.Extensions.AI.OpenAIChatClient.GetResponseAsync(IEnumerable`1 messages, ChatOptions options, CancellationToken cancellationToken)
+   at Microsoft.Extensions.AI.OpenTelemetryChatClient.GetResponseAsync(IEnumerable`1 messages, ChatOptions options, CancellationToken cancellationToken)
+[15:34:06 INF] Step 22 · Cancelled · no tool call · 0 tokens · 23846 ms
+[15:34:06 INF] Recorded metrics for run 9fad08081f3546bc8cf3155eb060efd8: 22 steps, 157355 tokens, tool-call validity 86 %
+[15:34:06 INF] Run 9fad08081f3546bc8cf3155eb060efd8 stopped: "Cancelled" after 22 steps, 157355 tokens, 478.0s, tool-call validity 86 %
+[16:14:01 INF] Application started. Press Ctrl+C to shut down.
+[16:14:01 INF] Hosting environment: Production
+[16:14:01 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[16:14:01 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[16:15:42 INF] Run 6b9118b877c4447f9ab7ac4746b61a75 started for task desktop on role worker with 18 tools
+[16:15:47 INF] Step 0 · continued · glob:Succeeded — 0 paths matched '**/*.cs'. · 3613 tokens · 5789 ms
+[16:15:53 INF] Step 1 · continued · list_projects:Succeeded — No .NET projects found in this workspace. · 3723 tokens · 5220 ms
+[16:16:06 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:16:07 INF] Step 2 · continued · dotnet_project:Succeeded — Created a classlib project in 'src/MyMathLib'. Add a reference to the code under… · 4035 tokens · 13912 ms
+[16:16:15 INF] Step 3 · continued · glob:Succeeded — 2 paths matched 'src/**/*'. · 4217 tokens · 8058 ms
+[16:16:20 INF] Step 4 · continued · read_file:Succeeded — Read lines 1-6 of 6 from src/MyMathLib/Class1.cs. · 4287 tokens · 5833 ms
+[16:16:42 INF] Replaced src/MyMathLib/Class1.cs: 34 lines
+[16:16:42 INF] Verification rung "Syntax": passed in 2 ms
+[16:16:42 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:16:44 INF] Verification rung "Compile": passed in 2318 ms
+[16:16:44 INF] Verification rung "Analyzers": passed in 38 ms
+[16:16:45 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:16:45 INF] Verification rung "UnitTests": passed in 1021 ms
+[16:16:45 INF] Verification after step: passed at rung "UnitTests" in 3385 ms
+[16:16:45 INF] Step 5 · continued · create_file:Succeeded — Replaced src/MyMathLib/Class1.cs (34 lines). · 4952 tokens · 24969 ms
+[16:16:56 INF] Plan updated: 1/1 complete
+[16:16:56 INF] Step 6 · continued · update_todos:Succeeded — Plan updated: 1/1 complete. · 5083 tokens · 10465 ms
+[16:17:06 INF] Step 7 · Completed · no tool call · 5278 tokens · 9888 ms
+[16:17:06 INF] Recorded metrics for run 6b9118b877c4447f9ab7ac4746b61a75: 8 steps, 35188 tokens, tool-call validity 100 %
+[16:17:06 INF] Run 6b9118b877c4447f9ab7ac4746b61a75 stopped: "Completed" after 8 steps, 35188 tokens, 84.2s, tool-call validity 100 %
+[16:17:23 INF] Run 12df72e117474b31b387635bb4c738d3 started for task desktop on role worker with 18 tools
+[16:17:28 INF] Step 0 · continued · list_projects:Succeeded — 1 project(s), 0 solution(s). · 3561 tokens · 4574 ms
+[16:17:33 INF] Step 1 · continued · glob:Succeeded — 1 paths matched 'src/**/*.cs'. · 3783 tokens · 5607 ms
+[16:17:38 INF] Step 2 · continued · read_file:Succeeded — Read lines 1-34 of 34 from src/MyMathLib/Class1.cs. · 3893 tokens · 4471 ms
+[16:17:53 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:17:55 INF] Step 3 · continued · dotnet_project:Succeeded — Created a xunit project in 'tests/MyMathLib.Tests'. Add a reference to the code … · 4669 tokens · 16976 ms
+[16:18:01 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:18:01 INF] Step 4 · continued · dotnet_project:Succeeded — 'tests/MyMathLib.Tests' now references 'src/MyMathLib/MyMathLib.csproj'. · 4726 tokens · 6632 ms
+[16:18:09 INF] Step 5 · continued · glob:Succeeded — 1 paths matched 'tests/**/*.cs'. · 5000 tokens · 8115 ms
+[16:18:14 INF] Step 6 · continued · read_file:Succeeded — Read lines 1-10 of 10 from tests/MyMathLib.Tests/UnitTest1.cs. · 5051 tokens · 5067 ms
+[16:18:24 INF] Step 7 · continued · read_file:Succeeded — Read lines 1-10 of 10 from tests/MyMathLib.Tests/UnitTest1.cs. · 5418 tokens · 9888 ms
+[16:18:54 INF] Edited tests/MyMathLib.Tests/UnitTest1.cs: 1 replacement(s), 11 → 85 lines
+[16:18:54 INF] Verification rung "Syntax": passed in 0 ms
+[16:18:54 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:18:58 INF] Verification rung "Compile": passed in 4369 ms
+[16:18:59 INF] Verification rung "Analyzers": passed in 683 ms
+[16:18:59 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[16:19:01 INF] Verification rung "UnitTests": passed in 2051 ms
+[16:19:01 INF] Verification after step: passed at rung "UnitTests" in 7105 ms
+[16:19:01 INF] Step 8 · continued · edit_file:Succeeded — Edited tests/MyMathLib.Tests/UnitTest1.cs at line 1. · 6325 tokens · 36328 ms
+[16:19:31 INF] Plan updated: 1/1 complete
+[16:19:31 INF] Step 9 · continued · update_todos:Succeeded — Plan updated: 1/1 complete. · 7281 tokens · 30313 ms
+[16:19:41 INF] Step 10 · Completed · no tool call · 6936 tokens · 9683 ms
+[16:19:41 INF] Recorded metrics for run 12df72e117474b31b387635bb4c738d3: 11 steps, 56643 tokens, tool-call validity 100 %
+[16:19:41 INF] Run 12df72e117474b31b387635bb4c738d3 stopped: "Completed" after 11 steps, 56643 tokens, 137.7s, tool-call validity 100 %
+[16:20:07 INF] Application is shutting down...
+[18:44:42 INF] Application started. Press Ctrl+C to shut down.
+[18:44:42 INF] Hosting environment: Production
+[18:44:42 INF] Content root path: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoder\src\GlassCoder.Wpf\bin\Debug\net10.0-windows\
+[18:44:42 INF] Workspace root: C:\Users\AlexVinckier\Dropbox (Personal)\repos\GlassCoderTest
+[18:46:25 INF] Run e8f9186a68ca458f8c06b11c4134aa50 started for task desktop on role worker with 18 tools
+[18:46:35 INF] Step 0 · continued · grep:Succeeded — 0 matches in 2 files. · 3754 tokens · 10826 ms
+[18:46:43 INF] Step 1 · continued · grep:Succeeded — 0 matches in 2 files. · 3814 tokens · 8063 ms
+[18:46:48 INF] Step 2 · continued · grep:Succeeded — 0 matches in 2 files. · 3859 tokens · 4550 ms
+[18:46:58 INF] Step 3 · continued · grep:Succeeded — 5 matches in 2 files. · 4148 tokens · 10253 ms
+[18:47:08 INF] Step 4 · continued · read_file:Succeeded — Read lines 1-34 of 34 from src/MyMathLib/Class1.cs. · 4627 tokens · 9938 ms
+[18:47:21 INF] Step 5 · continued · read_file:Succeeded — Read lines 1-84 of 84 from tests/MyMathLib.Tests/UnitTest1.cs. · 5186 tokens · 12858 ms
+[18:48:10 INF] Edited src/MyMathLib/Class1.cs: 1 replacement(s), 34 → 35 lines
+[18:48:10 INF] Verification rung "Syntax": passed in 2 ms
+[18:48:10 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[18:48:12 INF] Verification rung "Compile": passed in 2487 ms
+[18:48:12 INF] Verification rung "Analyzers": passed in 33 ms
+[18:48:13 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[18:48:13 INF] Verification rung "UnitTests": passed in 932 ms
+[18:48:13 INF] Verification after step: passed at rung "UnitTests" in 3459 ms
+[18:48:13 INF] Step 6 · continued · edit_file:Succeeded — Edited src/MyMathLib/Class1.cs at line 8. · 7175 tokens · 52338 ms
+[18:50:04 INF] Step 7 · continued · read_file:Succeeded — Read lines 1-84 of 84 from tests/MyMathLib.Tests/UnitTest1.cs. · 9597 tokens · 110276 ms
+[18:50:16 INF] Step 8 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 7789 tokens · 11917 ms
+[18:51:03 INF] Step 9 · continued · edit_file:Failed — Edit 2 of 6: the text to replace appears 5 times in 'tests/MyMathLib.Tests/UnitT… · 9317 tokens · 47057 ms
+[18:54:42 INF] Step 10 · continued · edit_file:Failed — Edit 1 of 6: the text to replace was not found in 'tests/MyMathLib.Tests/UnitTes… · 15158 tokens · 219569 ms
+[18:55:35 INF] Step 11 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 11102 tokens · 52823 ms
+[18:55:53 INF] Step 12 · continued · read_file:Succeeded — Read lines 1-35 of 35 from src/MyMathLib/Class1.cs. · 10622 tokens · 18295 ms
+[18:56:12 INF] Step 13 · continued · grep:Failed — 'tests/MyMathLib.Tests/UnitTest1.cs' is not a directory. · 11125 tokens · 18990 ms
+[18:56:36 INF] Step 14 · continued · read_file:Succeeded — Read lines 1-84 of 84 from tests/MyMathLib.Tests/UnitTest1.cs. · 11407 tokens · 23358 ms
+[18:57:31 INF] Step 15 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 13389 tokens · 55407 ms
+[18:58:05 INF] Step 16 · continued · read_file:Succeeded — Read lines 1-35 of 35 from src/MyMathLib/Class1.cs. · 13046 tokens · 33925 ms
+[18:58:46 INF] Step 17 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 13843 tokens · 41117 ms
+[18:59:32 WRN] Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. This executes repository code with the harness's own privileges.
+[18:59:32 INF] Step 18 · continued · build:Succeeded — '.' is not a project or solution and contains none at its top level. Build a spe… · 14235 tokens · 46021 ms
+[19:00:04 INF] Step 19 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 14258 tokens · 32187 ms
+[19:02:22 INF] Step 20 · continued · edit_file:Failed — The edit was refused: it would break 'tests/MyMathLib.Tests/UnitTest1.cs'. This … · 18052 tokens · 137178 ms
+[19:02:22 INF] Recorded metrics for run e8f9186a68ca458f8c06b11c4134aa50: 21 steps, 205503 tokens, tool-call validity 100 %
+[19:02:22 INF] Run e8f9186a68ca458f8c06b11c4134aa50 stopped: "TimeLimit" after 21 steps, 205503 tokens, 957.0s, tool-call validity 100 %
+[19:48:31 INF] Application is shutting down...

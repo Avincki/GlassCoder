@@ -17,11 +17,28 @@ namespace GlassCoder.Wpf.Services;
 /// </summary>
 public sealed class WpfApprovalGate : IApprovalGate
 {
-    private readonly ChangesViewModel _changes;
+    private readonly Func<ChangesViewModel> _changes;
     private readonly ApprovalOptions _options;
 
-    /// <summary>Creates the gate.</summary>
-    public WpfApprovalGate(ChangesViewModel changes, IOptions<ApprovalOptions> options)
+    /// <summary>
+    /// Creates the gate.
+    /// </summary>
+    /// <param name="changes">
+    /// The change view, resolved when a decision is actually needed rather than at construction.
+    /// <para>
+    /// The lateness is load-bearing: with the git tools enabled the graph is a cycle -
+    /// <c>ChangesViewModel</c> takes <c>GitTool</c> to decide whether to show its git controls,
+    /// <c>GitTool</c> takes this gate so a push still asks a human, and this gate needs the view
+    /// to ask with. Taking the view eagerly closed that loop, and because the view model is
+    /// registered through a factory the container cannot see the cycle to report it - it recursed
+    /// until its stack guard handed the work to a thread pool thread, which then blocked on the
+    /// singleton lock the UI thread was already holding. The window never appeared and nothing
+    /// was logged. Asking for the view only when a change or an action is waiting breaks the
+    /// loop at the one edge that is genuinely late anyway.
+    /// </para>
+    /// </param>
+    /// <param name="options">Approval settings.</param>
+    public WpfApprovalGate(Func<ChangesViewModel> changes, IOptions<ApprovalOptions> options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -42,7 +59,7 @@ public sealed class WpfApprovalGate : IApprovalGate
 
         try
         {
-            return await AskAsync(t => _changes.RequestApprovalAsync(change, t), cancellationToken).ConfigureAwait(false);
+            return await AskAsync(t => _changes().RequestApprovalAsync(change, t), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -61,7 +78,7 @@ public sealed class WpfApprovalGate : IApprovalGate
 
         try
         {
-            return await AskAsync(t => _changes.RequestApprovalAsync(action, t), cancellationToken).ConfigureAwait(false);
+            return await AskAsync(t => _changes().RequestApprovalAsync(action, t), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

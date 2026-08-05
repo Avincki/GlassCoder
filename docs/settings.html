@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="The GlassCoder settings dialog: where settings and API keys are stored, what overrides what, every tab annotated, and the four-step connection check that answers whether the seam actually works.">
+<meta name="description" content="The GlassCoder settings dialog: where settings and API keys are stored, what overrides what, all eight tabs annotated — including git and publishing policy — and the four-step connection check that answers whether the seam actually works.">
 <title>GlassCoder — Settings &amp; the connection check</title>
 
 <style>
@@ -593,14 +593,16 @@
     <div class="eyebrow">Settings guide</div>
     <h1>Settings, keys, and "does it work?"</h1>
     <p class="standfirst">
-      Every endpoint, alias, budget, limit and guardrail the harness has, editable in one dialog and
-      stored per user — and the four-step check that answers the only question worth asking before a
-      first run, which is whether anything is actually listening on the other side of the seam.
+      Every endpoint, alias, budget, limit and guardrail the harness has, editable in one dialog —
+      stored per user, or carried by the project it describes, or exported to a file another machine
+      can read — and the four-step check that answers the only question worth asking before a first
+      run, which is whether anything is actually listening on the other side of the seam.
     </p>
     <div class="specstrip">
       <div><b>Opens from</b> Settings… in the header</div>
       <div><b>Settings</b> %APPDATA%\GlassCoder\settings.json</div>
       <div><b>Keys</b> secrets.json · DPAPI, current user</div>
+      <div><b>Per project</b> .glasscoder.json in the repository</div>
       <div><b>Applies</b> on restart</div>
     </div>
     <div class="backlinks">
@@ -623,6 +625,7 @@
       <li><a href="#agent">Agent &amp; context</a></li>
       <li><a href="#verification">Verification &amp; critique</a></li>
       <li><a href="#sandbox">Sandbox &amp; approval</a></li>
+      <li><a href="#git">Git &amp; publishing</a></li>
       <li><a href="#logging">Logging &amp; metrics</a></li>
       <li><a href="#telemetry">Telemetry &amp; provenance</a></li>
       <li><a href="#wiring">How it is wired</a></li>
@@ -639,25 +642,42 @@
       <p>
         Nothing about the harness is hardcoded — no endpoint, no alias, no budget, no limit. That
         has always been true; what was missing was somewhere to put a change that is <em>yours</em>
-        rather than the repository's. <b>Settings…</b> in the header writes to two files under your
-        own application data directory:
+        rather than the repository's. There are now three answers, because "yours" turns out to mean
+        three different things: yours as an operator, yours as a project, and yours to carry
+        somewhere else.
       </p>
 
       <div class="scroller">
         <table>
-          <thead><tr><th>File</th><th class="m">Path</th><th>Contents</th></tr></thead>
+          <thead><tr><th>File</th><th class="m">Path</th><th>Contents</th><th>Keys</th></tr></thead>
           <tbody>
             <tr>
               <td>Settings</td>
               <td class="m">%APPDATA%\GlassCoder\settings.json</td>
               <td>Every section, in the same shape as <code>appsettings.json</code> and in the
                   clear. A configuration file you cannot read is one you cannot debug.</td>
+              <td>No</td>
             </tr>
             <tr>
               <td>Keys</td>
               <td class="m">%APPDATA%\GlassCoder\secrets.json</td>
               <td>One DPAPI blob per role, at <code>CurrentUser</code> scope. Nothing else is ever
                   written here.</td>
+              <td>DPAPI</td>
+            </tr>
+            <tr>
+              <td>Project</td>
+              <td class="m">&lt;repository&gt;\.glasscoder.json</td>
+              <td>Only the sections that name things inside a repository. Written by <b>Save to
+                  project</b>, and meant to be committed.</td>
+              <td>Never</td>
+            </tr>
+            <tr>
+              <td>Export</td>
+              <td class="m">anywhere\*.glassconfig</td>
+              <td>Every section, for carrying to another machine. Written by <b>Export…</b>, read
+                  by <b>Import…</b>.</td>
+              <td>Passphrase</td>
             </tr>
           </tbody>
         </table>
@@ -695,10 +715,139 @@
         </p>
       </div>
 
+      <h3>Settings that belong to the project, not to you</h3>
+
       <p>
-        <b>Open folder</b> in the footer opens that directory, creating it if the dialog has never
-        saved. <b>Reset</b> deletes both files and drops you back to whatever
-        <code>appsettings.json</code> says — it is enabled only when there is something to delete.
+        Some settings are not yours at all. <code>Workspace:WritablePaths</code>,
+        <code>Context:RootContextFiles</code>, <code>Verification:ExtraReferenceDirectories</code>
+        and <code>Git:PushableBranches</code> all name things <em>inside</em> one repository, so a
+        single machine-wide copy of them is correct for exactly one project and wrong for every
+        other. <b>Save to project</b> writes those sections into the repository itself, where they
+        travel with it.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Goes in the project file</th><th>Stays on the machine</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>Workspace</code> · <code>Context</code> · <code>Verification</code> ·
+                  <code>VerificationLadder</code> · <code>Git</code> · <code>Provenance</code></td>
+              <td><code>Models</code> · <code>Sandbox</code> · <code>Agent</code> ·
+                  <code>Approval</code> · <code>Critique</code> · <code>Orchestration</code> ·
+                  <code>Tools</code> · <code>Logging</code> · <code>Metrics</code> ·
+                  <code>Telemetry</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The split is one rule, not a taste: a section belongs to the project when its values name
+        paths, files or branches that exist in the repository. Everything else describes the machine
+        or the experiment — which servers are reachable, where commands may run, how much to spend —
+        and one copy of that serves every project you open.
+      </p>
+
+      <div class="note">
+        <span class="tag">A project file never contains a key, and not by policy</span>
+        <p>
+          The removal is unconditional. <code>.glasscoder.json</code> is one <code>git add</code>
+          away from being public, so the store strips every <code>ApiKey</code> on the way out
+          whether one was set or not — there is no caller that could opt back in, and therefore no
+          caller that could get it wrong.
+        </p>
+        <p>
+          It also omits <code>Workspace:RepoRoot</code>. The file's own location <em>is</em> the
+          root, so writing an absolute path into it would only be a way for the file to be wrong
+          after somebody clones the project somewhere else. The configuration layer supplies the
+          containing directory instead.
+        </p>
+      </div>
+
+      <h3>Carrying a configuration to another machine</h3>
+
+      <p>
+        Copying <code>settings.json</code> by hand has always worked, because it is plain JSON with
+        a single <code>GlassCoder</code> root. What copying cannot do is carry the keys: DPAPI
+        ciphertext is bound to one Windows account, so <code>secrets.json</code> arrives on the
+        second machine decrypting to nothing. <b>Export…</b> exists for that one problem.
+      </p>
+
+      <p>
+        It writes every section to a single <code>.glassconfig</code> file and asks for a
+        passphrase. The keys are re-encrypted under it with AES-GCM, using a key derived by
+        PBKDF2-HMAC-SHA256 — so they leave DPAPI under something you know rather than something
+        this machine holds. <b>Import…</b> reads the file back, decrypts them, and loads the result
+        into the dialog for review; the ordinary <b>Save</b> is what puts them back under DPAPI
+        locally.
+      </p>
+
+      <div class="note">
+        <span class="tag">There is no option that writes a key in the clear</span>
+        <p>
+          Leaving the passphrase empty exports the settings <em>without</em> the keys. That is the
+          only other choice on offer. A file that quietly contains a usable credential is how keys
+          reach places nobody meant to send them, and an export is precisely the kind of file that
+          gets attached to a message.
+        </p>
+        <p>
+          Forgetting the passphrase is unrecoverable by design — there is no escrow and nothing to
+          reset. The settings still import; the keys are entered again by hand. AES-GCM
+          authenticates, so a wrong passphrase is <em>reported</em> rather than quietly producing a
+          configuration with no keys that fails later as a puzzling 401.
+        </p>
+      </div>
+
+      <p>
+        The workspace root is the one setting an import does not bring across. It is intrinsically
+        local — a path from the machine the file came from almost certainly names nothing here — so
+        it stays whatever the workspace pane chose.
+      </p>
+
+      <div class="note">
+        <span class="tag">An export is also a valid <code>--config</code> file</span>
+        <p>
+          The protected keys hang off a sibling <code>Secrets</code> property rather than being
+          folded into the settings, so the <code>GlassCoder</code> root is untouched and the binder
+          reads the file like any other. An exported configuration can be handed straight to
+          <code>--config</code> as an ablation arm without being imported anywhere; the binder
+          ignores the sibling property.
+        </p>
+      </div>
+
+      <h3>The footer</h3>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Footer.png"
+               alt="The settings dialog footer. A line of grey text reads: Save to project writes C:\repos\Sorter\.glasscoder.json, carrying Workspace, Context, Verification, VerificationLadder, Git, Provenance and never an API key. The project then brings its own paths and branches wherever it is cloned. Below it, from the left: Open folder, a greyed-out Reset, Import…, Export…, Save to project, then the status text 'Loaded the effective configuration.', and on the right Save and restart, Save and Cancel.">
+        </div>
+        <figcaption>
+          The footer, with no settings yet saved on this machine — which is why <b>Reset</b> is
+          greyed out and the summary line describes what <b>Save to project</b> <em>would</em>
+          write rather than what is in force. The eight tab screenshots elsewhere on this page
+          predate <b>Import…</b>, <b>Export…</b> and <b>Save to project</b>; this is the current
+          footer.
+        </figcaption>
+      </figure>
+
+      <p>
+        <b>Open folder</b> opens the settings directory, creating it if the dialog has never saved.
+        <b>Reset</b> deletes both per-user files and drops you back to whatever
+        <code>appsettings.json</code> says — it is enabled only when there is something to delete,
+        and it does not touch the project file. <b>Import…</b> and <b>Export…</b> carry a whole
+        configuration in and out. <b>Save to project</b> writes the project-shaped sections into the
+        repository, and is enabled only once a real workspace root has been chosen. The line above
+        the buttons names the exact file each of them would write, and says whether one is already
+        in force.
+      </p>
+
+      <p>
+        Import and <b>Save to project</b> both <em>populate</em> rather than apply. An import loads
+        the file into the dialog for review and writes nothing until you press <b>Save</b>; that is
+        also what puts the imported keys back under DPAPI, through the same path every other save
+        takes rather than a second one that would have to get the same thing right twice.
       </p>
     </section>
 
@@ -724,20 +873,27 @@
             <tr>
               <td>2 · Saved settings</td>
               <td class="m">%APPDATA%\GlassCoder\*.json</td>
-              <td>The shipped defaults. This is what the dialog writes.</td>
+              <td>The shipped defaults. This is what <b>Save</b> writes.</td>
             </tr>
             <tr>
-              <td>3 · Environment</td>
+              <td>3 · The project</td>
+              <td class="m">&lt;repository&gt;\.glasscoder.json</td>
+              <td>Your machine-wide settings, for this project only. The machine cannot know one
+                  project's writable paths from another's, so the project gets the last word on
+                  the sections that describe it.</td>
+            </tr>
+            <tr>
+              <td>4 · Environment</td>
               <td class="m">GlassCoder__Agent__MaxSteps=50</td>
-              <td>Saved settings. Double underscore separates the levels.</td>
+              <td>Saved settings, and the project. Double underscore separates the levels.</td>
             </tr>
             <tr>
-              <td>4 · Command line</td>
+              <td>5 · Command line</td>
               <td class="m">--GlassCoder:Agent:MaxSteps=50</td>
               <td>The environment.</td>
             </tr>
             <tr>
-              <td>5 · The arm</td>
+              <td>6 · The arm</td>
               <td class="m">--config config/phase1.json</td>
               <td>Everything above it. An ablation arm is added last, on purpose.</td>
             </tr>
@@ -748,11 +904,22 @@
       <div class="note">
         <span class="tag">Position is the load-bearing decision</span>
         <p>
-          The two saved-settings sources are inserted <em>ahead of</em> the environment-variable
-          source rather than appended to the end. Appending them would have been one line shorter
-          and would have let a preference saved once, on one machine, redefine what
-          <code>config/phase1.json</code> means. Arms have to mean the same thing everywhere, or no
-          measurement taken in one applies to another.
+          The saved-settings sources — and the project file with them — are inserted <em>ahead
+          of</em> the environment-variable source rather than appended to the end. Appending them
+          would have been one line shorter and would have let a preference saved once, on one
+          machine, redefine what <code>config/phase1.json</code> means. Arms have to mean the same
+          thing everywhere, or no measurement taken in one applies to another. A project file is a
+          saved preference like any other, so it occupies the same band and takes the same bargain:
+          it beats the machine, it loses to the arm.
+        </p>
+        <p>
+          Which environment source, exactly, turned out to matter as much as the rule.
+          <code>HostApplicationBuilder</code> registers <b>two</b> — the <code>DOTNET_</code>
+          host source, which sits <em>before</em> <code>appsettings.json</code>, and the
+          unprefixed application source after it. Scanning forwards found the first, which put
+          saved settings <em>underneath</em> the shipped defaults and silently discarded every
+          value that both files mention. The scan runs backwards for that reason, and the doc
+          comment now says so: this is load-bearing, not incidental.
         </p>
       </div>
 
@@ -760,7 +927,9 @@
         The practical consequence: if a value refuses to change, something above layer 2 is setting
         it. Check the environment first — an exported <code>GlassCoder__…</code> variable outlives
         the shell that set it, and the dialog will keep showing its value no matter how many times
-        you save.
+        you save. Then check the project: a <code>.glasscoder.json</code> committed by somebody else
+        is a layer you did not put there, and it is the one layer that arrives with a
+        <code>git pull</code>.
       </p>
 
       <h3>Saving does not apply</h3>
@@ -787,15 +956,15 @@
       <figure>
         <div class="shot">
           <img src="../Settings_Model.png"
-               alt="The Models tab of the GlassCoder settings dialog: a Seam group with default role, telemetry source name and a sensitive-telemetry checkbox; a list of the critic, drafter and worker roles on the left, each showing its endpoint and &quot;Not checked yet.&quot;; and an editor on the right with Endpoint, Authentication and Sampling groups.">
+               alt="The Models tab of the GlassCoder settings dialog: eight tabs across the top — Models, Workspace, Agent, Verification, Sandbox, Git, Logging, Telemetry — a Seam group with default role, telemetry source name and a sensitive-telemetry checkbox; a list of the critic, critic-remote, drafter and worker roles on the left, each showing its endpoint and &quot;Not checked yet.&quot;; and an editor on the right with an Endpoint group holding role name, endpoint, a Transport dropdown reading OpenAI, served model alias and timeout, above Authentication and Sampling groups.">
           <span class="mark" style="left:15%;   top:9.2%;">1</span>
           <span class="mark" style="left:24%;   top:41%;">2</span>
           <span class="mark" style="left:71.5%; top:43.7%;">3</span>
-          <span class="mark" style="left:66%;   top:66.8%;">4</span>
-          <span class="mark" style="left:14.3%; top:88.5%;">5</span>
+          <span class="mark" style="left:66%;   top:76.9%;">4</span>
+          <span class="mark" style="left:14.3%; top:90.6%;">5</span>
           <span class="mark" style="left:70%;   top:97.7%;">6</span>
         </div>
-        <figcaption>The Models tab on the configuration GlassCoder ships with: three roles, no keys, nothing checked yet.</figcaption>
+        <figcaption>The Models tab on the configuration GlassCoder ships with: four roles, no keys, nothing checked yet.</figcaption>
       </figure>
 
       <dl class="legend">
@@ -814,10 +983,10 @@
         </div>
         <div>
           <span class="n">3</span>
-          <dt>Endpoint &amp; alias</dt>
-          <dd>The OpenAI-compatible base URL, and the <em>served alias</em> to address. Never a
-              checkpoint path: serving topology lives below the seam, and a path here is rejected
-              before the dialog will save.</dd>
+          <dt>Endpoint, transport &amp; alias</dt>
+          <dd>The base URL, the wire format it speaks, and the <em>served alias</em> to address.
+              Never a checkpoint path: serving topology lives below the seam, and a path here is
+              rejected before the dialog will save.</dd>
         </div>
         <div>
           <span class="n">4</span>
@@ -838,6 +1007,52 @@
               red above these buttons, and nothing is written.</dd>
         </div>
       </dl>
+
+      <h3>Two transports, and the endpoint each expects</h3>
+
+      <p>
+        <b>Transport</b> picks the wire format, and it is the setting that lets a hosted role sit
+        beside local ones without anything above the seam knowing. It also changes what a valid
+        endpoint looks like, which is the one place the two conventions can bite:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Transport</th><th>Speaks</th><th class="m">Endpoint</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">OpenAI</td>
+              <td><code>/v1/chat/completions</code>. The default, and what every local server
+                  answers.</td>
+              <td class="m">http://localhost:8001/v1</td>
+            </tr>
+            <tr>
+              <td class="m">Anthropic</td>
+              <td><code>/v1/messages</code>, through the official SDK — which brings retries,
+                  typed errors and the versioned header with it.</td>
+              <td class="m">https://api.anthropic.com</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The Anthropic endpoint is the <em>host root</em>, because the client appends the path
+        itself. A <code>/v1</code> suffix there produces <code>/v1/v1/messages</code> and a 404
+        that reads exactly like an outage — which is why the hint under the field states both
+        conventions rather than one.
+      </p>
+
+      <div class="note">
+        <span class="tag">Sampling is dropped, not forwarded, on the Anthropic transport</span>
+        <p>
+          Current Anthropic models reject <code>temperature</code> and <code>top_p</code> with a
+          400 rather than ignoring them, and a critic panel pins temperature at zero — the right
+          habit for a local critic and a fatal one here. The transport nulls them out, so which
+          oracle a role addresses stays a configuration choice instead of a crash. Leave those
+          boxes empty on such a role; they would be ignored anyway.
+        </p>
+      </div>
 
       <h3>The key, and where it really comes from</h3>
 
@@ -879,6 +1094,13 @@
         Prefer the environment variable for a hosted arm you intend to run in CI, and the stored key
         for a workstation. Both work; only one of them survives being copied to another machine, and
         that is the point of each.
+      </p>
+
+      <p>
+        A stored key can still be <em>moved</em> to another machine, but only deliberately:
+        <b>Export…</b> re-encrypts it under a passphrase you type, because the DPAPI blob itself is
+        bound to this Windows account and cannot travel. See
+        <a href="#where">carrying a configuration to another machine</a>.
       </p>
 
       <div class="note">
@@ -1012,6 +1234,14 @@ the model server is running and serving this endpoint.</code></pre>
         step answers "can this endpoint, key and alias produce a completion", and a server that
         rejects a guided-decoding property is a different problem with a different fix.
       </p>
+
+      <p>
+        The check follows the role's transport rather than assuming one. It looks for the model
+        list where that transport keeps it — <code>/models</code> beside an OpenAI endpoint that
+        already ends in <code>/v1</code>, <code>/v1/models</code> under an Anthropic host root —
+        authenticates the way each expects, and omits sampling parameters on the Anthropic side
+        for the same reason the real transport does.
+      </p>
     </section>
 
     <!-- ============ 5 ============ -->
@@ -1059,6 +1289,64 @@ the model server is running and serving this endpoint.</code></pre>
         <b>Follow symbolic links</b> stays off unless you have a specific reason: a link is the
         simplest way to walk a path allow-list straight out of the workspace.
       </p>
+
+      <h3>The repository root, and the two front ends that read it differently</h3>
+
+      <p>
+        <b>Repository root</b> ships as <code>"."</code>, which the path guard resolves against the
+        <em>process working directory</em>. That is the right contract for the console host —
+        <code>cd</code> into the repository, then run — and the wrong one for a window nobody
+        launches from a shell, where the working directory is the folder the executable lives in.
+        Left alone, a double-clicked app therefore roots itself in
+        <code>bin\Debug\net10.0-windows</code> and the agent greps its own DLLs.
+      </p>
+
+      <p>
+        So the desktop app treats <code>"."</code> as "nobody chose one" and walks up from the
+        executable looking for a <code>.git</code> entry or a solution file. It applies that
+        <em>only</em> when no layer supplied a real root — anything you choose, save or export
+        still wins — and outside a checkout it finds nothing and says so rather than guessing.
+        Both front ends now log the root they resolved at startup, which is the fastest way to
+        confirm the agent is where you think it is.
+      </p>
+
+      <div class="note">
+        <span class="tag">The pane is the quicker route</span>
+        <p>
+          The workspace pane on the right of the shell has a <b>Browse…</b> button that writes
+          this exact setting. It saves like any other setting and offers a restart, because the
+          path guard, the sandbox mounts and the context all bind their root once at startup —
+          re-rooting only the tree would show you a folder the agent is not in.
+        </p>
+      </div>
+
+      <h3>The rest of this tab is per project, and used not to be</h3>
+
+      <p>
+        Readable paths, writable paths and denied globs all name directories inside <em>one</em>
+        repository. Stored per user, they followed you to the next project: choosing a new root
+        changed the root and left the previous project's writable set in force over it. Nothing
+        announced this, and the writable set is the one setting where being wrong means writing
+        somewhere nobody agreed to.
+      </p>
+
+      <p>
+        <b>Save to project</b> in the footer is the answer. It writes this tab — with Context,
+        Verification, the ladder, Git and Provenance — into <code>.glasscoder.json</code> at the
+        repository root, so each project carries its own guardrails and picks them up again the
+        next time it is opened. The line above the footer buttons says whether the current project
+        already has one.
+      </p>
+
+      <div class="note">
+        <span class="tag">Empty still means nothing, per project</span>
+        <p>
+          A project file does not soften the rule that an empty writable list permits no writes at
+          all. It only means each project gets to state its own list, rather than inheriting
+          whichever one you last typed somewhere else. A project that says nothing about writable
+          paths falls through to your machine-wide setting, exactly as before.
+        </p>
+      </div>
 
       <div class="note">
         <span class="tag">Tool limits are context budget, not safety</span>
@@ -1142,9 +1430,9 @@ the model server is running and serving this endpoint.</code></pre>
       <figure>
         <div class="shot">
           <img src="../Settings_Verification.png"
-               alt="The Verification tab: compiler-feedback checkboxes for verifying edits before write and refusing breaking edits, max summarised diagnostics, include warnings, max compile files, extra reference directories, an analyzers checkbox, and a Critique group with an enable checkbox, critic role, critic count, refutation threshold and a blocking checkbox.">
+               alt="The Verification tab: compiler-feedback checkboxes for verifying edits before write and refusing breaking edits, max summarised diagnostics, include warnings, max compile files, extra reference directories, a &quot;Verify after write&quot; checkbox reading &quot;Climb the ladder after every step that applies a change&quot;, an empty test filter for rung 4, an analyzers checkbox, and a Critique group with an enable checkbox, critic role, critic count, refutation threshold and a blocking checkbox.">
         </div>
-        <figcaption>Verification and critique. The two checkboxes at the top are the ones that change what reaches disk.</figcaption>
+        <figcaption>Verification and critique. The two checkboxes at the top change what reaches disk; “Verify after write” decides what happens once it has.</figcaption>
       </figure>
 
       <p>
@@ -1166,6 +1454,40 @@ the model server is running and serving this endpoint.</code></pre>
         Analyzers are rung 3, and they report rather than gate whether they run or not. That is the
         same rule the repository's own build follows.
       </p>
+
+      <h3>Verify after write</h3>
+
+      <p>
+        The three settings below the compiler-feedback group control the climb the controller loop
+        makes <em>after</em> a step has applied a change — a different moment from the two
+        checkboxes above, and a different policy. <b>Verify after write</b> is on by default:
+        syntax, compile, analyzers and tests run automatically, and the first failure goes back to
+        the model as an observation.
+      </p>
+
+      <p>
+        It does not revert anything. The write tools already refuse what a cheap in-memory check
+        can prove broken; what this climb catches is <em>applied</em> work — a red test, a break in
+        a project the edit did not touch — and silently rolling that back would leave the model
+        reasoning about a tree that no longer matches what it was told. So the loop reports and
+        carries on, which is the recovery-rate hypothesis made measurable.
+      </p>
+
+      <p>
+        <b>Test filter</b> is passed to <code>dotnet test --filter</code> so the per-step rung
+        stays cheaper than the whole suite. Leave it empty and rung 4 <em>is</em> the full suite
+        already, which is worth knowing before you wonder where the wall-clock went.
+      </p>
+
+      <div class="note">
+        <span class="tag">Switching it on cannot make things worse</span>
+        <p>
+          A rung that cannot run — not a C# file, no sandbox — is skipped rather than failed, and a
+          climb where every rung skipped reports nothing at all. Silence is more honest than a
+          hollow "verified", and it means an environment without Docker sees the same behaviour it
+          saw before.
+        </p>
+      </div>
 
       <h3>Critique</h3>
 
@@ -1204,9 +1526,9 @@ the model server is running and serving this endpoint.</code></pre>
       <figure>
         <div class="shot">
           <img src="../Settings_Sandbox.png"
-               alt="The Sandbox tab: mode set to Docker, an unchecked permit-unsandboxed-execution box, the SDK image and workspace mount point, network off with network-for-restore on, container hardening on, memory, process and timeout limits, the container environment list, and an Approval group with an unchecked approve-every-write box and a 300-second timeout.">
+               alt="The Sandbox tab: mode set to Docker, an unchecked permit-unsandboxed-execution box, the SDK image and workspace mount point, network off with network-for-restore on, container hardening on, memory, process and timeout limits, the container environment list, and below them a &quot;The bash tool&quot; group with an unchecked &quot;Advertise bash to the model&quot; box. The Approval group sits below the fold.">
         </div>
-        <figcaption>Sandbox policy. The premise is that a build is arbitrary code execution — because it is.</figcaption>
+        <figcaption>Sandbox policy. The premise is that a build is arbitrary code execution — because it is, which is why bash is governed on the same tab.</figcaption>
       </figure>
 
       <p>
@@ -1232,12 +1554,45 @@ the model server is running and serving this endpoint.</code></pre>
         environment pins <code>NUGET_PACKAGES</code> and <code>HOME</code> at writable paths.
       </p>
 
+      <h3>The bash tool</h3>
+
+      <p>
+        <b>Advertise bash to the model</b> is the last capability the harness gains, and it is
+        governed here rather than on its own tab because it is exactly as privileged as the build
+        above it. It refuses outright unless the mode is <code>Docker</code> or unsandboxed
+        execution has been permitted: there is no "just this once" path onto the host.
+      </p>
+
+      <p>
+        Prefer the dedicated tools wherever one fits. <code>read_file</code>, <code>grep</code>,
+        <code>glob</code>, <code>edit_file</code>, <code>build</code> and <code>run_tests</code>
+        are safer, and they give the agent better observations to reason about than a wall of shell
+        output.
+      </p>
+
+      <div class="note">
+        <span class="tag">It only became saveable recently</span>
+        <p>
+          This switch used to be read straight out of configuration and existed nowhere as a
+          property, so it could be set in a file and never saved from the dialog. Both opt-in keys
+          — this one and <code>Git:Enabled</code> — are now built from the property name itself, so
+          the string the registration reads cannot drift from the one the settings file writes. The
+          failure mode that guards against is a capability that quietly does not appear.
+        </p>
+      </div>
+
       <h3>Approval</h3>
 
       <p>
         <b>Ask before a change is written</b> turns the Changes surface into a gate: each write
         pauses with the diff and Approve / Reject next to it. It ships off, because the harness's
         normal mode is headless measurement.
+      </p>
+
+      <p>
+        Its counterpart for pushes lives on the <a href="#git">Git tab</a> instead, next to the
+        remote and the branch lists. Approval for writes belongs with the sandbox because that is
+        where writes are governed; somebody configuring a push looks for it under Git.
       </p>
 
       <div class="note">
@@ -1251,8 +1606,137 @@ the model server is running and serving this endpoint.</code></pre>
     </section>
 
     <!-- ============ 9 ============ -->
+    <section class="part" id="git">
+      <div class="part-head"><span class="num">09</span><h2>Git &amp; publishing</h2></div>
+
+      <p>
+        Whether the agent can record its own work, and what it is allowed to do with it. This whole
+        tab is dormant until the first checkbox is ticked: the five git tools are opt-in like
+        <code>bash</code>, and until then the model is not shown them at all.
+      </p>
+
+      <figure>
+        <div class="shot">
+          <img src="../Settings_Git.png"
+               alt="The Git tab: a &quot;The git tools&quot; group with the enable checkbox ticked, the git executable, a 120-second command timeout and an unchecked run-commit-hooks box; below it a Commits group with the Co-Authored-By provenance trailer and a files-listed-per-result cap of 100.">
+        </div>
+        <figcaption>The Git tab with the tools switched on. Hooks stay off: they are the one setting here that runs code the agent may have written.</figcaption>
+      </figure>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Group</th><th>Decides</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">The git tools</td>
+              <td>Whether <code>git_status</code>, <code>git_commit</code>, <code>git_sync</code>,
+                  <code>git_push</code> and <code>create_pull_request</code> are advertised; the
+                  executable; the per-command timeout; and whether commit hooks may run.</td>
+            </tr>
+            <tr>
+              <td class="m">Commits</td>
+              <td>The provenance trailer, and how many paths one observation may list.</td>
+            </tr>
+            <tr>
+              <td class="m">Publishing</td>
+              <td>Push approval, the remote, the pushable and protected branch lists, and how many
+                  outgoing commits an approval shows.</td>
+            </tr>
+            <tr>
+              <td class="m">Pull requests</td>
+              <td>The GitHub CLI to shell out to, and the branch pull requests target.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Git runs on <em>this machine</em>, not in the sandbox. That is not an oversight: the
+        container has neither the network nor the credentials a push needs, and both are the whole
+        point of the outward-facing half. What makes host execution defensible is that nothing here
+        executes repository code — every invocation is a fixed argument list with no shell
+        involved.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">Hooks are the exception, and they are off</span>
+        <p>
+          A pre-commit hook <em>is</em> arbitrary code execution on the host, outside the sandbox,
+          and it may be code the agent has just written. <b>Let pre-commit hooks run</b> is the one
+          setting on this tab that hands the container's privileges to something the agent
+          influences. Turn it on only where you own the hooks.
+        </p>
+      </div>
+
+      <h3>GlassCoder holds no token</h3>
+
+      <p>
+        Git authenticates through the credential manager you already signed in to, and
+        <code>create_pull_request</code> shells out to <code>gh</code> rather than calling the REST
+        API, because <code>gh auth</code> already holds those credentials. A REST client would have
+        meant a personal access token this application stores — a new secret, a new place to leak
+        it — to reimplement what <code>gh pr create</code> does. The cost of the bargain is a
+        second host prerequisite, and nothing checks for <code>gh</code> until a pull request is
+        attempted.
+      </p>
+
+      <p>
+        Interactive prompts are disabled on every invocation. A missing credential or an
+        unconfigured identity therefore comes back as a fast, typed <code>git_unavailable</code>
+        rather than a loop step hung on a password prompt nobody can see.
+      </p>
+
+      <h3>Branch policy is the whole policy surface</h3>
+
+      <p>
+        The schema the model sees carries no force flag and no free-form refspec. So the remote plus
+        two lists are everything a push can be:
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt>Pushable branches</dt>
+          <dd>An allow-list. Empty means any branch may be pushed.</dd>
+        </div>
+        <div>
+          <dt>Protected branches</dt>
+          <dd>A deny-list, and it wins. Listing your default branch here is how agent work is made
+              to flow through feature branches.</dd>
+        </div>
+      </dl>
+
+      <p>
+        Both are checked <em>before</em> anyone is asked to approve, so a refusal never consumes a
+        human decision. The dialog validates them the same way the tool does — a name git would
+        read as an option is refused here rather than surfacing later as a puzzling tool failure —
+        and an allow-list wholly contained in the deny-list is refused too, since it can only ever
+        mean "nothing may be pushed". Validation runs only while the tools are enabled: a remote of
+        <code>--mirror</code> should block a save when git can act on it and be nobody's problem
+        when it cannot.
+      </p>
+
+      <div class="note">
+        <span class="tag">Push approval is on by default — writes are not</span>
+        <p>
+          The asymmetry is deliberate and it is the reason the two switches sit on different tabs.
+          A write can be reverted from the change log; a push has already left the machine. Silence
+          is refusal here too, and the console host — which cannot ask anyone — refuses outright,
+          so a headless run cannot push at all unless you give it an interactive gate.
+        </p>
+      </div>
+
+      <p>
+        One setting on another tab decides more about <code>git_commit</code> than anything here:
+        <b>writable paths</b> on the <a href="#workspace">Workspace tab</a>. Staging is filtered
+        through it, so with that list empty nothing is writable and committing is refused. Conflicted
+        paths are never staged automatically either — staging one marks the conflict resolved, and
+        that is a judgement the agent has to make explicitly.
+      </p>
+    </section>
+
+    <!-- ============ 10 ============ -->
     <section class="part" id="logging">
-      <div class="part-head"><span class="num">09</span><h2>Logging &amp; metrics</h2></div>
+      <div class="part-head"><span class="num">10</span><h2>Logging &amp; metrics</h2></div>
 
       <p>
         The transcript is the primary teaching artifact, and this tab decides how much of it survives
@@ -1299,9 +1783,9 @@ the model server is running and serving this endpoint.</code></pre>
       </p>
     </section>
 
-    <!-- ============ 10 ============ -->
+    <!-- ============ 11 ============ -->
     <section class="part" id="telemetry">
-      <div class="part-head"><span class="num">10</span><h2>Telemetry &amp; provenance</h2></div>
+      <div class="part-head"><span class="num">11</span><h2>Telemetry &amp; provenance</h2></div>
 
       <p>
         Tracing every model call, and stamping every run with what the code and context were when it
@@ -1339,9 +1823,9 @@ the model server is running and serving this endpoint.</code></pre>
       </p>
     </section>
 
-    <!-- ============ 11 ============ -->
+    <!-- ============ 12 ============ -->
     <section class="part" id="wiring">
-      <div class="part-head"><span class="num">11</span><h2>How it is wired</h2></div>
+      <div class="part-head"><span class="num">12</span><h2>How it is wired</h2></div>
 
       <p>
         The dialog binds the <em>real</em> options classes rather than a parallel set of editable
@@ -1349,6 +1833,11 @@ the model server is running and serving this endpoint.</code></pre>
         dialog rotting: a second, hand-maintained model of the configuration drifts the moment
         somebody adds a property, and then the UI quietly stops being able to set it. Here a new
         option round-trips through the file the day it is added — only its editor has to be written.
+      </p>
+
+      <p>
+        The Git tab is the proof of that. Making a whole section saveable was one property on
+        <code>GlassCoderSettings</code>; everything else on this page was writing the editor.
       </p>
 
       <div class="scroller">
@@ -1362,14 +1851,40 @@ the model server is running and serving this endpoint.</code></pre>
                   and validated in the same words the startup validators use.</td>
             </tr>
             <tr>
+              <td class="m">SettingsDocument</td>
+              <td class="m">Core/Configuration</td>
+              <td>The shape settings take on disk, and the <em>one</em> implementation of lifting
+                  the keys out of a document. Three files now carry settings; a second copy of that
+                  step would be a second chance to leave a key in one.</td>
+            </tr>
+            <tr>
               <td class="m">UserSettingsStore</td>
               <td class="m">Core/Configuration</td>
-              <td>Writes both files atomically, and lifts the keys out of the document on the way.</td>
+              <td>Writes both per-user files atomically, protecting the keys with DPAPI.</td>
+            </tr>
+            <tr>
+              <td class="m">ProjectSettingsStore</td>
+              <td class="m">Core/Configuration</td>
+              <td>Writes <code>.glasscoder.json</code>, narrowed to the project-shaped sections and
+                  stripped of every key and of the repository root.</td>
+            </tr>
+            <tr>
+              <td class="m">SettingsTransfer</td>
+              <td class="m">Core/Configuration</td>
+              <td>Export and import. Reports a wrong passphrase rather than importing settings that
+                  silently have no keys.</td>
             </tr>
             <tr>
               <td class="m">DpapiSecretProtector</td>
               <td class="m">Core/Configuration</td>
               <td>Encrypts at rest, and reports honestly when it cannot.</td>
+            </tr>
+            <tr>
+              <td class="m">PassphraseSecretProtector</td>
+              <td class="m">Core/Configuration</td>
+              <td>The portable counterpart: AES-GCM under a PBKDF2-derived key. GCM because it
+                  authenticates — a truncated or edited export fails to decrypt rather than
+                  yielding a plausible wrong key.</td>
             </tr>
             <tr>
               <td class="m">ModelConnectionProbe</td>
@@ -1384,7 +1899,9 @@ the model server is running and serving this endpoint.</code></pre>
             <tr>
               <td class="m">SettingsWindow</td>
               <td class="m">Wpf/Views</td>
-              <td>Seven tabs. Its code-behind is twenty lines and sets a <code>DataContext</code>.</td>
+              <td>Eight tabs — Models, Workspace, Agent, Verification, Sandbox, Git, Logging,
+                  Telemetry. Its code-behind is twenty lines and sets a
+                  <code>DataContext</code>.</td>
             </tr>
           </tbody>
         </table>
@@ -1392,9 +1909,34 @@ the model server is running and serving this endpoint.</code></pre>
 
       <p>
         The configuration sources are added in <code>GlassCoderHost</code>, the one bootstrap both
-        front ends share — so the console host reads the same saved settings and the same keys as the
-        desktop app. Two front ends binding different configuration would slowly become two different
-        agents, and no measurement taken in one would apply to the other.
+        front ends share — so the console host reads the same saved settings, the same project file
+        and the same keys as the desktop app. Two front ends binding different configuration would
+        slowly become two different agents, and no measurement taken in one would apply to the other.
+      </p>
+
+      <div class="note">
+        <span class="tag">Why the project file's provider is built by hand</span>
+        <p>
+          <code>AddJsonFile</code> given an absolute path resolves a
+          <code>PhysicalFileProvider</code> with <code>ExclusionFilters.Sensitive</code>, which
+          refuses to serve any <em>dot-prefixed</em> file. A project file named like every other
+          project file — <code>.glasscoder.json</code>, in the manner of
+          <code>.editorconfig</code> — was therefore skipped, and skipped in silence, because the
+          source is optional.
+        </p>
+        <p>
+          The provider is constructed explicitly with <code>ExclusionFilters.None</code> for that
+          reason. It is the kind of default that produces no error, no log line and no file: the
+          feature simply does nothing, which is the hardest failure to notice.
+        </p>
+      </div>
+
+      <p>
+        The project layer is added twice, and deliberately. <code>GlassCoderHost</code> adds it
+        during the shared bootstrap, which is enough for the console host — that is run from the
+        repository it works on, so an unset root really does mean "here". The desktop app adds it
+        again after it has discovered a root, because for a double-clicked window "here" is the
+        folder the executable lives in and the project is somewhere else entirely.
       </p>
 
       <div class="note">
@@ -1409,9 +1951,9 @@ the model server is running and serving this endpoint.</code></pre>
       </div>
     </section>
 
-    <!-- ============ 12 ============ -->
+    <!-- ============ 13 ============ -->
     <section class="part" id="stuck">
-      <div class="part-head"><span class="num">12</span><h2>When it looks wrong</h2></div>
+      <div class="part-head"><span class="num">13</span><h2>When it looks wrong</h2></div>
 
       <div class="scroller">
         <table>
@@ -1420,8 +1962,39 @@ the model server is running and serving this endpoint.</code></pre>
             <tr>
               <td>A value snaps back after saving</td>
               <td>Something above layer 2 is setting it — almost always a leftover
-                  <code>GlassCoder__…</code> environment variable, or the <code>--config</code> arm
-                  the app was launched with.</td>
+                  <code>GlassCoder__…</code> environment variable, the project's own
+                  <code>.glasscoder.json</code>, or the <code>--config</code> arm the app was
+                  launched with.</td>
+            </tr>
+            <tr>
+              <td>A setting changes when you switch project</td>
+              <td>Working as intended, if that project carries a <code>.glasscoder.json</code>. The
+                  line above the footer buttons says whether one is in force. Delete the file to
+                  drop back to your machine-wide settings.</td>
+            </tr>
+            <tr>
+              <td>A project file appears to do nothing</td>
+              <td>Check it is at the workspace root the pane shows, not at the solution root or a
+                  parent. The file is found by location, never by search — one directory, no walking
+                  up, so there is never a question of which of two files won.</td>
+            </tr>
+            <tr>
+              <td>"That passphrase does not open this file's API keys"</td>
+              <td>The passphrase is wrong, and nothing was imported. AES-GCM authenticates, so this
+                  is a certainty rather than a guess. Import without a passphrase to bring the
+                  settings across and enter the keys by hand.</td>
+            </tr>
+            <tr>
+              <td>An import brought no keys</td>
+              <td>Either the file was exported without a passphrase — in which case it never had
+                  any — or you left the passphrase empty on the way in. The status line says how
+                  many stayed behind.</td>
+            </tr>
+            <tr>
+              <td>An imported configuration points at the wrong repository</td>
+              <td>It should not: the workspace root is deliberately <em>not</em> imported, because a
+                  path from another machine names nothing here. If the root is wrong, it was already
+                  wrong — set it in the workspace pane.</td>
             </tr>
             <tr>
               <td>Save did nothing, and red text appeared</td>
@@ -1463,9 +2036,42 @@ the model server is running and serving this endpoint.</code></pre>
               <td><b>Writable paths</b> is empty, and empty means nothing — not everything.</td>
             </tr>
             <tr>
+              <td>Only eight tools are listed</td>
+              <td>That is the whole default set. <code>bash</code> and the five git tools are
+                  opt-in, on the Sandbox and Git tabs respectively — and like every setting, they
+                  appear after a restart.</td>
+            </tr>
+            <tr>
+              <td>Git tools enabled, and the window never appears</td>
+              <td>Fixed, and worth recognising if you are running an older build: enabling git used
+                  to close a cycle in the service graph, and the app hung at 0% CPU with nothing in
+                  the log rather than throwing. Launching with
+                  <code>GlassCoder__Git__Enabled=false</code> was the confirmation.</td>
+            </tr>
+            <tr>
+              <td>A commit stages nothing</td>
+              <td>Staging is filtered through <b>writable paths</b>. With that list empty there is
+                  nothing a commit is permitted to include, and it is refused rather than
+                  committing an empty tree.</td>
+            </tr>
+            <tr>
+              <td>The dialog refuses to save a branch list</td>
+              <td>A name git would parse as an option, or an allow-list wholly contained in the
+                  deny-list — which can only mean "nothing may be pushed". Both are caught here
+                  rather than surfacing later as a puzzling tool failure.</td>
+            </tr>
+            <tr>
+              <td>The project points at <code>bin\Debug\net10.0-windows</code></td>
+              <td>Nothing was ever chosen, so the placeholder <code>"."</code> resolved against the
+                  executable's own folder. Pick a folder with <b>Browse…</b> in the workspace pane,
+                  or set <b>Repository root</b> here.</td>
+            </tr>
+            <tr>
               <td>You want the shipped configuration back</td>
-              <td><b>Reset</b> deletes both files. The next start falls back to
-                  <code>appsettings.json</code>.</td>
+              <td><b>Reset</b> deletes both per-user files. The next start falls back to
+                  <code>appsettings.json</code> — unless the project carries a
+                  <code>.glasscoder.json</code>, which <b>Reset</b> does not touch. Delete that
+                  yourself; it belongs to the repository, not to the dialog.</td>
             </tr>
           </tbody>
         </table>

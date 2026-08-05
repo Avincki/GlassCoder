@@ -24,6 +24,17 @@ public enum AgentStopReason
     /// <summary>Too many consecutive tool calls failed to parse or bind.</summary>
     ToolFailureLimit,
 
+    /// <summary>
+    /// The same tool failed the same way too many times running.
+    /// <para>
+    /// Distinct from <see cref="ToolFailureLimit"/>, which counts calls the registry could not
+    /// bind. These calls bind and execute perfectly - they are simply unsatisfiable, and the
+    /// agent has stopped learning anything from repeating them. A run once spent seventeen
+    /// consecutive steps on one such call while tool-call validity read 100%.
+    /// </para>
+    /// </summary>
+    RepeatedToolFailure,
+
     /// <summary>The caller cancelled the run.</summary>
     Cancelled,
 

@@ -1,11 +1,15 @@
 <UserControl x:Class="GlassCoder.Wpf.Views.WorkspacePane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters">
+             xmlns:conv="clr-namespace:GlassCoder.Wpf.Converters"
+             Background="{StaticResource PaneBackground}"
+             Foreground="{StaticResource PaneForeground}">
   <UserControl.Resources>
     <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
   </UserControl.Resources>
 
+  <!-- Background on the control rather than the DockPanel, so the 8px margin is chrome too and
+       the pane does not sit in a thin frame of window default. -->
   <DockPanel Margin="8">
     <!-- The folder the agent works in. Read-only on purpose: the root is not something to type
          over - Browse picks one, and the strip below says what happens next. -->
@@ -13,7 +17,12 @@
       <Button DockPanel.Dock="Right" Content="Browse…" Padding="10,2" Margin="6,0,0,0"
               Command="{Binding BrowseCommand}"
               ToolTip="Pick the project folder. Saved like any setting; a restart makes it the workspace in force." />
+      <!-- An inset field: below the chrome rather than on it. A stock white box here would be the
+           brightest thing in the pane, which is not what a read-only path deserves. -->
       <TextBox IsReadOnly="True" VerticalContentAlignment="Center" Padding="4,2"
+               Background="{StaticResource PaneField}"
+               Foreground="{StaticResource PaneForeground}"
+               BorderBrush="{StaticResource PaneBorder}"
                Text="{Binding RootPath, Mode=OneWay}" ToolTip="{Binding RootPath}" />
     </DockPanel>
 
@@ -33,32 +42,71 @@
     <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
       <Button DockPanel.Dock="Right" Content="Refresh" Padding="10,2" Margin="6,0,0,0"
               Command="{Binding RefreshCommand}"
-              ToolTip="Re-read the tree from disk - for edits made outside the agent." />
-      <TextBlock Foreground="#666" TextWrapping="Wrap" VerticalAlignment="Center"
-                 Text="{Binding Status}" />
+              ToolTip="Re-read the whole tree from disk. The pane follows the workspace on its own; this is the way back if it ever stops." />
+      <TextBlock Foreground="{StaticResource PaneMutedForeground}" TextWrapping="Wrap"
+                 VerticalAlignment="Center" Text="{Binding Status}" />
     </DockPanel>
 
-    <!-- Files this session touched are green with their net +added −removed counts; the
-         folders above them expand on their own so a modification is never folded away. -->
-    <TreeView ItemsSource="{Binding RootNodes}" BorderThickness="1" BorderBrush="#DDDDDD"
+    <!-- The tree follows the workspace: a file appears the moment its path does, whoever made
+         it. Files the *current run* touched are green with their net +added −removed counts,
+         and the folders above them open so a modification is never folded away. Folders start
+         open, which is why there is no expand-all here to press. -->
+    <TreeView ItemsSource="{Binding RootNodes}" BorderThickness="1"
+              Background="{StaticResource PaneField}"
+              BorderBrush="{StaticResource PaneBorder}"
+              Foreground="{StaticResource PaneForeground}"
               VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
               ScrollViewer.HorizontalScrollBarVisibility="Auto">
+      <TreeView.Resources>
+        <!--
+          The stock item paints the system highlight, which is a pale blue behind near-black text
+          and unreadable here. Overriding the four brush keys recolours selection without taking
+          on a full TreeViewItem template - and that template is worth avoiding, because it owns
+          the expander glyph and the indentation as well, neither of which needs changing.
+
+          Inactive is styled too, not just active: this tree loses focus every time the goal box
+          or a button is used, and a selection that vanishes on focus loss reads as a click that
+          did not register.
+        -->
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"
+                         Color="{StaticResource PaneSelectedColor}" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
+                         Color="{StaticResource PaneHoverColor}" />
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}"
+                         Color="{StaticResource PaneForegroundColor}" />
+      </TreeView.Resources>
       <TreeView.ItemContainerStyle>
         <Style TargetType="TreeViewItem">
           <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+          <Setter Property="Foreground" Value="{StaticResource PaneForeground}" />
         </Style>
       </TreeView.ItemContainerStyle>
       <TreeView.ItemTemplate>
         <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-          <StackPanel Orientation="Horizontal">
+          <!-- Transparent so the gaps between the name and its counts are hit-testable too; a
+               null background is not, and a double-click that lands between two words would
+               otherwise do nothing. -->
+          <StackPanel Orientation="Horizontal" Background="Transparent">
+            <!-- Double-click, not single: selection moves with the arrow keys as well as the
+                 mouse, and opening a window on every selection change would make the tree
+                 unnavigable. OpenFileCommand declines directories, which leaves their
+                 double-click to the TreeView's own expand. -->
+            <StackPanel.InputBindings>
+              <MouseBinding MouseAction="LeftDoubleClick"
+                            CommandParameter="{Binding}"
+                            Command="{Binding DataContext.OpenFileCommand,
+                                              RelativeSource={RelativeSource AncestorType=TreeView}}" />
+            </StackPanel.InputBindings>
             <TextBlock Text="{Binding Name}">
               <TextBlock.Style>
                 <Style TargetType="TextBlock">
                   <Style.Triggers>
                     <DataTrigger Binding="{Binding IsModified}" Value="True">
-                      <!-- The Changes surface's "Applied" green, so the two surfaces agree
-                           on what modified looks like. -->
-                      <Setter Property="Foreground" Value="#1B5E20" />
+                      <!-- The Changes surface's "Applied" green, carried onto the dark pane: same
+                           hue, lightened until it is legible against it. The two surfaces still
+                           agree that green means modified, which is the part that matters. -->
+                      <Setter Property="Foreground" Value="{StaticResource PaneAdded}" />
                       <Setter Property="FontWeight" Value="SemiBold" />
                     </DataTrigger>
                   </Style.Triggers>
@@ -67,8 +115,9 @@
             </TextBlock>
             <StackPanel Orientation="Horizontal" Margin="6,0,0,0"
                         Visibility="{Binding IsModified, Converter={StaticResource BoolToVisibility}}">
-              <TextBlock Foreground="#1B5E20" Text="{Binding LinesAdded, StringFormat=+{0}}" />
-              <TextBlock Foreground="#B00020" Margin="4,0,0,0"
+              <TextBlock Foreground="{StaticResource PaneAdded}"
+                         Text="{Binding LinesAdded, StringFormat=+{0}}" />
+              <TextBlock Foreground="{StaticResource PaneRemoved}" Margin="4,0,0,0"
                          Text="{Binding LinesRemoved, StringFormat=−{0}}" />
             </StackPanel>
           </StackPanel>

@@ -129,6 +129,7 @@ public sealed class VerificationLadderTests : IDisposable
             new BuildTool(_executor, guard, summarizer, sandbox),
             new RunTestsTool(_executor, guard, sandbox),
             new DisabledCriticPanel(),
+            guard,
             Options.Create(new VerificationLadderOptions()));
     }
 

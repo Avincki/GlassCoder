@@ -55,6 +55,45 @@ public sealed class LoggingTests
     }
 
     [Fact]
+    public void The_step_line_says_what_a_tool_concluded_not_only_that_it_ran()
+    {
+        // From a run: a build that hit MSB1003 and compiled nothing logged as "build:Succeeded",
+        // because the *call* succeeded - a failed build is a handled outcome, not a tool fault.
+        // True, and read by every human as a claim about the build. It nearly hid a real failure.
+        CapturingLogger logger = new();
+        StepLogger stepLogger = new(logger, Options.Create(new LoggingOptions()));
+
+        stepLogger.LogStep(Sample() with
+        {
+            ToolCalls =
+            [
+                new ToolCallRecord(
+                    "call-1", "build", null, "Succeeded", Parsed: true, DurationMs: 7188,
+                    Result: """{"ok":true}""",
+                    Error: null,
+                    Summary: "'.' is not a project or solution and contains none at its top level."),
+            ],
+        });
+
+        string line = logger.Messages.Last(m => m.StartsWith("Step ", StringComparison.Ordinal));
+        line.ShouldContain("build:Succeeded");
+        line.ShouldContain("is not a project or solution");
+    }
+
+    [Fact]
+    public void A_tool_that_wrote_no_summary_still_logs_compactly()
+    {
+        CapturingLogger logger = new();
+        StepLogger stepLogger = new(logger, Options.Create(new LoggingOptions()));
+
+        stepLogger.LogStep(Sample());
+
+        string line = logger.Messages.Last(m => m.StartsWith("Step ", StringComparison.Ordinal));
+        line.ShouldContain("read_file:Succeeded");
+        line.ShouldNotContain("—", Case.Sensitive);
+    }
+
+    [Fact]
     public void With_content_logging_on_the_content_is_kept_but_still_scrubbed()
     {
         CapturingLogger logger = new();
@@ -136,6 +175,9 @@ public sealed class LoggingTests
     {
         public List<StepRecord> Records { get; } = [];
 
+        /// <summary>The rendered console lines, which are a different audience from the JSONL.</summary>
+        public List<string> Messages { get; } = [];
+
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
         public bool IsEnabled(LogLevel logLevel) => true;
@@ -147,6 +189,8 @@ public sealed class LoggingTests
             Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
+            Messages.Add(formatter(state, exception));
+
             if (state is IReadOnlyList<KeyValuePair<string, object?>> values)
             {
                 foreach ((string key, object? value) in values)

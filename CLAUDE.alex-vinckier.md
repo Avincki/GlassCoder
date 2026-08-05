@@ -179,6 +179,8 @@ Before feeding diagnostics to the model:
 - Every run must be **fully reconstructable as a transcript** from the logs alone — the transcript is the primary teaching artifact.
 - Provide a **live, scrolling, filterable transcript view** in the WPF UI (filter by step, tool, and severity).
 - **Redaction / privacy:** never log secrets or API keys. Source code content may be logged only within the local project's own log store; provide a config switch to disable content logging.
+- **Where the files live:** relative `Logging:Directory` / `Metrics:Directory` values anchor under `%LOCALAPPDATA%\GlassCoder` (override: `GLASSCODER_DATA_DIR`), never the process working directory — see `AppPaths`. Daily transcripts are `logs\glasscoder-<yyyyMMdd>.jsonl` there; step records ride on events under the `Step` property, run/review records under `Run`/`Review`.
+- **Remote analysis:** `scripts/publish-logs.ps1` snapshots transcripts and metrics into the committed `telemetry/` folder and pushes, so a session reading this repo over GitHub (e.g. Claude Code on claude.ai) can analyse runs without access to this machine. Start at `telemetry/README.md`.
 
 ---
 

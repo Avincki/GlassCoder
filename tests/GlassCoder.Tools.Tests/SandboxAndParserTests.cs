@@ -185,6 +185,67 @@ public sealed class SandboxAndParserTests
         result.StandardOutput.ShouldContain("Build succeeded.");
     }
 
+    /// <summary>
+    /// The shipped configuration: <c>Mode: Docker</c> with the fallback permitted. This is the
+    /// branch every build on a machine without a container runtime now takes, so it is worth a
+    /// test of its own rather than being inferred from the two Local-mode cases above.
+    /// <para>
+    /// The endpoint is a port nothing listens on, so the ping is refused on any machine - the
+    /// assertion holds whether or not the developer running it has Docker.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Docker_mode_falls_back_to_the_host_when_the_daemon_is_unreachable()
+    {
+        SandboxOptions options = new()
+        {
+            Mode = SandboxMode.Docker,
+            DockerEndpoint = UnreachableDockerEndpoint,
+            AllowUnsandboxedExecution = true,
+        };
+        FakeProcessRunner runner = new();
+        runner.Enqueue(0, "Build succeeded.");
+
+        SandboxedCommandExecutor executor = new(
+            new DockerCommandExecutor(GlassCoder.TestSupport.TempWorkspace.Wrap(options), new StubGuard()),
+            new LocalCommandExecutor(runner, GlassCoder.TestSupport.TempWorkspace.Wrap(options)),
+            GlassCoder.TestSupport.TempWorkspace.Wrap(options));
+
+        CommandResult result = await executor.ExecuteAsync(new CommandRequest("dotnet", ["build"]));
+
+        result.Succeeded.ShouldBeTrue();
+        result.Sandbox.ShouldBe("host", "an unreachable daemon should degrade to the host, not to nothing");
+        result.StandardOutput.ShouldContain("Build succeeded.");
+    }
+
+    /// <summary>
+    /// The other half of that branch: the same unreachable daemon, with the fallback withheld,
+    /// still refuses. Turning the fallback on is what changes the outcome - not Docker mode being
+    /// configured, which on its own guarantees nothing about where a command ends up running.
+    /// </summary>
+    [Fact]
+    public async Task Docker_mode_still_refuses_when_the_fallback_has_not_been_permitted()
+    {
+        SandboxOptions options = new()
+        {
+            Mode = SandboxMode.Docker,
+            DockerEndpoint = UnreachableDockerEndpoint,
+            AllowUnsandboxedExecution = false,
+        };
+        SandboxedCommandExecutor executor = new(
+            new DockerCommandExecutor(GlassCoder.TestSupport.TempWorkspace.Wrap(options), new StubGuard()),
+            new LocalCommandExecutor(new FakeProcessRunner(), GlassCoder.TestSupport.TempWorkspace.Wrap(options)),
+            GlassCoder.TestSupport.TempWorkspace.Wrap(options));
+
+        CommandResult result = await executor.ExecuteAsync(new CommandRequest("dotnet", ["build"]));
+
+        result.Succeeded.ShouldBeFalse();
+        result.FailureReason.ShouldContain("AllowUnsandboxedExecution");
+    }
+
+    /// <summary>A port nothing listens on, so the Docker ping is refused rather than answered.</summary>
+    private const string UnreachableDockerEndpoint = "tcp://127.0.0.1:1";
+
     private sealed class StubGuard : Guardrails.IPathGuard
     {
         public string RepoRoot => TestRoot;

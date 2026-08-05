@@ -1,18 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
-using System.Windows.Threading;
 using GlassCoder.Core.Configuration;
 using GlassCoder.Core.Hosting;
-using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using GlassCoder.Wpf.Services;
-using GlassCoder.Wpf.ViewModels;
+using GlassCoder.Wpf.DependencyInjection;
 using GlassCoder.Wpf.Views;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace GlassCoder.Wpf;
@@ -35,37 +31,13 @@ public partial class App : Application
         HostApplicationBuilder builder = GlassCoderHost.CreateBuilder(e?.Args);
         UseDiscoveredWorkspaceWhenUnset(builder);
 
-        // The UI's own registrations sit on top of the shared bootstrap: view models, the
-        // dispatcher they marshal onto, and the interactive approval gate that replaces the
-        // headless one (workplan task 28).
-        builder.Services.AddSingleton(Dispatcher);
-        builder.Services.AddSingleton<TranscriptViewModel>();
+        // Again, now that the root is known: the first call inside CreateBuilder ran while the
+        // root was still the placeholder, which for a window means the executable's own folder.
+        GlassCoderHost.UseProjectSettings(builder);
 
-        // Built by hand because the git tools are optional: GetService returns null when
-        // GlassCoder:Git:Enabled is false, and the pane then hides its git controls rather than
-        // offering buttons that cannot work (workplan task 42).
-        builder.Services.AddSingleton(sp => new ChangesViewModel(
-            sp.GetRequiredService<IChangeLog>(),
-            sp.GetRequiredService<Dispatcher>(),
-            sp.GetService<GlassCoder.Tools.Git.GitTool>(),
-            sp.GetService<GlassCoder.Core.Diagnostics.IStepLogger>()));
-
-        builder.Services.AddSingleton<MetricsViewModel>();
-        builder.Services.AddSingleton<WorkspaceViewModel>();
-        builder.Services.AddSingleton<MainWindowViewModel>();
-        builder.Services.AddSingleton<MainWindow>();
-        builder.Services.Replace(ServiceDescriptor.Singleton<IApprovalGate, WpfApprovalGate>());
-
-        // Settings: transient, so Cancel discards the edits rather than leaving a half-edited
-        // view model behind for the next time the dialog opens.
-        builder.Services.AddSingleton<IDesktopShell, DesktopShell>();
-        builder.Services.AddSingleton<ISettingsDialog, SettingsDialog>();
-        builder.Services.AddTransient<SettingsViewModel>();
-        builder.Services.AddTransient<SettingsWindow>();
-
-        builder.Services.AddSingleton<IAboutDialog, AboutDialog>();
-        builder.Services.AddTransient<AboutViewModel>();
-        builder.Services.AddTransient<AboutWindow>();
+        // The UI's own registrations sit on top of the shared bootstrap. They live in
+        // AddGlassCoderDesktop so the graph the app builds is the graph a test can build.
+        builder.Services.AddGlassCoderDesktop(Dispatcher);
 
         _host = builder.Build();
         _host.Start();

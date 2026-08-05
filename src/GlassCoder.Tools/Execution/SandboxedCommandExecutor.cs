@@ -7,9 +7,11 @@ namespace GlassCoder.Tools.Execution;
 /// The executor the tools actually depend on: it applies the sandbox policy and then delegates
 /// (workplan task 17).
 /// <para>
-/// When the configured sandbox is unavailable this <em>refuses</em> rather than quietly falling
-/// back to the host. A silent downgrade from "containerised, no network" to "your machine, full
-/// access" is the kind of default that is only noticed afterwards.
+/// When the configured sandbox is unavailable this <em>refuses</em>, unless
+/// <see cref="SandboxOptions.AllowUnsandboxedExecution"/> has been set. A downgrade from
+/// "containerised, no network" to "your machine, full access" is the kind of thing that is only
+/// noticed afterwards, so it has to be asked for - and every fallback is logged as a warning,
+/// because asked-for once is not the same as remembered on the four hundredth build.
 /// </para>
 /// </summary>
 public sealed class SandboxedCommandExecutor : ICommandExecutor

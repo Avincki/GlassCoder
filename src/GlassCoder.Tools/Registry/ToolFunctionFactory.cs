@@ -18,8 +18,17 @@ namespace GlassCoder.Tools.Registry;
 /// </summary>
 public static class ToolFunctionFactory
 {
-    /// <summary>JSON options used for tool arguments and observations.</summary>
-    public static JsonSerializerOptions SerializerOptions { get; } = AIJsonUtilities.DefaultOptions;
+    /// <summary>
+    /// JSON options used for tool schemas, arguments and observations.
+    /// <para>
+    /// <see cref="AIJsonUtilities.DefaultOptions"/> writes indented, which is right for a library
+    /// whose output a human reads and wrong for everything here: this JSON goes on the wire. The
+    /// indentation was 22% of the advertised schemas - re-sent on every request for the whole run
+    /// - and it is in every tool observation fed back into the conversation as well.
+    /// </para>
+    /// </summary>
+    public static JsonSerializerOptions SerializerOptions { get; } =
+        new(AIJsonUtilities.DefaultOptions) { WriteIndented = false };
 
     /// <summary>
     /// Builds the ordered function list for the given tool sets.

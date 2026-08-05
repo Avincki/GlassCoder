@@ -61,6 +61,9 @@ public static class GlassCoderServiceCollectionExtensions
         services.AddOptions<RunReviewOptions>()
             .Bind(configuration.GetSection(RunReviewOptions.SectionName));
 
+        services.AddOptions<FileReviewOptions>()
+            .Bind(configuration.GetSection(FileReviewOptions.SectionName));
+
         services.AddOptions<OrchestrationOptions>()
             .Bind(configuration.GetSection(OrchestrationOptions.SectionName));
 
@@ -73,6 +76,8 @@ public static class GlassCoderServiceCollectionExtensions
         services.TryAddSingleton<ISecretProtector, DpapiSecretProtector>();
         services.TryAddSingleton<IUserSettingsStore>(provider =>
             new UserSettingsStore(provider.GetRequiredService<ISecretProtector>()));
+        services.TryAddSingleton<IProjectSettingsStore, ProjectSettingsStore>();
+        services.TryAddSingleton<ISettingsTransfer, SettingsTransfer>();
         // The bus wraps the durable logger so the UI can watch a run live without re-parsing
         // what was just written (workplan task 26).
         services.TryAddSingleton<StepLogger>();
@@ -86,6 +91,8 @@ public static class GlassCoderServiceCollectionExtensions
         services.TryAddSingleton<IVerificationLadder, VerificationLadder>();
         services.TryAddSingleton<ICriticPanel, CriticPanel>();
         services.TryAddSingleton<IRunReviewer, RunReviewer>();
+        services.TryAddSingleton<IFileReviewer, ClaudeCodeFileReviewer>();
+        services.TryAddSingleton<IReviewActionWriter, ReviewActionWriter>();
         services.TryAddSingleton<IProvenanceStamper, ProvenanceStamper>();
         services.TryAddSingleton<Func<IAgentLoop>>(provider => provider.GetRequiredService<IAgentLoop>);
         services.TryAddSingleton<IOrchestrator, Orchestrator>();

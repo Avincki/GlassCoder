@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<meta name="description" content="Working with GlassCoder.Wpf: the annotated window, how to launch it against the right repository, the three surfaces, the approval gate, and how the shell is wired.">
+<meta name="description" content="Working with GlassCoder.Wpf: the annotated window, how to launch it against the right repository, the three surfaces and the workspace pane, the approval gate, the manual git controls, and how the shell is wired.">
 <title>GlassCoder.Wpf — Desktop App Guide</title>
 
 <style>
@@ -594,8 +594,9 @@
     <h1>Working with GlassCoder.Wpf</h1>
     <p class="standfirst">
       The desktop front end is not a wrapper around the console host — it is the same host, with
-      three surfaces bolted on and one service swapped. This is what each control does, what it is
-      bound to, and what will bite you the first time you press <b>Run</b>.
+      three surfaces and a workspace pane bolted on and one service swapped. This is what each
+      control does, what it is bound to, and what will bite you the first time you press
+      <b>Run</b>.
     </p>
     <div class="specstrip">
       <div><b>Project</b> src/GlassCoder.Wpf</div>
@@ -605,7 +606,7 @@
     </div>
     <div class="backlinks">
       <a href="index.html">← Operator's guide</a>
-      <a href="settings.html">Settings &amp; the connection check →</a>
+      <a href="settings.html">Settings, git policy &amp; the connection check →</a>
       <a href="wpf-tutorial.html">Tutorial one: nine lessons against a fixture →</a>
       <a href="wpf-tutorial-sorter.html">Tutorial two: writing a class →</a>
     </div>
@@ -620,8 +621,9 @@
       <li><a href="#launch">Starting it</a></li>
       <li><a href="#before">Before the first Run</a></li>
       <li><a href="#transcript">Transcript</a></li>
-      <li><a href="#changes">Changes &amp; approval</a></li>
+      <li><a href="#changes">Changes, approval &amp; git</a></li>
       <li><a href="#metrics">Metrics</a></li>
+      <li><a href="#workspace">The workspace pane</a></li>
       <li><a href="#wiring">How the shell is wired</a></li>
       <li><a href="#extend">Adding a surface</a></li>
       <li><a href="#stuck">When it looks wrong</a></li>
@@ -635,24 +637,35 @@
       <div class="part-head"><span class="num">01</span><h2>The window, annotated</h2></div>
 
       <p>
-        One window, one goal box, three surfaces. The screenshot below is the app at rest — booted,
-        nothing run yet.
+        One window, one goal box, three surfaces and a workspace pane. The screenshot below is the
+        app at rest — booted, nothing run yet, with the git tools switched on.
+      </p>
+
+      <p>
+        The frame is dark and the content is not, deliberately. The header is the darkest thing in
+        the window because it holds the goal and the run controls; the two panes either side of the
+        content are a lighter blue, so the three read as one frame with the header on top rather
+        than as a third panel. The surfaces inside stay light: they are long-form reading, and the
+        diff colours were chosen against white.
       </p>
 
       <figure>
         <div class="shot">
           <img src="../GlassCoder.png"
-               alt="The GlassCoder desktop window: a dark header with a five-line goal box on the left and a column of controls on the right - a Second opinion checkbox above Run, Cancel, Settings and About - a left navigation list with Transcript, Changes and Metrics, a filter bar above an empty step table, a step detail pane, and a status bar reading &quot;Ready. 8 tools&quot;.">
-          <span class="mark" style="left:37%; top:9%;">1</span>
-          <span class="mark" style="left:92%; top:10%;">2</span>
-          <span class="mark" style="left:6%;  top:28%;">3</span>
-          <span class="mark" style="left:43%; top:27%;">4</span>
-          <span class="mark" style="left:52%; top:46%;">5</span>
-          <span class="mark" style="left:16%; top:66%;">6</span>
-          <span class="mark" style="left:40%; top:97%;">7</span>
-          <span class="mark" style="left:92%; top:18%;">8</span>
+               alt="The GlassCoder desktop window: a very dark header with a five-line goal box and a column of controls on the right - a Second opinion checkbox above Run, Cancel, Settings and About - a dark blue navigation pane on the left listing Transcript, Changes and Metrics with Transcript selected, a light content area holding a filter bar above an empty step table and a step detail pane, a dark blue workspace pane on the right showing the project path with a Browse button above a file tree of the repository and a &quot;274 file(s)&quot; status with Refresh, and a status bar reading &quot;Ready. 13 tools: update_todos, read_file, grep, glob, create_file, edit_file, build, run_tests, git_status, git_commit, git_sync, git_push, create_pull_request&quot;.">
+          <span class="mark" style="left:37%;   top:9%;">1</span>
+          <span class="mark" style="left:92%;   top:10%;">2</span>
+          <span class="mark" style="left:6%;    top:28%;">3</span>
+          <span class="mark" style="left:43%;   top:27%;">4</span>
+          <span class="mark" style="left:52%;   top:46%;">5</span>
+          <span class="mark" style="left:16%;   top:66%;">6</span>
+          <span class="mark" style="left:40%;   top:97%;">7</span>
+          <span class="mark" style="left:92%;   top:18%;">8</span>
+          <span class="mark" style="left:82%;   top:27.5%;">9</span>
+          <span class="mark" style="left:87%;   top:45%;">10</span>
+          <span class="mark" style="left:76.8%; top:70%;">11</span>
         </div>
-        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet.</figcaption>
+        <figcaption>GlassCoder.Wpf at startup — Transcript surface, no run yet, git enabled.</figcaption>
       </figure>
 
       <dl class="legend">
@@ -731,16 +744,50 @@
               Disabled while a run is in flight, because nothing it changes could reach one.
               <a href="settings.html">Its own guide is here</a>.</dd>
         </div>
+        <div>
+          <span class="n">9</span>
+          <dt>Project folder</dt>
+          <dd>The root the agent is actually working in, read-only — this is not something to type
+              over. <b>Browse…</b> picks another, saves it like any other setting, and offers the
+              restart that makes it the workspace in force.</dd>
+        </div>
+        <div>
+          <span class="n">10</span>
+          <dt>File tree</dt>
+          <dd>The workspace as the agent sees it, hiding exactly what the denied globs hide. Files
+              this session changed turn green with their net <code>+added −removed</code> counts,
+              and the folders above them expand themselves. <b>Refresh</b> re-reads from disk, for
+              edits made outside the agent.</dd>
+        </div>
+        <div>
+          <span class="n">11</span>
+          <dt>Splitter</dt>
+          <dd>Drag to resize the pane. Both sides have a minimum width, so neither the content area
+              nor the pane can be dragged out of existence — a panel squeezed to zero pixels reads
+              as a feature that vanished rather than one resized.</dd>
+        </div>
       </dl>
 
       <div class="note">
         <span class="tag">Read the status bar first</span>
         <p>
-          <code>Ready. 8 tools: update_todos, read_file, grep, glob, create_file, edit_file, build, run_tests</code>
-          is the honest inventory of what the model can actually call this session. Note what is
-          <em>absent</em>: <code>bash</code>. It only registers when
-          <code>Sandbox:EnableBashTool</code> is <code>true</code>, so this line is the fastest way
-          to confirm which configuration the app really loaded.
+          <code>Ready. 13 tools: …</code> is the honest inventory of what the model can actually
+          call this session, and this shot was taken with <code>Git:Enabled</code> on — hence
+          <code>git_status</code> through <code>create_pull_request</code> after the eight that
+          always register. Note what is still <em>absent</em>: <code>bash</code>, which needs
+          <code>Sandbox:EnableBashTool</code>. On the shipped configuration this line reads
+          <code>Ready. 8 tools</code>, so it is the fastest way to confirm which configuration the
+          app really loaded.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">Shell, not surface</span>
+        <p>
+          The workspace pane and the review strip both belong to the shell rather than to any one
+          surface, and stay put whichever surface is selected. That is the rule: which folder the
+          agent is in, what this session did to it, and what a critic thought of the finished run
+          are all true regardless of what you are currently reading.
         </p>
       </div>
 
@@ -778,8 +825,14 @@ src\GlassCoder.Wpf\bin\Release\net10.0-windows\GlassCoder.Wpf.exe</code></pre>
         <div>
           <dt>Working directory</dt>
           <dd>Whatever the process inherits. <code>Workspace:RepoRoot</code> defaults to
-              <code>"."</code>, so <b>the directory you launch from is the repository the agent
-              reads and edits</b>.</dd>
+              <code>"."</code>, which resolves against it — so for the console host <b>the
+              directory you launch from is the repository the agent reads and edits</b>.</dd>
+        </div>
+        <div>
+          <dt>Discovered root</dt>
+          <dd>The desktop app only. When <em>no</em> layer supplied a real root, it walks up from
+              the executable looking for a <code>.git</code> entry or a solution file, and uses
+              what it finds.</dd>
         </div>
       </dl>
 
@@ -789,19 +842,31 @@ src\GlassCoder.Wpf\bin\Release\net10.0-windows\GlassCoder.Wpf.exe</code></pre>
         thing, because the app inherits your shell's directory rather than the project's.
       </p>
 
-      <div class="note refuse">
-        <span class="tag">Visual Studio trap</span>
+      <div class="note">
+        <span class="tag">The old F5 trap, and what replaced it</span>
         <p>
           <code>GlassCoder.Host</code> ships a <code>Properties/launchSettings.json</code> whose
           every profile sets <code>"workingDirectory": "..\\.."</code>.
-          <b><code>GlassCoder.Wpf</code> has no launchSettings file at all.</b> Press F5 on it and
-          the app starts in its own <code>bin\Debug\net10.0-windows</code> folder — so
-          <code>RepoRoot</code> becomes the output directory, and the agent will grep its own DLLs
-          and find nothing useful.
+          <b><code>GlassCoder.Wpf</code> still has no launchSettings file</b>, so pressing F5 on it
+          — or double-clicking the executable — starts the app in
+          <code>bin\Debug\net10.0-windows</code>. That used to make <code>RepoRoot</code> the
+          output directory, and the agent would grep its own DLLs.
+        </p>
+        <p>
+          It no longer does. <code>"."</code> is now read as "nobody chose a workspace", and the
+          app discovers one by walking up from the executable instead — which finds the repository
+          in a normal checkout, and finds nothing at all once the app is installed elsewhere. That
+          is the honest answer rather than a guess, and it leaves the saved setting as the way to
+          say where the work is. Anything actually chosen, saved or exported still wins.
+        </p>
+        <p>
+          Both front ends now log the root they resolved at startup. A workspace root silently
+          resolving to build output survived unnoticed in an application whose first-class claim
+          is instrumentation, which is precisely why it is announced.
         </p>
       </div>
 
-      <p>Either add the missing profile:</p>
+      <p>You can still pin it explicitly. Either add the missing profile:</p>
 
 <pre><code><span class="c">// src/GlassCoder.Wpf/Properties/launchSettings.json</span>
 {
@@ -820,8 +885,9 @@ $env:GlassCoder__Workspace__RepoRoot = "C:\src\the-repo"
 dotnet run --project src/GlassCoder.Wpf</code></pre>
 
       <p>
-        The console host has a <code>--repo</code> switch for this. The desktop app has no
-        equivalent — configuration or the working directory are your only levers.
+        The console host has a <code>--repo</code> switch for this. The desktop app's equivalent is
+        <b>Browse…</b> in the workspace pane, which writes the same setting and offers the restart
+        that makes it take effect.
       </p>
     </section>
 
@@ -830,7 +896,7 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
       <div class="part-head"><span class="num">03</span><h2>Before the first Run</h2></div>
 
       <p>
-        The app inherits <code>config/appsettings.json</code> wholesale. Five settings decide
+        The app inherits <code>config/appsettings.json</code> wholesale. Six settings decide
         whether your first run does anything interesting:
       </p>
 
@@ -867,6 +933,13 @@ dotnet run --project src/GlassCoder.Wpf</code></pre>
               <td>Resolved against the working directory. The Metrics surface reads this exact
                   path, so a wrong working directory shows an empty dashboard.</td>
             </tr>
+            <tr>
+              <td class="m">Git:Enabled</td>
+              <td class="m">false</td>
+              <td>Opt-in, like <code>bash</code>. Turn it on and the model gains five git tools and
+                  the Changes surface grows manual <b>Commit</b> and <b>Push</b> buttons. Git runs
+                  on your machine rather than in the sandbox.</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -887,6 +960,14 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
         <code>%APPDATA%\GlassCoder\settings.json</code> with the keys held separately under DPAPI.
         Saved settings sit above <code>appsettings.json</code> and below environment variables and
         any <code>--config</code> arm, so an arm still means the same thing on every machine.
+      </p>
+
+      <p>
+        Its footer also has <b>Save to project</b>, which writes the repository-shaped sections
+        into <code>.glasscoder.json</code> at the workspace root so each project carries its own
+        paths and branch rules, and <b>Export…</b> / <b>Import…</b>, which move a whole
+        configuration between machines with the API keys re-encrypted under a passphrase. Neither
+        the project file nor a passphrase-less export ever contains a key.
       </p>
 
       <p>
@@ -995,7 +1076,7 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
 
     <!-- ============ 5 ============ -->
     <section class="part" id="changes">
-      <div class="part-head"><span class="num">05</span><h2>Changes &amp; approval</h2></div>
+      <div class="part-head"><span class="num">05</span><h2>Changes, approval &amp; git</h2></div>
 
       <p>
         Every change the agent proposed appears here — time, task, file, line range, status and
@@ -1056,6 +1137,47 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
         front end where interactive approval is a real option — that is precisely why
         <code>WpfApprovalGate</code> replaces the headless gate at startup.
       </p>
+
+      <h3>A push asks in the same strip</h3>
+
+      <p>
+        Approval was originally shaped around a diff, and a push is not one. The seam now carries
+        an <em>action</em> shape beside the change shape, and an action's detail lines render
+        through the existing diff template as context lines — so a push approval is the same amber
+        strip and the same two buttons, showing the outgoing commits where the diff would be. No
+        second UI surface to keep in step with the first.
+      </p>
+
+      <p>
+        <code>Approval:RequireApprovalForPush</code> ships <b>on</b>, unlike its counterpart for
+        writes. A write can be reverted from the change log; a push has left the machine.
+      </p>
+
+      <h3>The manual git strip</h3>
+
+      <p>
+        With <code>Git:Enabled</code> on, a strip appears above the change table: a commit message
+        box, <b>Commit</b> and <b>Push</b>. It is hidden entirely when git is off, rather than
+        offering buttons that cannot work.
+      </p>
+
+      <ul class="prose">
+        <li><b>They are the same code path.</b> The buttons call the very tool methods the model
+            calls, so the guardrails cannot diverge — a manual push still asks the approval gate,
+            and a manual commit still filters staging through the writable set. Nothing about
+            pressing a button makes an action more trusted than the model requesting it.</li>
+        <li><b>Every press lands in the transcript</b> as its own step, recorded with
+            <code>Role: "human"</code>. Outside a run it belongs to no run, which is honest: the
+            action was a person's, so it contributes to no run's metrics.</li>
+        <li><b>They stand down mid-run.</b> Committing a tree the agent has not finished changing
+            would record work in progress as though it were finished.</li>
+      </ul>
+
+      <p>
+        There is no Sync or Open-PR button. <code>git_sync</code> and
+        <code>create_pull_request</code> stayed model-only until there is a reason to widen the
+        surface.
+      </p>
     </section>
 
     <!-- ============ 6 ============ -->
@@ -1107,8 +1229,69 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
     </section>
 
     <!-- ============ 7 ============ -->
+    <section class="part" id="workspace">
+      <div class="part-head"><span class="num">07</span><h2>The workspace pane</h2></div>
+
+      <p>
+        The project folder on top, the file tree below, and a splitter you can drag. It is on the
+        shell rather than being a fourth surface, because which folder the agent is in and what
+        this session did to it stay true whichever surface you are reading.
+      </p>
+
+      <h3>Green means this session touched it</h3>
+
+      <p>
+        A file with an applied change shows green with its <code>+added −removed</code> counts, and
+        the folders above it expand on their own so a modification is never folded away. The counts
+        come from the change log and update live.
+      </p>
+
+      <p>
+        They are <b>net</b>, not summed. The rollup diffs the first applied change's before-text
+        against the last applied change's after-text, per file — so a line written and then
+        rewritten counts once, and an applied-then-reverted change drops out on its own. Edits that
+        cancel out exactly still list the file at <code>+0 −0</code>: touched-but-net-nothing is a
+        fact, and the rollup does not editorialise it away.
+      </p>
+
+      <p>
+        The tree hides exactly what <code>Workspace:DeniedGlobs</code> hides, because it builds its
+        filter from that list — so the pane and the path guard never disagree about what the
+        workspace contains. Directories are pruned without being enumerated: the globs are all of
+        the "everything under here" shape, and listing <code>bin/</code> only to hide it would be
+        the slowest possible way to say nothing.
+      </p>
+
+      <h3>Choosing a folder is save-and-restart</h3>
+
+      <p>
+        <b>Browse…</b> writes <code>Workspace:RepoRoot</code> through the same user settings store
+        the dialog uses, then shows a pending strip with a <b>Restart now</b> button. It does not
+        re-root the running process, and the tree keeps showing the <em>active</em> root until you
+        restart.
+      </p>
+
+      <p>
+        That is not laziness. The path guard, the sandbox mounts and the context all root
+        themselves at startup and the whole configuration model is deliberately bind-once, so a
+        pane that re-rooted only the tree would be showing you a folder the agent is not in — the
+        worst of both. Re-rooting everything live is a real architectural change: a re-rootable
+        path guard, recreated sandbox mounts, an invalidated change log.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">The tree does not watch the disk</span>
+        <p>
+          Edits made outside the agent are invisible until <b>Refresh</b>. A
+          <code>FileSystemWatcher</code> was deliberately left out of the first version. Directory
+          nodes also do not roll up their children's counts — only files carry numbers.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 8 ============ -->
     <section class="part" id="wiring">
-      <div class="part-head"><span class="num">07</span><h2>How the shell is wired</h2></div>
+      <div class="part-head"><span class="num">08</span><h2>How the shell is wired</h2></div>
 
       <p>
         <code>App.OnStartup</code> builds the <em>same</em> host the console front end builds, then
@@ -1119,17 +1302,65 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
 
       <div class="wiring">
         <div class="row"><span class="lbl">shared</span><span><b>GlassCoderHost.CreateBuilder(args)</b> — configuration, logging, tools, the agent loop.</span></div>
-        <div class="row"><span class="lbl">+ singleton</span><span>The UI <b>Dispatcher</b>, so view models can marshal onto it.</span></div>
-        <div class="row"><span class="lbl">+ singleton</span><span>Transcript, Changes, Metrics and MainWindow view models.</span></div>
-        <div class="row"><span class="lbl">replace</span><span><b>IApprovalGate → WpfApprovalGate</b>, the one service that genuinely differs.</span></div>
-        <div class="row"><span class="lbl">then</span><span>Start the host, resolve <b>MainWindow</b>, show it.</span></div>
+        <div class="row"><span class="lbl">then</span><span>Discover a workspace root, but only if no layer supplied one.</span></div>
+        <div class="row"><span class="lbl">desktop</span><span><b>AddGlassCoderDesktop(Dispatcher)</b> — the whole UI half, in one call.</span></div>
+        <div class="row"><span class="lbl">↳ singleton</span><span>The UI <b>Dispatcher</b>, so view models can marshal onto it.</span></div>
+        <div class="row"><span class="lbl">↳ singleton</span><span>Transcript, Changes, Metrics, Workspace and MainWindow view models.</span></div>
+        <div class="row"><span class="lbl">↳ replace</span><span><b>IApprovalGate → WpfApprovalGate</b>, the one service that genuinely differs.</span></div>
+        <div class="row"><span class="lbl">↳ transient</span><span>The settings and about dialogs, so Cancel discards the edits.</span></div>
+        <div class="row"><span class="lbl">then</span><span>Start the host, log the resolved workspace root, resolve <b>MainWindow</b>, show it.</span></div>
       </div>
 
       <p>
-        The view models are singletons on purpose. <code>WpfApprovalGate</code> is handed the very
+        The view models are singletons on purpose. <code>WpfApprovalGate</code> reaches the very
         same <code>ChangesViewModel</code> instance the Changes surface is bound to — that shared
         instance <em>is</em> the channel through which a background approval request reaches the
         screen.
+      </p>
+
+      <h3>Why the registrations left <code>OnStartup</code></h3>
+
+      <p>
+        They used to be inline, and a composition root that only exists inside
+        <code>OnStartup</code> is one nothing can check: the only way to exercise it is to start
+        the application. <code>AddGlassCoderDesktop</code> exists so a test builds the graph the
+        app builds — and <code>tests/GlassCoder.Wpf.Tests</code> does exactly that, making the same
+        two calls the application makes.
+      </p>
+
+      <p>
+        The defect that prompted it was total and silent. Enabling the git tools closed a cycle:
+        <code>ChangesViewModel</code> takes <code>GitTool</code> so it can decide whether to show
+        its git controls, <code>GitTool</code> takes <code>IApprovalGate</code> so a push still
+        asks a human, and the gate took <code>ChangesViewModel</code> to ask with. The window
+        simply never appeared.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">A cycle that does not throw</span>
+        <p>
+          <code>Microsoft.Extensions.DependencyInjection</code> detects cycles while building call
+          sites, and a factory registration is opaque to that. So instead of an
+          <code>InvalidOperationException</code> the resolver recursed, its <code>StackGuard</code>
+          handed the work to a thread-pool thread, and that thread blocked on the singleton lock
+          the resolving thread still held. Silent, at 0% CPU, with nothing in the log.
+          <code>ValidateOnBuild</code> would not have caught it either, for the same reason.
+        </p>
+        <p>
+          The fix breaks the cycle at the gate, which takes a <code>Func&lt;ChangesViewModel&gt;</code>.
+          Of the three edges that is the one genuinely late: the gate needs the view only when
+          something is waiting on a decision, whereas the change view needs to know at construction
+          whether to show its buttons. Breaking a different edge would have made a constructor lie
+          about when its dependency is really used.
+        </p>
+      </div>
+
+      <p>
+        The regression test resolves the graph on a background STA thread with a 30-second timeout,
+        because a test calling <code>GetRequiredService</code> directly would hang the whole run
+        rather than fail one case. It resolves view models and never windows — a
+        <code>Window</code> wants a running <code>Application</code>, and none of this is about
+        rendering.
       </p>
 
       <h3>Navigation without a navigation service</h3>
@@ -1185,9 +1416,9 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
       </p>
     </section>
 
-    <!-- ============ 8 ============ -->
+    <!-- ============ 9 ============ -->
     <section class="part" id="extend">
-      <div class="part-head"><span class="num">08</span><h2>Adding a surface</h2></div>
+      <div class="part-head"><span class="num">09</span><h2>Adding a surface</h2></div>
 
       <p>Three edits, in three files, with no navigation plumbing in between.</p>
 
@@ -1207,9 +1438,10 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
           <div class="step-body">
             <h3>Register it</h3>
             <p>
-              One <code>AddSingleton&lt;YourViewModel&gt;()</code> in <code>App.OnStartup</code>,
-              and one <code>DataTemplate</code> in <code>MainWindow.xaml</code> mapping the type to
-              the control.
+              One <code>AddSingleton&lt;YourViewModel&gt;()</code> in
+              <code>AddGlassCoderDesktop</code> — not in <code>App.OnStartup</code>, so the
+              composition test covers it — and one <code>DataTemplate</code> in
+              <code>MainWindow.xaml</code> mapping the type to the control.
             </p>
           </div>
         </li>
@@ -1235,9 +1467,9 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
       </div>
     </section>
 
-    <!-- ============ 9 ============ -->
+    <!-- ============ 10 ============ -->
     <section class="part" id="stuck">
-      <div class="part-head"><span class="num">09</span><h2>When it looks wrong</h2></div>
+      <div class="part-head"><span class="num">10</span><h2>When it looks wrong</h2></div>
 
       <div class="scroller">
         <table>
@@ -1246,15 +1478,40 @@ $env:GlassCoder__Agent__MaxSteps = "50"</code></pre>
             <tr>
               <td>Status bar lists fewer tools than expected</td>
               <td>Config was not the one you edited, or a tool is gated off. <code>bash</code> needs
-                  <code>Sandbox:EnableBashTool</code>. Remember <code>appsettings.json</code> is
-                  read from the <em>output</em> folder — rebuild after editing
-                  <code>config/appsettings.json</code>.</td>
+                  <code>Sandbox:EnableBashTool</code>; the five git tools need
+                  <code>Git:Enabled</code>. Remember <code>appsettings.json</code> is read from the
+                  <em>output</em> folder — rebuild after editing
+                  <code>config/appsettings.json</code>, or save through the dialog instead.</td>
             </tr>
             <tr>
               <td>The agent cannot find obvious files</td>
-              <td>Wrong working directory — almost always F5 from Visual Studio, which starts the
-                  app in <code>bin\Debug\net10.0-windows</code>. Add the launchSettings profile or
-                  set <code>GlassCoder__Workspace__RepoRoot</code>.</td>
+              <td>Check the folder shown at the top of the workspace pane — that is the root in
+                  force, and it is logged at startup too. Outside a checkout nothing is discovered,
+                  so pick one with <b>Browse…</b>, add the launchSettings profile, or set
+                  <code>GlassCoder__Workspace__RepoRoot</code>.</td>
+            </tr>
+            <tr>
+              <td>A saved setting has no effect at all</td>
+              <td>Fixed, and worth knowing if you are on an older build: saved settings were being
+                  layered <em>underneath</em> <code>appsettings.json</code>, so every value both
+                  files mention was read and then overruled. Only keys absent from the shipped file
+                  ever took effect.</td>
+            </tr>
+            <tr>
+              <td>The window never appears, at 0% CPU</td>
+              <td>Also fixed: a dependency cycle that closed the first time git was enabled, and
+                  deadlocked instead of throwing. Confirm against an older build by launching with
+                  <code>GlassCoder__Git__Enabled=false</code>.</td>
+            </tr>
+            <tr>
+              <td>No Commit / Push buttons on Changes</td>
+              <td><code>Git:Enabled</code> is off, so the strip is hidden rather than showing
+                  buttons that cannot work. They are also disabled while a run is in flight.</td>
+            </tr>
+            <tr>
+              <td>The tree does not show a file you just edited</td>
+              <td>Either the change was not applied, or the edit came from outside the agent —
+                  press <b>Refresh</b>. Nothing watches the filesystem.</td>
             </tr>
             <tr>
               <td>Every edit is refused</td>

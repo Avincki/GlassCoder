@@ -84,6 +84,18 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         !string.IsNullOrWhiteSpace(filePath) &&
         Path.GetExtension(filePath).Equals(".cs", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The parsed tree for a file on disk, or null when it cannot be read.
+    /// <para>
+    /// Exposed so structural tools (workplan task 47) sweep the workspace through the cache this
+    /// class already keeps, rather than opening a second one. A repository-wide symbol search and
+    /// a pre-write compile want the same trees, and parsing them twice would be paying twice for
+    /// the same answer.
+    /// </para>
+    /// </summary>
+    public SyntaxTree? ParseFile(string fullPath, CancellationToken cancellationToken = default) =>
+        Handles(fullPath) ? ParseCached(fullPath, cancellationToken) : null;
+
     /// <inheritdoc />
     public DiagnosticReport CheckSyntax(string filePath, string text)
     {
@@ -133,8 +145,15 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
             return Task.FromResult(DiagnosticReport.Inconclusive(verdict.Reason ?? "Path is not readable."));
         }
 
+        // Callers name a build target, which is as often a .csproj or .sln as a directory. This
+        // compiles a directory of sources, so take the one the target lives in - enumerating a
+        // file as though it were a directory throws rather than returning nothing.
+        string directory = Directory.Exists(verdict.FullPath)
+            ? verdict.FullPath
+            : Path.GetDirectoryName(verdict.FullPath) ?? verdict.FullPath;
+
         return Task.Run(
-            () => Compile(verdict.FullPath, overridePath: null, overrideText: null, cancellationToken),
+            () => Compile(directory, overridePath: null, overrideText: null, cancellationToken),
             cancellationToken);
     }
 
@@ -201,10 +220,32 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 cancellationToken: cancellationToken));
         }
 
+        (List<MetadataReference> metadata, Dictionary<string, DateTime> resolved) = References(projectDirectory);
+
+        // Before trusting any diagnostic, ask whether this compilation could possibly be right.
+        // The reference set is scavenged from build output, not evaluated from the project file,
+        // so a project whose dependencies have not been built yet produces CS0246 for every type
+        // it imports - including correct ones. Reporting that as "your file does not compile"
+        // blocks the write, and the agent cannot fix an error that is not in its file.
+        if (UnresolvedReferences(projectDirectory, resolved) is { } unresolved)
+        {
+            return DiagnosticReport.Inconclusive(unresolved, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+
+        // A reference can also exist and be old. From run e8f9186a: a library gained a
+        // parameter, and every edit fixing the call sites in its test project was refused with
+        // "no overload takes 2 arguments" - judged against the library's last-built DLL, which
+        // no tool call could refresh, because the test project cannot build until the very edit
+        // being refused has landed. A gate that cannot know must not gate.
+        if (StaleReferences(projectDirectory, resolved) is { } stale)
+        {
+            return DiagnosticReport.Inconclusive(stale, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+
         CSharpCompilation compilation = CSharpCompilation.Create(
             $"glasscoder-{Path.GetFileName(projectDirectory)}",
             trees,
-            References(projectDirectory),
+            metadata,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: true,
@@ -222,6 +263,11 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 
     private IEnumerable<string> EnumerateSources(string projectDirectory)
     {
+        if (!Directory.Exists(projectDirectory))
+        {
+            yield break;
+        }
+
         IEnumerable<string> files;
         try
         {
@@ -330,9 +376,17 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         return null;
     }
 
-    private List<MetadataReference> References(string projectDirectory)
+    /// <summary>
+    /// The assemblies to compile against, and the names of the ones that were scavenged from
+    /// build output, each with the newest write time seen for that name. The names are what
+    /// tells the caller whether the set is complete: framework assemblies are always there, so
+    /// only the scavenged ones say anything about this project. The write times are what say
+    /// whether a reference predates the sources it was built from.
+    /// </summary>
+    private (List<MetadataReference> Metadata, Dictionary<string, DateTime> Resolved) References(string projectDirectory)
     {
         List<MetadataReference> references = [.. FrameworkReferences.Value];
+        Dictionary<string, DateTime> resolved = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string directory in _options.ExtraReferenceDirectories.Prepend(Path.Combine(projectDirectory, "bin")))
         {
@@ -346,6 +400,13 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 try
                 {
                     references.Add(MetadataReference.CreateFromFile(dll));
+
+                    string name = Path.GetFileNameWithoutExtension(dll);
+                    DateTime written = File.GetLastWriteTimeUtc(dll);
+                    if (!resolved.TryGetValue(name, out DateTime seen) || written > seen)
+                    {
+                        resolved[name] = written;
+                    }
                 }
                 catch (Exception ex) when (ex is IOException or BadImageFormatException)
                 {
@@ -354,7 +415,78 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
             }
         }
 
-        return references;
+        return (references, resolved);
+    }
+
+    /// <summary>
+    /// Why this compilation cannot be trusted, or null when it can.
+    /// <para>
+    /// Two cases, both meaning "the answer would be about the reference set, not about the code".
+    /// A <c>ProjectReference</c> whose assembly is nowhere in the output is definitive. Packages
+    /// are judged more coarsely - a package id is not an assembly name, so the only reliable
+    /// reading is that nothing has been built yet at all.
+    /// </para>
+    /// </summary>
+    private static string? UnresolvedReferences(string projectDirectory, Dictionary<string, DateTime> resolved)
+    {
+        foreach (string projectFile in ProjectLocator.EnumerateProjects(projectDirectory))
+        {
+            ProjectReferences declared = ProjectLocator.ReadReferences(projectFile);
+            if (!declared.Any)
+            {
+                continue;
+            }
+
+            List<string> missing = [.. declared.Projects.Where(p => !resolved.ContainsKey(p))];
+            if (missing.Count > 0)
+            {
+                return $"'{Path.GetFileName(projectFile)}' references {string.Join(", ", missing)}, " +
+                    "which has not been built yet, so an in-memory compile cannot see those types. " +
+                    "Use the build tool for an authoritative answer.";
+            }
+
+            if (declared.Packages.Count > 0 && resolved.Count == 0)
+            {
+                return $"'{Path.GetFileName(projectFile)}' references NuGet packages that have not been " +
+                    "restored or built yet, so an in-memory compile cannot see those types. " +
+                    "Use the build tool for an authoritative answer.";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The scavenged reference that is older than the sources of the project it was built from,
+    /// or null when they are all current. Diagnostics computed against a stale reference are
+    /// about a version of the dependency that no longer exists, so the compile is inconclusive -
+    /// the same answer an unbuilt reference gets, for the same reason.
+    /// </summary>
+    private string? StaleReferences(string projectDirectory, Dictionary<string, DateTime> resolved)
+    {
+        foreach (string projectFile in ProjectLocator.EnumerateProjects(projectDirectory))
+        {
+            foreach ((string name, string referencedProject) in ProjectLocator.ReadProjectReferencePaths(projectFile))
+            {
+                if (!resolved.TryGetValue(name, out DateTime built) ||
+                    Path.GetDirectoryName(referencedProject) is not { } directory)
+                {
+                    continue;
+                }
+
+                foreach (string source in EnumerateSources(directory))
+                {
+                    if (File.GetLastWriteTimeUtc(source) > built)
+                    {
+                        return $"'{Path.GetFileName(projectFile)}' references {name}, whose sources changed " +
+                            $"after it was last built, so this compile would judge the edit against the old " +
+                            $"{name}. Use the build tool for an authoritative answer.";
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     private static List<MetadataReference> LoadFrameworkReferences()

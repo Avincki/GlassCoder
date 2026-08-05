@@ -26,6 +26,8 @@ namespace GlassCoder.Wpf.ViewModels;
 public sealed class SettingsViewModel : ViewModelBase
 {
     private readonly IUserSettingsStore _store;
+    private readonly IProjectSettingsStore _projectStore;
+    private readonly ISettingsTransfer _transfer;
     private readonly IModelConnectionProbe _probe;
     private readonly IDesktopShell _shell;
     private RoleSettingsViewModel? _selectedRole;
@@ -36,24 +38,24 @@ public sealed class SettingsViewModel : ViewModelBase
     public SettingsViewModel(
         IConfiguration configuration,
         IUserSettingsStore store,
+        IProjectSettingsStore projectStore,
+        ISettingsTransfer transfer,
         IModelConnectionProbe probe,
         IDesktopShell shell)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(projectStore);
+        ArgumentNullException.ThrowIfNull(transfer);
 
         _store = store;
+        _projectStore = projectStore;
+        _transfer = transfer;
         _probe = probe;
         _shell = shell;
 
         Settings = GlassCoderSettings.ReadFrom(configuration);
-
-        foreach ((string name, ModelRoleOptions options) in Settings.Models.Roles)
-        {
-            Roles.Add(new RoleSettingsViewModel(name, options, probe, store.ProtectionScheme));
-        }
-
-        _selectedRole = Roles.Count > 0 ? Roles[0] : null;
+        BuildRoles();
 
         int undecryptable = _store.LoadSecrets().Count(entry => entry.Value is null);
         _status = undecryptable > 0
@@ -67,13 +69,19 @@ public sealed class SettingsViewModel : ViewModelBase
         TestAllCommand = new RelayCommand(async () => await TestAllAsync().ConfigureAwait(true), () => !IsBusy);
         OpenFolderCommand = new RelayCommand(() => _shell.OpenFolder(_store.DirectoryPath));
         ResetCommand = new RelayCommand(Reset, () => _store.Exists);
+        ExportCommand = new RelayCommand(Export, () => !IsBusy);
+        ImportCommand = new RelayCommand(Import, () => !IsBusy);
+        SaveToProjectCommand = new RelayCommand(SaveToProject, () => !IsBusy && HasProjectRoot);
     }
 
     /// <summary>Raised when the dialog should close. The argument is whether anything was saved.</summary>
     public event EventHandler<bool>? CloseRequested;
 
-    /// <summary>Every configurable section, bound directly by the view.</summary>
-    public GlassCoderSettings Settings { get; }
+    /// <summary>
+    /// Every configurable section, bound directly by the view. Replaced wholesale by an import,
+    /// which is why it is settable at all.
+    /// </summary>
+    public GlassCoderSettings Settings { get; private set; }
 
     /// <summary>The served roles.</summary>
     public ObservableCollection<RoleSettingsViewModel> Roles { get; } = [];
@@ -121,6 +129,34 @@ public sealed class SettingsViewModel : ViewModelBase
         (_store.SecretsAreEncrypted
             ? $"encrypted with {_store.ProtectionScheme} for this Windows account."
             : $"only {_store.ProtectionScheme}-encoded on this platform - prefer an environment variable for keys.");
+
+    /// <summary>The repository these settings would be saved into, when one is known.</summary>
+    public string ProjectRoot => Settings.Workspace.RepoRoot ?? string.Empty;
+
+    /// <summary>Whether a real project is selected, rather than the placeholder root.</summary>
+    public bool HasProjectRoot => !WorkspaceRootLocator.IsUnset(ProjectRoot);
+
+    /// <summary>
+    /// What a project file would do for the current project, and whether one is already in force.
+    /// </summary>
+    public string ProjectSummary
+    {
+        get
+        {
+            if (!HasProjectRoot)
+            {
+                return "No project is selected, so there is nowhere to write a project file.";
+            }
+
+            string path = _projectStore.FilePathFor(ProjectRoot);
+            string sections = string.Join(", ", SettingsDocument.ProjectSectionNames);
+
+            return _projectStore.ExistsIn(ProjectRoot)
+                ? $"{path} is in force for this project. It carries {sections} and never an API key."
+                : $"Save to project writes {path}, carrying {sections} and never an API key. " +
+                  "The project then brings its own paths and branches wherever it is cloned.";
+        }
+    }
 
     /// <summary>Repository roots the agent may read, one per line. Empty means the repository root.</summary>
     public string ReadablePaths
@@ -241,6 +277,15 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>Deletes the saved settings, falling back to <c>appsettings.json</c>.</summary>
     public RelayCommand ResetCommand { get; }
 
+    /// <summary>Writes everything to a portable file, keys included, under a passphrase.</summary>
+    public RelayCommand ExportCommand { get; }
+
+    /// <summary>Loads a portable file into the dialog, ready to review and save.</summary>
+    public RelayCommand ImportCommand { get; }
+
+    /// <summary>Writes the project-shaped sections into the project itself.</summary>
+    public RelayCommand SaveToProjectCommand { get; }
+
     /// <summary>Checks every role in turn, and reports how many worked.</summary>
     public async Task TestAllAsync()
     {
@@ -311,6 +356,225 @@ public sealed class SettingsViewModel : ViewModelBase
         }
 
         CloseRequested?.Invoke(this, true);
+    }
+
+    /// <summary>
+    /// Writes everything to one file that another machine can read.
+    /// <para>
+    /// The passphrase is what makes the keys portable. DPAPI ciphertext is bound to this Windows
+    /// account, so copying <c>secrets.json</c> anywhere produces keys that decrypt to nothing;
+    /// re-encrypting them under something the operator knows is the only way they travel. Empty
+    /// means the file is written without them, and there is no third option that writes one in the
+    /// clear.
+    /// </para>
+    /// </summary>
+    private void Export()
+    {
+        if (!Collect())
+        {
+            return;
+        }
+
+        string? path = _shell.PickFileToSave(
+            "Export GlassCoder configuration",
+            $"GlassCoder configuration|*{_transfer.FileExtension}|All files|*.*",
+            "glasscoder" + _transfer.FileExtension,
+            HasProjectRoot ? ProjectRoot : _store.DirectoryPath);
+
+        if (path is null)
+        {
+            return;
+        }
+
+        int keys = Roles.Count(role => !string.IsNullOrWhiteSpace(role.Options.ApiKey));
+        string? passphrase = _shell.PromptForPassphrase(
+            "Protect the exported keys",
+            keys > 0
+                ? $"This configuration holds {keys} API key(s). A passphrase encrypts them so they can be read on " +
+                  "another machine - the stored keys cannot travel on their own, because Windows ties them to this account."
+                : "This configuration holds no API keys, so a passphrase changes nothing about what is written.",
+            confirm: true);
+
+        if (passphrase is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            int written = _transfer.Export(Settings, path, passphrase);
+            Status = written > 0
+                ? $"Exported to {path}, with {written} key(s) encrypted under the passphrase."
+                : $"Exported to {path}. No keys were written, so it is safe to share.";
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            Status = $"Could not write {path}: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Loads an exported file into the dialog.
+    /// <para>
+    /// It populates rather than saves, so what arrives can be looked at before it replaces
+    /// anything - and so the keys go back under DPAPI through the ordinary Save, rather than
+    /// through a second path that would have to get the same thing right twice.
+    /// </para>
+    /// </summary>
+    private void Import()
+    {
+        string? path = _shell.PickFileToOpen(
+            "Import GlassCoder configuration",
+            $"GlassCoder configuration|*{_transfer.FileExtension};*.json|All files|*.*",
+            HasProjectRoot ? ProjectRoot : _store.DirectoryPath);
+
+        if (path is null)
+        {
+            return;
+        }
+
+        string? passphrase = null;
+        if (_transfer.ContainsKeys(path))
+        {
+            passphrase = _shell.PromptForPassphrase(
+                "Unlock the imported keys",
+                "This file's API keys are encrypted. Enter the passphrase they were exported with.",
+                confirm: false);
+
+            if (passphrase is null)
+            {
+                return;
+            }
+        }
+
+        IsBusy = true;
+        try
+        {
+            ImportedSettings imported = _transfer.Import(path, passphrase);
+            Apply(imported.Settings);
+
+            Status = Describe(imported, path);
+        }
+        catch (SettingsTransferException ex)
+        {
+            Status = ex.Message;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            Status = $"Could not read {path}: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static string Describe(ImportedSettings imported, string path)
+    {
+        string what = $"Imported {System.IO.Path.GetFileName(path)}.";
+
+        if (imported.KeysWithheld > 0)
+        {
+            what += $" {imported.KeysRestored} key(s) came across and {imported.KeysWithheld} did not - " +
+                    "enter those again.";
+        }
+        else if (imported.KeysRestored > 0)
+        {
+            what += $" {imported.KeysRestored} key(s) came across.";
+        }
+
+        return what + " The workspace root was left as it is. Nothing is saved until you press Save.";
+    }
+
+    /// <summary>
+    /// Writes the project-shaped sections into the project, so they travel with it.
+    /// <para>
+    /// This is what makes a second project usable: the workspace paths, context files, reference
+    /// directories and branch rules all name things inside one repository, and a machine-wide copy
+    /// of them is right for exactly one of them.
+    /// </para>
+    /// </summary>
+    private void SaveToProject()
+    {
+        if (!HasProjectRoot || !Collect())
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            string path = _projectStore.Save(Settings, ProjectRoot);
+            OnPropertyChanged(nameof(ProjectSummary));
+            Status = $"Wrote {path}. Restart to put it in force; it will follow this project everywhere.";
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            Status = $"Could not write the project file: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Swaps in an imported configuration. The role list is rebuilt because it wraps the old
+    /// options objects, and every binding is invalidated at once because the view binds paths
+    /// through <see cref="Settings"/> rather than to properties declared here.
+    /// </summary>
+    private void Apply(GlassCoderSettings settings)
+    {
+        // The repository root does not come across. It is the one setting that is intrinsically
+        // local - a path from the machine the file was exported on almost certainly names nothing
+        // here - and importing it would silently re-point the agent at a folder that does not
+        // exist. It stays whatever the workspace pane chose.
+        settings.Workspace.RepoRoot = Settings.Workspace.RepoRoot;
+
+        Settings = settings;
+        BuildRoles();
+        ValidationFailures.Clear();
+
+        // An empty name is WPF's "every property changed", which is what an import is.
+        OnPropertyChanged(string.Empty);
+    }
+
+    private void BuildRoles()
+    {
+        Roles.Clear();
+        foreach ((string name, ModelRoleOptions options) in Settings.Models.Roles)
+        {
+            Roles.Add(new RoleSettingsViewModel(name, options, _probe, _store.ProtectionScheme));
+        }
+
+        SelectedRole = Roles.Count > 0 ? Roles[0] : null;
+    }
+
+    /// <summary>
+    /// Folds the edited role names back into the settings, reporting any that would collide.
+    /// Everything that writes a file does this first, so no file is ever written from a role list
+    /// the dialog has not agreed with.
+    /// </summary>
+    private bool Collect()
+    {
+        ValidationFailures.Clear();
+        foreach (string failure in CollectRoles())
+        {
+            ValidationFailures.Add(failure);
+        }
+
+        if (ValidationFailures.Count == 0)
+        {
+            return true;
+        }
+
+        Status = "Nothing was written: the roles have to be sorted out first.";
+        return false;
     }
 
     /// <summary>

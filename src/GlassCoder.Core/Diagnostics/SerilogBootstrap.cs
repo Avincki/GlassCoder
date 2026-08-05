@@ -1,4 +1,5 @@
 using System.Globalization;
+using GlassCoder.Core.Configuration;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
@@ -35,7 +36,7 @@ public static class SerilogBootstrap
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        string directory = Path.GetFullPath(options.Directory);
+        string directory = AppPaths.ResolveDataDirectory(options.Directory);
         System.IO.Directory.CreateDirectory(directory);
 
         LogEventLevel minimumLevel = Enum.TryParse(options.MinimumLevel, ignoreCase: true, out LogEventLevel parsed)

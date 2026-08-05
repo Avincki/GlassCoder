@@ -34,14 +34,13 @@ public sealed class GlobTool : IToolSet
 
     /// <summary>Lists workspace files matching a glob.</summary>
     [GlassCoderTool(ToolName, Order = 30)]
-    [Description("List workspace files matching a glob pattern. Use this to find where something lives "
-        + "before reading or grepping it.")]
+    [Description("List workspace files matching a glob pattern, to find where something lives.")]
     public ToolObservation<GlobResult> Glob(
         [Description("Glob pattern, for example '**/*.cs' or 'src/**/Agent*.cs'.")]
         string pattern,
-        [Description("Directory to search from, relative to the repository root. Use '.' for the whole repository.")]
+        [Description("Repo-relative directory to search from. '.' is everything.")]
         string path = ".",
-        [Description("Maximum number of paths to return.")]
+        [Description("Maximum paths to return.")]
         int maxResults = 200,
         CancellationToken cancellationToken = default)
     {

@@ -267,6 +267,13 @@ The window has no view of the workspace itself: which folder the agent works on 
 - [x] Folder selection is save-and-restart: the choice persists through `IUserSettingsStore` like every other setting, and an inline strip offers the restart that makes it the root in force. The tree always shows the active root, never a folder the agent is not in.
 - [x] Tests for the rollup arithmetic in `GlassCoder.Tools.Tests`.
 
+Follow-up, after watching a run: the pane knew only what the change log had recorded, and coloured the whole session rather than the run on screen.
+
+- [x] A `FileSystemWatcher` over the root, so the tree shows what the workspace *contains* rather than what the harness happened to record. A path appears the moment it exists — the three files `dotnet new` writes, a file still being written, a file created by hand. Names only, not content: a create, a delete and a rename change the shape of the tree and a write does not. Events are treated as "look at this path again"; the drain asks the file system what is actually there, which is what makes create-then-delete, rename and half-written files all come out right. Denied globs are filtered on the watcher thread, before anything is posted, because a build writes thousands of paths under `bin/`.
+- [x] Folders start open. A tree that starts closed shows one row per top-level folder and hides the thing the pane exists to show.
+- [x] The colouring is scoped to the run in progress, not the session. `MainWindowViewModel` calls `BeginRun()` when Run is pressed — including a retry, which is a new run for the same reason it gets a new run id. The run id is not knowable at that moment (the loop mints it), so the pane latches onto the first change the run produces and ignores every other run's. `ChangeLog.Update` keeps a change's original run id, so reverting this run's work still unmarks the file.
+- [x] `WorkspaceTreeTests` in `GlassCoder.Wpf.Tests`, driving the real watcher over a throwaway root through a pumped dispatcher (`UiThread.Pump`).
+
 Acceptance: the pane shows the active workspace tree; an agent edit turns its file green with correct net counts; picking a folder persists it and offers a restart. Depends on tasks 25, 27.
 
 ## 40. Git tools, step 1: git_status and git_commit through the LLM
@@ -309,3 +316,205 @@ Optional conveniences over the same service: a `create_pull_request` tool (via t
 - [x] Button-initiated actions are logged through `IStepLogger` as `Role: "human"` steps, so they reach the JSONL transcript and the live view exactly as a model tool call does.
 
 Acceptance: a PR can be opened from the loop with approval, and the UI buttons produce the same logged, guarded behaviour as the tools. Depends on task 41.
+## 43. Review one file on demand, and turn the answer into a work order
+
+- [x] **Estimated time:** 2d
+
+The viewer opened by a double-click in the workspace tree can show a file and nothing else. Reading code is the moment you most want a second opinion, and the harness had none to offer that was not tied to a run. Add a Review button to the file viewer that asks a reviewer what is wrong with the file, shows the report beside the code, and lets the operator tick which of the recommended actions are worth doing.
+
+- [x] Headless Claude Code (`claude -p`) rather than the model seam, and this is the one deliberate exception to "all model traffic goes over the seam" (CLAUDE.md §4). The seam sends one file's text; a review of `WorkspaceViewModel.cs` that cannot open `WorkspacePane.xaml` cannot tell whether the command it is reading is bound to anything. The CLI brings its own agent loop and file tools, so the reviewer opens the callers, the types and the tests before it says anything. Ported from the proven runner in ClaudeContextGenerator3 (`IntentAgentRunner`).
+- [x] Read-only by construction: `--allowedTools Read,Grep,Glob` with `--permission-mode plan`. That allow-list is the whole safety argument for running a coding agent on the host, and `FileReviewerTests` asserts it so a tool cannot quietly join it. It runs outside the sandbox for the same reason `GitTool` does (task 40) — the sandbox has neither network nor credentials.
+- [x] The two-field answer is enforced by the CLI's own `--json-schema`, not asked for in the prose and parsed back out. A prompt-JSON fallback stays for older CLIs, which is also why `--max-turns` is absent: it does not exist on 2.1.x, and the budget cap plus the process timeout bound the run instead.
+- [x] `ClaudeCodeFileReviewer` + `FileReviewOptions` (`GlassCoder:FileReview`), deliberately **not** gated on `Critique:Enabled` — that ships false, and sharing its switch would grey the button out on every fresh install for a feature that is not part of the ladder. Every failure is a `FileReview` carrying its own explanation; nothing throws past the button.
+- [x] `ReviewActionFile` renders and parses the work order: front matter plus a Markdown checkbox list, every proposal written and `[x]` marking the accepted. The rejected ones stay because they are the context that explains the accepted ones. The parser ships with the renderer so the round-trip is provable now, while the format is still cheap to change.
+- [x] `FileViewerViewModel` became a real view model (it was a read-once snapshot with no change notification), with the review in a splitter column that opens the first time there is one.
+- [x] Tests: the allow-list, the directive on stdin rather than argv, `--add-dir` last because it is variadic, key injection only when configured, ranking and capping, the prose fallback, failure and timeout as results; the render/parse round-trip and the writer's workspace confinement; and the composition test that the shell still resolves with the reviewer hung off it.
+
+Acceptance: double-clicking a file and pressing Review produces a report and a ranked action list beside the code; ticking actions and pressing Accept writes a Markdown work order under `.glasscoder/reviews`; with the CLI absent the button is disabled and says why. Depends on tasks 8, 25, 39.
+
+Not done, and deliberately: nothing consumes the work order yet. Composing a goal from the ticked items is a separate task, and the format is settled first so that task is a reader rather than a redesign.
+
+## 44. Make the harness stop fighting the agent on multi-project repositories
+
+- [x] **Estimated time:** 1d
+
+A run against a repository whose projects live under `src/` with no root solution was asked to add unit tests. It spent 30 steps, 257k tokens and 8m26s, achieved 100% tool-call validity, and produced no tests at all. The model was not at fault: it wrote a correct test project — xunit, `Microsoft.NET.Test.Sdk`, the right `ProjectReference` — and the harness then refused to let it write a single test file. Six changes, each traced to a specific step of that transcript.
+
+- [x] **The pre-write compile gate no longer refuses what it cannot judge.** Its reference set is scavenged from build output rather than evaluated from the project file, so a project whose dependencies have not been built yet reports CS0246 for every type it imports — including correct ones. `create_file` turned that into "nothing has been written", three times, on a file whose `using Utils;` was right. `RoslynCodeAnalyzer` now detects an incomplete reference set and returns `Inconclusive`, which the tools already let through. Narrow on purpose: a project that declares no references is still gated, because that is the case the gate was built for.
+- [x] **The compile rung builds the project that owns the change.** `AgentLoop` never set `VerificationRequest.ProjectPath`, so it defaulted to `"."` and answered `MSB1003: Specify a project or solution file` in 330 ms after every edit — while the `build` tool, which takes a path, succeeded on the same tree in the same run. `ProjectLocator` now resolves a target (owning project → root solution → sole project → nothing), a `VerificationLadder:ProjectPath` override exists, and an unbuildable tree skips the rung rather than failing it.
+- [x] **New tool `dotnet_project`** — `new`, `new_solution`, `add_to_solution`, `add_reference`, `add_package`, `restore`. The capability gap the run died in: scaffolding a test project meant hand-writing XML through `edit_file`, and one of those edits failed outright with `not_found`. Bounded by the same writable set as the file tools, and each operation that rewrites a project file records it in the change log so the SDK's edit is as visible as a typed one.
+- [x] **New tool `list_projects`** — solutions, projects, target frameworks, references, source counts, and the structural hazards. Four steps of that run were glob-based layout discovery. It also names the trap the run never diagnosed: `src/ArrayOperations.csproj` sits above `src/ArrayOperations.Tests/`, so the SDK's default glob compiles the tests into the parent project and every resulting error points at the wrong file.
+- [x] **`BuildCache`** — the run built 8 times, three consecutively with no edit between them. A successful build is now remembered until the change log moves; `dotnet_project` invalidates it by hand, because the SDK rewrites project files without going through the log. Failures are never cached: a stale success is impossible, a stale failure would have the agent re-fixing what it already fixed.
+- [x] **The step budget is visible.** The run spent its last five steps rebuilding an unchanged tree. It could not have paced itself — nothing ever told it how many steps it had. One message at a quarter remaining (floored at three), sent once, because repeating it would spend the budget it is warning about.
+- [x] Fixed on the way: `CompileAsync` was given a directory by its only caller and now receives a build target, which is as often a `.csproj` as a folder. Enumerating a file as a directory threw. Caught by the test for the `ProjectPath` override rather than by a run.
+- [x] Tests: 21 in `GlassCoder.Tools.Tests` (target resolution, nested-project detection, the inconclusive gate and its narrowness, cache hit/invalidate/never-replay-a-failure, every `dotnet_project` argument shape and both refusals) and 6 in `GlassCoder.Core.Tests` (rung targeting, skip-when-unbuildable, the configured override, and the step warning arriving exactly once).
+
+Acceptance: the same task on the same repository writes a test file. Depends on tasks 14, 17, 18, 36.
+
+## 45. Stop the file tools demanding what the model cannot give
+
+- [x] **Estimated time:** 1d
+
+The task-44 run cleared every problem it was built for — `list_projects` at step 1, `dotnet_project` at step 2, a real compile rung passing in 2.2 s where it used to fail in 330 ms, the step-budget warning firing once — and then failed anyway. Asked to write one function, it spent 23 of 30 steps on **seventeen consecutive `edit_file` failures against a seven-line file**, and finished having added a `// test` comment.
+
+The file came from `dotnet new` and held CRLF. The model emitted LF. `edit_file` matched ordinal. Nothing the model could have done would have worked, and the message it got back — *"the text to replace was not found"* — sent it to re-read a file it had already read correctly, seven times.
+
+- [x] **`edit_file` matches line endings flexibly.** `TextFile.Find` matches on a normalised copy and maps the span back to the original, so `\n` finds `\r\n` and the reverse. The exact-match fast path is tried first, and the ambiguity guard runs on the normalised text so flexible matching cannot quietly become "replace the first one you find".
+- [x] **Replacements adopt the file's own line ending.** The old run's one successful edit left a bare `\n` inside an otherwise-CRLF file. Matching flexibly is half the fix; writing back consistently is the other half.
+- [x] **`read_file` returns what the file holds.** It read with `ReadAllLines` and rejoined with `Environment.NewLine`, so a file's real endings were replaced by the platform's — it handed the model a reconstruction while `edit_file` demanded the original. It now reports `LineEndings` and `ClippedLines`, and says out loud that a clipped line cannot be quoted back.
+- [x] **`create_file` takes `overwrite: true`.** With it refusing to overwrite and `edit_file` needing a match, "replace this generated stub with my implementation" had no working path at all — which is what trapped the run in the edit loop. A replacement records its real before-text, so the Changes surface shows a diff rather than an addition.
+- [x] **Failures say where they diverge.** "Not found" alone sends the model back to re-read. It now reports how many of the target's lines *did* match and quotes the first that did not — usually one indentation level — and points at the whole-file path.
+- [x] **Tool-call arguments are in the transcript.** They arrived as `JsonElement`, which serialises as `{"ValueKind":"String"}` with the value gone. Two diagnoses of a failing run had to infer an argument from bytes on disk. `ToolRegistry` now unwraps them (CLAUDE.md §9).
+- [x] **Identical failures are counted and stopped.** `AgentStopReason.RepeatedToolFailure` and `Agent:MaxIdenticalToolFailures` (default 8, nudge at 3). Deliberately distinct from `MaxConsecutiveInvalidToolCalls`: those calls fail to bind, these bind and execute and are simply unsatisfiable — which is why a run could grind through seventeen of them with tool-call validity at 100 %.
+- [x] Tests: 12 in `GlassCoder.Tools.Tests` (both matching directions, endings preserved on write, ambiguity across endings, genuinely-absent text still refused with its lead, `read_file` fidelity and clipped-line flagging, all three overwrite cases, argument unwrapping and failure description) and 4 in `GlassCoder.Core.Tests` (stop at the limit, nudge before it, reset on progress, switch-off).
+
+Acceptance: an edit quoting `\n` lands on a CRLF file; replacing a generated stub takes one call; a run that cannot satisfy a call stops instead of spending its budget on it. Depends on tasks 9, 16, 44.
+
+## 46. apply_patch: one call for a change that spans hunks and files
+
+- [x] **Estimated time:** 2d
+
+From the outside tool review (`docs/grok/tool-evaluation-ai-codegen.md`, P0). One logical change — a rename, an interface update, a type moved — is today N `edit_file` calls, each preceded by a re-read and followed by its own pre-write compile. Models plan in patches and the harness makes them do micro-surgery, which is both slow and fragile: a mid-sequence `not_found` leaves the tree half-changed with no way to say so.
+
+- [x] `apply_patch(hunks)`: ordered search/replace hunks, each naming a path, grouped by file.
+- [x] **Atomic per file.** Every hunk in a file applies or none does. Cross-file atomicity is deliberately *not* offered — it would need a rollback path over the working tree, and a half-applied patch that says exactly which files landed is more useful to the model than one that silently undoes correct work.
+- [x] **One pre-write verification per file, not per hunk.** This is strictly cheaper than today: three hunks in one file currently cost three in-memory compiles and would cost one.
+- [x] Hunks match through `TextFile.Find`, so line-ending tolerance and the ambiguity guard behave exactly as they do in `edit_file` (task 45).
+
+Acceptance: a three-file rename lands in one call, one approval and three change-log entries; a patch whose second hunk does not match leaves that file untouched and names it. Depends on tasks 16, 28, 45.
+
+**Shipped as `edit_file(edits)`, not as a second tool.** Two tools doing the same thing at different arities is the pattern the schema measurement exists to prevent: `edit_file` was 901 characters and a separate `apply_patch` would have been ~880 more, on every request of every run. Reshaping the one tool cost 373. A single edit is a one-element list, so nothing was lost, and the multi-file path is now the default rather than an alternative the model has to notice.
+
+**Corrected the same day: the list is not the only shape.** "Nothing was lost" was wrong, and run `9fad0808` said so. Asked to write tests, the model spent eight consecutive steps on `edit_file` and landed nothing — three calls in the flat shape it had never been shown, two with the edits' `path` left at the top level, one well-formed and correctly refused for unbalanced braces. Tool-call validity fell from 1.00, where it had sat for eleven runs, to 0.86; the run was cancelled at 157k tokens with an empty test stub still on disk. The comparable run four hours earlier finished in 19 steps with five passing tests.
+
+The lesson is the one line-ending tolerance already taught (task 45): **a shape the model does not reliably produce is a contract the harness should not insist on.** Three changes followed.
+
+- `edit_file(path, oldText, newText)` is primary again — six runs at 1.00 validity say it is what this model emits unprompted — with `edits` alongside it as an optional array for the multi-file case.
+- A top-level `path` fills in for edits that omit it, because that is exactly what the run sent five times: the information was there and the harness refused on a technicality.
+- A malformed call answers `invalid_argument` with both shapes spelled out. It used to answer `path_not_allowed`, which sent the model to inspect the writable set rather than its own arguments — which is why it never recovered.
+
+Declaring both shapes cost 414 characters, paid for by dropping the descriptions duplicated between the flat parameters and `FileEdit`'s properties, and by trimming the six git tools. Total schemas: **13,687**, below where batch 2 left them.
+
+**Two bullets were not built as written.**
+
+- *"One approval for the batch"* was rejected on inspection. `RequestActionAsync` is governed by `RequireApprovalForPush`, so routing edits through it would put file writes behind the push switch — a safety setting silently doing something other than what it says. More importantly the prompt shows a **diff**, and a reviewer approving three files should see three diffs. Approval stayed per file, which also means refusing one file still lets the rest land.
+- *"`edit_file` stays for single-hunk work, and the descriptions say which to reach for"* is moot: there is one tool, so there is nothing to choose between and no description spent explaining the choice.
+
+## 47. file_outline and find_symbol: navigate by structure, not by text
+
+- [x] **Estimated time:** 1.5d
+
+From the outside review (P0). The agent locates code by grepping for a type name and then reading whole files to find what it needs — `list_projects` (task 44) fixed this at the project level and left it untouched at the symbol level. In a large file that is thousands of wasted context tokens per orientation.
+
+- [x] `file_outline(path)`: types and members with signatures, accessibility and line ranges. No bodies. The model then calls `read_file` with a range.
+- [x] `find_symbol(name)`: where a type or member is *declared*, across the workspace — path, line, kind, signature. Capped, and pointing at `read_file` for the body.
+- [x] **Both need only the syntax tree.** That is what makes them cheap and, more importantly, immune to the reference-resolution problem task 45 exposed — a declaration is in the file whether or not its dependencies were ever built. `RoslynCodeAnalyzer` already parses and caches trees per file; reuse that cache rather than opening a second one.
+- [x] Respect the guard's deny globs, so generated output never appears as a result.
+
+Acceptance: orienting in an unfamiliar 1,000-line file costs one call and no file body. Depends on tasks 9, 14.
+
+**`file_outline` shipped as `read_file(outline: true)`** — 150 characters of schema instead of ~450 for a new name, and it is the same request ("show me this file") at a different resolution. The outline is rendered into `ReadFileResult.Content` with its line numbers, so no result field was added either. `find_symbol` is its own tool because it takes a *name*, not a path, and cannot be a mode of anything that does.
+
+Both live on `CodeStructure`, which takes the declaration's source between its start and whatever opens its body. That handles every member shape the same way — block bodies, expression bodies, accessor lists, positional records, bare semicolons — rather than reassembling a signature from parts and getting one member kind subtly wrong. `find_symbol` sweeps through `RoslynCodeAnalyzer.ParseFile`, which is the pre-write compile's own cache; `read_file` parses the text it has already read, which is cheaper than a cache lookup and avoids making a Phase 0 read tool depend on the analyzer.
+
+## 48. find_references, and the reference resolution it actually needs
+
+- [ ] **Estimated time:** 2d, or a decision not to
+
+Split from task 47 on purpose, because it is a different problem wearing the same coat. The outside review proposes `find_references` alongside `find_symbol` on the grounds that the workspace already has the analyzer infrastructure. It does not — and that difference is the whole task.
+
+- [ ] `RoslynCodeAnalyzer` scavenges its references from `bin/` rather than evaluating the project file. Task 45 established that this set is routinely incomplete; that is precisely why the pre-write gate now answers `Inconclusive` instead of reporting errors it cannot stand behind.
+- [ ] **A find-references built on that foundation would return false negatives** — "nothing calls this" when something does. That is worse than having no tool, because the agent would act on it and delete live code. `find_symbol` has no such failure mode, which is why it ships in task 47 and this does not.
+- [ ] So this needs a real workspace. `Microsoft.CodeAnalysis.Workspaces.MSBuild` already has a pinned version in `Directory.Packages.props` and **is referenced by no project today** — adding it brings MSBuild SDK resolution and a first-load cost measured in seconds, which the ladder's speed budget has an opinion about.
+- [x] Whatever is built must report inconclusive when the compilation has unresolved references, on the same contract as the pre-write gate. A confident wrong answer is the failure mode to design against.
+- [x] Decide the workspace question before writing code. "Do not ship it" is an acceptable outcome of this task.
+
+Acceptance: every caller of a method is found in a multi-project tree, or the tool says it could not tell — never a silence that reads as "none". Depends on tasks 14, 45, 47.
+
+**Decided: not building it.** The task allowed for that outcome and this is it.
+
+The deciding argument is the asymmetry between the two halves of task 47. `find_symbol` reads the syntax tree, and a declaration is a fact regardless of what has been built — its worst failure is "not found" for something that lives in a package, which the hint already says. `find_references` needs semantics, and on the reference set this project actually has, its worst failure is **"nothing calls this" when something does**. An agent acts on that by deleting live code. The two tools look alike and their failure modes are not comparable.
+
+Making it trustworthy needs `Microsoft.CodeAnalysis.Workspaces.MSBuild` — pinned in `Directory.Packages.props`, referenced by no project — which brings MSBuild SDK resolution and a first-load cost measured in seconds. That is a real dependency to take on for a tool whose demand has not been demonstrated: no transcript analysed so far shows a run failing for want of it. `grep` finds call sites today with no false confidence, because nobody mistakes a text match for a semantic one.
+
+Revisit if a transcript shows the gap. The inconclusive contract above is the design to build against when that happens — not a confident answer.
+
+## 49. delete_file and move_file: let the agent tidy the tree
+
+- [x] **Estimated time:** 1d
+
+From the outside review (P1), and the item on its list with the most direct evidence behind it. Task 44 taught `list_projects` to report a project nested inside another — the SDK glob then compiles the inner sources into the outer, and every resulting error points at the wrong file. The agent can now *diagnose* that and cannot *fix* it, because moving or removing a file is not something it can do.
+
+- [x] `delete_file(path)`: writable set only, change log recording before-text to empty so the Changes surface renders it as the removal it is, approval gate before anything leaves the tree.
+- [x] `move_file(from, to)`: both paths writable. Two change-log entries, not one, because `CodeChange.Path` is singular — a removal and an addition, which is also how a reviewer wants to read it.
+- [x] Never touch denied globs, and refuse a directory outright rather than recursing. A tool that can empty `bin/` is a tool that can empty something else.
+- [x] **Out of scope: updating usings and namespaces after a move.** That is a refactor, and pretending a file operation can do it half-correctly is worse than leaving it to the agent's own edits.
+
+Acceptance: the agent can resolve a nested-project layout end to end — move the inner project out, verify, and leave no orphan. Depends on tasks 16, 28, 44.
+
+**Shipped as one tool, not two.** `delete_file` and `move_file` became verbs on `file_operation`, which also carries `revert` from task 50. Tool schemas are re-sent on every call and measure ~300 tokens each against a step-0 conversation of ~130, so a new top-level name costs more than the capability it carries. `PromptBudgetTests` enforces this.
+
+## 50. list_run_changes and revert_file: let the run see its own work
+
+- [x] **Estimated time:** 1d
+
+From the outside review (P1). The change log already knows every file this run touched, what it looked like before, and whether the change stuck — and none of it is reachable by the agent, which re-reads files it edited four steps ago to find out what it did to them.
+
+- [x] The justification is the one `ITodoList` already established (task 24): a plan is durable and visible *because* it survives context compaction. The change log has exactly that property and no tool in front of it. Once a run is long enough to compact, the transcript is no longer a reliable record of the run's own edits; the change log still is.
+- [x] `list_run_changes()`: path, tool, status and net line counts for this run. Reads `IChangeLog`; never a second source of truth.
+- [x] `revert_file(path)`: restore the before-text of the earliest applied change for that path in this run, and **record the revert as its own change** so the undo is as visible as the edit was.
+- [x] Bounded to this run. This is not a general undo of the working tree, and it must not be able to discard work the operator did by hand.
+
+Acceptance: after compaction, the agent can still answer what it has changed, and can undo one file without reconstructing it from memory. Depends on tasks 16, 24, 27.
+
+**`revert_file` shipped as a `file_operation` verb**, `list_run_changes` as `list_changes`. Same reason as task 49.
+
+## 51. list_tests: discover before running
+
+- [x] **Estimated time:** 1d
+
+From the outside review (P2). `run_tests` has taken a `--filter` since task 17, so the harness can already run a subset — what is missing is any way to learn what the subset should be. Runs that build repeatedly and never add a test have shown up twice in transcript analysis.
+
+- [x] `list_tests(path?)`: discovered tests with their fully-qualified names, so `run_tests` can be pointed at them.
+- [x] **Parse `dotnet test --list-tests` rather than scanning for attributes.** An attribute scan is cheaper and wrong: it misses custom frameworks, theory expansions and anything generated. The authoritative list is the one the runner itself would execute, and it is worth the build it costs.
+- [x] Cap the returned list and say the true total, on the same contract as the diagnostic summarizer (task 15).
+
+Acceptance: an agent asked to fix one failing test can find it and run only it. Depends on tasks 17, 45.
+
+**Shipped as `run_tests(listOnly: true)`.** Same target, same filter, same runner — the only difference is whether the tests run, which is a flag and not a tool. 113 characters instead of ~450, and the discovered names come back on the result type that already exists.
+
+One thing the parser has to get right: the line above the runner's `The following Tests are available:` header is the path to the test assembly, which has dots in it and looks exactly like a fully-qualified test name. The header is what separates build chatter from the list, so parsing keys on it and stops at the first line that is not a name.
+
+## 52. Formatting as a dotnet_project operation
+
+- [x] **Estimated time:** 0.5d
+
+From the outside review (P2), which proposes a `dotnet_format` tool. It should not be a tool. `dotnet format` is an SDK verb, and `DotnetProjectTool` (task 44) already wraps SDK verbs with the path guard, change-log recording and build-cache invalidation — a separate tool would duplicate all three and add another name to the tool list for no capability.
+
+- [x] Add `Format` to `DotnetProjectOperation`.
+- [x] `dotnet format` can rewrite many files at once, so record each changed file in the change log and cap what is reported. A formatting pass that silently rewrites forty files is exactly the kind of invisible change the change log exists to prevent.
+- [x] Off unless asked. Style drift is not the harness's problem, and a run that reformats on its own way to a fix has made its own diff unreadable.
+
+Acceptance: one call formats a project, and every file it touched appears on the Changes surface. Depends on task 44.
+
+The recording needed a before/after sweep, not the single `touchedFile` every other operation uses: the SDK does not report which files it rewrote. Sources under the target are snapshotted through `WorkspaceFiles.Enumerate` — so the deny globs and the path guard apply — capped at 500, and every file whose text differs afterwards becomes an applied change. "Off unless asked" needed no switch: it is a verb the agent has to name.
+
+The whole operation is 37 characters of schema, and `dotnet_project` came out *smaller* than before it was added, because its parameter descriptions were trimmed in the same pass.
+
+## 53. Package and API knowledge, under record and replay
+
+- [ ] **Estimated time:** 3d
+
+From the outside review (P2), which arrives at the same design already written up in `docs/NewFeatures/mcp-retrieval.html`. This task is to land that proposal, not to redesign it. Hallucinated package APIs and invented NuGet versions are caught by verification only *after* the steps have been spent.
+
+- [ ] **Hermetic by default, or it does not ship.** A retrieval arm that hits the live network is not an arm: the Lab's ablations stop being reproducible the moment an answer can change between runs. Record/replay is the feature, not a hardening step to follow it (CLAUDE.md §11, §17).
+- [ ] Narrower first step worth doing on its own: `nuget_info` against a pinned feed or a local cache, which removes the most common hallucination — a package version that does not exist — without any of the retrieval machinery.
+- [ ] Prefer this to widening `bash`. A shell with network access is a hole through the measurement story and through the sandbox at once.
+
+Acceptance: an agent can check a package version and an API shape, and the same run replays byte-identically offline. Depends on tasks 34, 38.
+
+**Decided: only the narrow slice, and not yet.** The full retrieval arm stays unbuilt; `nuget_info` against a pinned feed or the local package cache is the piece worth doing, and it does not need any of the retrieval machinery.
+
+Two reasons for the order. The measured one: a tool costs ~300 tokens of schema on every request, and nothing in the three transcripts analysed so far shows a run failing on a package version — the failures were line endings, a missing solution, and a tool that could not scaffold. Building for a hallucination that has not been observed is how a tool list gets to fifty. The structural one: the hermetic requirement is not negotiable, and record/replay is most of the work. Shipping `nuget_info` live "for now" would put a network call inside the loop and quietly break the Lab's ablations, which is precisely the failure this task was written to avoid.
+
+The narrow slice belongs on `dotnet_project` when it comes — it is an SDK question, and that tool already owns the guard, the change log and the cache invalidation.

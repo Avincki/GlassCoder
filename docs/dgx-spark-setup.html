@@ -430,6 +430,7 @@
 
   .bar .weights { background: var(--signal); }
   .bar .kv { background: var(--rule-strong); color: var(--ink); }
+  .bar .second { background: var(--pass); }
   .bar .free { background: transparent; color: var(--faint); border-left: 1px dashed var(--rule-strong); }
 
   .legend {
@@ -445,6 +446,7 @@
   .legend b { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: baseline; }
   .legend .w { background: var(--signal); }
   .legend .k { background: var(--rule-strong); }
+  .legend .s { background: var(--pass); }
   .legend .f { border: 1px dashed var(--rule-strong); }
 
   /* ---- throughput bars ---- */
@@ -508,7 +510,8 @@
       <li><a href="#constraint">The binding constraint</a></li>
       <li><a href="#pick">Picking the model</a></li>
       <li><a href="#install">Standing up vLLM</a></li>
-      <li><a href="#roles">Serving the three roles</a></li>
+      <li><a href="#roles">Serving the roles</a></li>
+      <li><a href="#why-critic">Why a small model can judge</a></li>
       <li><a href="#wire">Wiring GlassCoder to it</a></li>
       <li><a href="#verify">Verifying it properly</a></li>
       <li><a href="#budget">Budgets that now make sense</a></li>
@@ -602,16 +605,37 @@
             <i class="free" style="width:20%">headroom</i>
           </div>
         </div>
+
+        <div class="budget-row">
+          <div class="budget-head">
+            <b>Nemotron-3-Super-120B-A12B <em>plus an 8B critic</em></b>
+            <span>~66 GB + ~9 GB weights · 128 GB total</span>
+          </div>
+          <div class="bar">
+            <i class="weights" style="width:52%">worker ~66 GB</i>
+            <i class="kv" style="width:20%">KV</i>
+            <i class="second" style="width:10%">critic ~13</i>
+            <i class="free" style="width:18%">headroom</i>
+          </div>
+        </div>
       </div>
 
       <div class="legend">
         <span><b class="w"></b>model weights</span>
         <span><b class="k"></b>KV cache at 128K context</span>
+        <span><b class="s"></b>a second, small model</span>
         <span><b class="f"></b>OS, runtime, growth</span>
       </div>
 
       <p>
         Note that the dense 70B <em>fits</em> perfectly well. Fitting was never the problem.
+      </p>
+
+      <p>
+        The last row is the one that surprises people, and it is worth reading carefully: a second
+        model does <b>not</b> come out of the first model's weights. It comes out of the KV cache,
+        which is the only elastic line in the budget — and which the single-model configuration
+        over-provisions anyway. <a href="#roles">Section 4</a> does that arithmetic properly.
       </p>
     </section>
 
@@ -827,18 +851,42 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
 
     <!-- ================= 4 ================= -->
     <section class="part" id="roles">
-      <div class="part-head"><span class="num">04</span><h2>Serving the three roles</h2></div>
+      <div class="part-head"><span class="num">04</span><h2>Serving the roles</h2></div>
 
       <p>
-        GlassCoder addresses three served aliases: <code>worker</code> drives the loop,
-        <code>drafter</code> is there for a larger model on hard sub-problems, and
-        <code>critic</code> runs the refutation pass. You do not need three models to start.
+        GlassCoder ships two <em>served</em> aliases you host yourself: <code>worker</code> drives
+        the loop and <code>critic</code> runs the refutation pass. You do not need two models to
+        start.
       </p>
+
+      <div class="note">
+        <span class="tag">A third alias exists in the source, and is not configured</span>
+        <p>
+          <code>drafter</code> is declared in <code>ModelRoles</code> for a larger model on hard
+          sub-problems, but nothing in the harness calls it. Its entry in
+          <code>appsettings.json</code> is commented out for that reason, so it no longer appears
+          in the settings dialog and no longer fails the connection check. Uncomment it when there
+          is a call site to serve — see <a href="#scale">section 9</a>.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">There is a fourth role, and it is not served here</span>
+        <p>
+          <code>critic-remote</code> is the second opinion the desktop app offers per run, and it
+          ships pointed at <code>api.anthropic.com</code> over the Anthropic transport rather than
+          at this box. Nothing on the Spark serves it, and nothing on this page changes because it
+          exists — it is listed here only so a fourth entry under
+          <code>Models:Roles</code> is not mistaken for an alias you forgot to serve. Point it at a
+          local endpoint instead if you would rather keep everything on your own hardware; it is a
+          transport switch and an endpoint.
+        </p>
+      </div>
 
       <h3>One Spark, one model</h3>
 
       <p>
-        Point all three roles at the same endpoint and alias. Phases 0 and 1 only ever use
+        Point both roles at the same endpoint and alias. Phases 0 and 1 only ever use
         <code>worker</code>, so this costs you nothing until Phase 2.
       </p>
 
@@ -862,24 +910,564 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
         little memory.
       </p>
 
-<pre><code>docker run -d --name vllm-critic --gpus all --ipc=host -p 8003:8000 \
-  -v ~/.cache/huggingface:/root/.cache/huggingface \
-  nvcr.io/nvidia/vllm:26.02-py3 \
-  vllm serve &lt;a-small-model-from-another-family&gt; \
-    --served-model-name critic \
-    --max-model-len 32768 \
-    --gpu-memory-utilization 0.10 \
-    --max-num-seqs 4</code></pre>
+      <p>
+        It looks like it should not fit. It does, and the reason is worth understanding rather
+        than taking on trust.
+      </p>
+
+      <h4>Where the 128 GB goes</h4>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr>
+              <th>Line</th>
+              <th class="m">One model</th>
+              <th class="m">Two models</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Worker weights<br><span style="color:var(--faint)">120B/A12B, NVFP4</span></td>
+              <td class="m">~66 GB</td>
+              <td class="m">~66 GB</td>
+              <td>Fixed. This is never the line you trade — quantising further to buy room for a
+                  critic damages the model doing the actual work.</td>
+            </tr>
+            <tr>
+              <td>Worker KV pool<br><span style="color:var(--faint)">plus activations</span></td>
+              <td class="m">~43 GB</td>
+              <td class="m">~26 GB</td>
+              <td><b>The elastic line, and the one that pays for the critic.</b> At 128K served it
+                  was sized for a context GlassCoder never sends.</td>
+            </tr>
+            <tr>
+              <td>Critic weights<br><span style="color:var(--faint)">8B dense, FP8</span></td>
+              <td class="m">—</td>
+              <td class="m">~9 GB</td>
+              <td>An 8B at one byte per parameter. 4-bit would save ~4 GB and is not worth it —
+                  see below.</td>
+            </tr>
+            <tr>
+              <td>Critic KV pool</td>
+              <td class="m">—</td>
+              <td class="m">~4 GB</td>
+              <td>32K context and three concurrent votes is a genuinely small pool.</td>
+            </tr>
+            <tr>
+              <td>Left for OS, container,<br>page cache</td>
+              <td class="m">~19 GB</td>
+              <td class="m">~23 GB</td>
+              <td>Unified memory is also the operating system's. This line is why neither
+                  configuration runs at 0.95.</td>
+            </tr>
+            <tr>
+              <td><code>--gpu-memory-<wbr>utilization</code></td>
+              <td class="m">0.85</td>
+              <td class="m">0.72 + 0.10</td>
+              <td>Two instances, one pool. The fractions must sum below 1.0 with the row above
+                  left over.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <p>
-        The two utilisation fractions must add up to something below 1.0 with room to spare —
-        they are drawing on the same pool. Drop the worker to <code>0.75</code> if you do this.
+        So the critic costs about <b>13 GB</b>, and it is paid for out of KV cache the worker was
+        not using. The headroom line even goes <em>up</em>, because dropping the worker to 0.72
+        hands back more than the critic takes.
+      </p>
+
+      <div class="note caution">
+        <span class="tag">The flag that does not do what its name suggests</span>
+        <p>
+          Lowering <code>--max-model-len</code> does <b>not</b> free memory. vLLM claims
+          <code>--gpu-memory-utilization</code> of the pool and turns whatever is left after
+          weights into KV blocks, regardless of the per-request cap;
+          <code>--max-model-len</code> only bounds how long a single sequence may get. To actually
+          make room for a second model you must lower the <em>utilisation</em> — the context
+          length is how you work out how low you can safely go.
+        </p>
+        <p>
+          Read the real number off the worker's startup log rather than trusting the table:
+        </p>
+<pre><code>docker logs vllm-worker 2>&amp;1 | grep -i "KV cache size"
+<span class="c"># INFO ... GPU KV cache size: 1,234,567 tokens</span></code></pre>
+        <p>
+          That figure must exceed <code>Context:MaxContextTokens</code> ×
+          <code>--max-num-seqs</code> — 48,000 × 4 ≈ <b>192K tokens</b> on the settings this guide
+          recommends. If it does, the worker has all the cache it will ever use and the rest was
+          slack. If it does not, raise the worker back towards 0.78 and shrink the critic instead.
+        </p>
+      </div>
+
+      <p>
+        In flags, that is one number changed on the worker and one new container. Which model
+        goes in it, and the order to do this in, are both below — the order matters more than it
+        looks.
+      </p>
+
+<pre><code><span class="c"># worker: exactly as in section 3, but yielding the slack</span>
+    <span class="k">--gpu-memory-utilization 0.72</span> \
+    --max-num-seqs 4
+
+<span class="c"># critic: a second container, a second port, ~13 GB</span>
+    <span class="k">--gpu-memory-utilization 0.10</span> \
+    <span class="k">--max-num-seqs 3</span></code></pre>
+
+      <h3>Choosing the second model</h3>
+
+      <p>
+        The criteria are not the worker's criteria, and one of them is much weaker than you would
+        expect — which widens the field considerably.
+      </p>
+
+      <ol class="prose">
+        <li>
+          <b>It never sees a tool, so tool-call fidelity does not apply.</b> The critic panel
+          sends a plain chat request — a system prompt, the change, the evidence — and asks for a
+          verdict. No <code>tools</code> array is ever attached. That means <b>no
+          <code>--enable-auto-tool-choice</code> and no <code>--tool-call-parser</code></b> on this
+          server, and it means the first and hardest criterion in
+          <a href="#pick">section 2</a> is simply not binding here. Models you had to reject as
+          workers because vLLM has no parser for their template are all candidates again.
+        </li>
+        <li>
+          <b>It must emit JSON, and the failure mode here is quiet.</b> The panel asks for
+          <code>{"refuted": bool, "confidence": number, "reason": string}</code> and reads
+          everything from the first <code>{</code> to the last <code>}</code> — so a markdown
+          fence or a sentence of preamble is tolerated. What is not tolerated is a reply that will
+          not parse, or has no braces at all: the panel then falls back to scanning the raw text
+          for the literal <code>refuted": true</code>. A model that refuses in prose — "I would
+          reject this change" — matches nothing and is recorded as a <b>non-refuting vote carrying
+          a fabricated 0.3 confidence</b>. It does not fail loudly. It silently becomes an
+          approving vote, which is the one outcome a refutation pass must never invent. Only a
+          completely empty reply is counted as unavailable. Keep
+          <code>ConstrainedDecoding.Enabled</code> true for the role, and test this before you
+          trust a recovery-rate number.
+        </li>
+        <li>
+          <b>A different family, not a different checkpoint of the same lineage.</b> This is the
+          entire reason to spend the 13 GB. If the worker is a Nemotron, a Qwen or Mistral critic
+          decorrelates the blind spots; a second NVIDIA checkpoint of similar ancestry mostly does
+          not, and you would be better off with the one-model setup and an honest caveat.
+        </li>
+        <li>
+          <b>7–14B dense, at 8-bit rather than 4-bit.</b> Sparsity buys nothing at this size, and
+          4-bit saves ~4 GB while landing its damage precisely on calibrated judgement — the
+          <code>confidence</code> number and the refuse/accept boundary are the first things to
+          degrade, and they are the whole output.
+        </li>
+        <li>
+          <b>Three votes arrive at once.</b> <code>Critique:CriticCount</code> defaults to 3 and
+          the panel fans out in parallel, each critic taking a different lens — correctness,
+          regression, evidence. Match <code>--max-num-seqs</code> to that number.
+        </li>
+      </ol>
+
+      <h4>Which model, concretely</h4>
+
+      <p>
+        Names age faster than criteria; this list was current in <b>May 2026</b> and step 1 below
+        is how you confirm one still exists before spending a download on it. Which row you want
+        depends on the worker you chose, because the third criterion is the whole reason to spend
+        the memory.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr>
+              <th>If the worker is…</th>
+              <th>Serve this as the critic</th>
+              <th class="m">Cost</th>
+              <th>Why this one</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Nemotron-3-Super<br><span style="color:var(--faint)">the recommended worker</span></td>
+              <td><code>Qwen/Qwen2.5-7B-Instruct</code><br><span style="color:var(--faint)">the default pick</span></td>
+              <td class="m">~8 GB<br>util 0.10</td>
+              <td>Matches the budget above exactly, and is ungated — no licence click between you
+                  and a download. Alibaba lineage is uncorrelated with NVIDIA's, format-following
+                  at this size is among the best available, and 32K native context is exactly the
+                  <code>--max-model-len</code> the critic wants.</td>
+            </tr>
+            <tr>
+              <td>Qwen3.5-122B<br><span style="color:var(--faint)">the alternative worker</span></td>
+              <td><code>microsoft/phi-4</code></td>
+              <td class="m">~14 GB<br>util 0.14</td>
+              <td>A Qwen critic judging a Qwen worker is precisely the correlation you spent the
+                  memory to avoid. Phi-4 is MIT, ungated, dense 14B and unusually strong at
+                  judgement per parameter. Drop the worker to <code>0.70</code> and set
+                  <code>--max-model-len 16384</code>, its native window.</td>
+            </tr>
+            <tr>
+              <td>Either</td>
+              <td><code>google/gemma-3-12b-it</code></td>
+              <td class="m">~12 GB<br>util 0.12</td>
+              <td>Decorrelated from both workers, and the most obedient of the three about
+                  emitting a format and nothing else. Costs you a licence acceptance on Hugging
+                  Face and an <code>HF_TOKEN</code> — do that before you start, or the download
+                  fails with a 401 that reads like a network problem.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">Do not put a reasoning model in this slot</span>
+        <p>
+          A critic that thinks before it answers spends the one resource this box is short of —
+          decode tokens — on text nobody reads, and then hands the parser a reply with braces in
+          the scratchpad <em>ahead</em> of the verdict, which is exactly the shape the
+          first-brace-to-last-brace rule mis-reads. All three picks above are plain instruct
+          models for that reason. If you use a reasoning model anyway, suppress thinking at the
+          server rather than hoping it stays quiet, and re-run the calibration check below.
+        </p>
+      </div>
+
+      <h4>Installing it</h4>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Confirm the repo exists, and is not gated</h3>
+            <p>
+              Cheaper than discovering either fact 15 GB into a download. <code>gated=false</code>
+              means no licence click is needed.
+            </p>
+<pre><code>M=Qwen/Qwen2.5-7B-Instruct
+
+curl -s "https://huggingface.co/api/models/$M" \
+  | jq -r '"\(.id)  gated=\(.gated)  downloads=\(.downloads)"'
+
+<span class="c"># and to see whether a newer generation has landed since May 2026</span>
+curl -s "https://huggingface.co/api/models?author=Qwen&amp;sort=downloads&amp;direction=-1&amp;limit=25" \
+  | jq -r '.[].id'</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Pre-fetch into the cache the container already mounts</h3>
+            <p>
+              You are downloading the BF16 checkpoint — about 15 GB for a 7B — and quantising at
+              load in the next step. Doing it here rather than inside <code>docker run</code>
+              means a failed download looks like a failed download rather than a container that
+              never becomes ready.
+            </p>
+<pre><code>huggingface-cli download "$M"        <span class="c"># newer clients: hf download "$M"</span>
+du -sh ~/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-Instruct</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Give the worker back its slack <em>first</em></h3>
+            <p>
+              This step is the one that bites. The worker is holding <code>0.85</code> of a pool
+              the critic is about to want 10% of; start the critic against that and you meet the
+              OOM killer rather than a clean error. Restart the worker at <code>0.72</code>
+              <b>before</b> the critic exists — and budget the 10–15 minute reload, because this
+              re-reads every one of those 66 GB.
+            </p>
+<pre><code>docker stop vllm-worker &amp;&amp; docker rm vllm-worker
+<span class="c"># then re-run the section 3 command with --gpu-memory-utilization 0.72</span></code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Serve the critic</h3>
+            <p>
+              <code>--quantization fp8</code> quantises the BF16 weights as they load, so you do
+              not have to find a pre-quantised checkpoint — Blackwell has native FP8 and this is
+              the path with fewest moving parts. Note what is <em>absent</em>: no
+              <code>--enable-auto-tool-choice</code> and no <code>--tool-call-parser</code>,
+              because this role is never sent a tool.
+            </p>
+<pre><code>docker run -d --name vllm-critic --restart unless-stopped \
+  --gpus all --ipc=host -p 8003:8000 \
+  -e HF_TOKEN="$HF_TOKEN" \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  nvcr.io/nvidia/vllm:26.02-py3 \
+  vllm serve Qwen/Qwen2.5-7B-Instruct \
+    <span class="k">--served-model-name critic</span> \
+    <span class="k">--quantization fp8</span> \
+    --max-model-len 32768 \
+    <span class="k">--gpu-memory-utilization 0.10</span> \
+    <span class="k">--max-num-seqs 3</span> \
+    --guided-decoding-backend xgrammar</code></pre>
+          </div>
+        </li>
+
+        <li>
+          <div class="step-body">
+            <h3>Confirm both models are up and the box is not full</h3>
+<pre><code>curl -s localhost:8001/v1/models | jq -r '.data[].id'   <span class="c"># → "worker"</span>
+curl -s localhost:8003/v1/models | jq -r '.data[].id'   <span class="c"># → "critic"</span>
+free -g                                                 <span class="c"># used should leave ~20 GB</span></code></pre>
+            <p>
+              Then run the calibration check below. A critic that serves and answers is not yet a
+              critic that judges.
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <div class="note">
+        <span class="tag">What the second model actually buys, and what it does not</span>
+        <p>
+          It buys <b>independence, not speed</b>. An 8B dense at 8-bit reads ~8 GB per decode
+          step, so on this box it runs at roughly the same tokens per second as the 120B MoE
+          reading ~6 GB of active experts. The critic is not the fast one; it is the
+          <em>uncorrelated</em> one.
+        </p>
+        <p>
+          What makes co-residency affordable is the shape of the work. Critique is a rung of the
+          verification ladder and the loop <code>await</code>s it, so the worker is not decoding
+          while the panel votes — the two models are almost never hot at the same time. And a
+          verdict is a long diff in and perhaps eighty tokens out: prefill-heavy, decode-light,
+          which is exactly the shape this hardware is good at (~1,884 tok/s prefill against ~23
+          tok/s decode).
+        </p>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">Do not serve a drafter tonight</span>
+        <p>
+          The second container you start should be the <b>critic</b>, which
+          <a href="#verify">is</a> wired. <code>drafter</code> is a seam held open for later, not a
+          model you are missing, and its config entry is commented out — serving one would spend
+          memory that nothing requests.
+        </p>
+      </div>
+
+      <h4>Check it is calibrated, not merely running</h4>
+
+      <p>
+        The system prompt tells the critic to default to <code>refuted: true</code> whenever the
+        evidence does not establish correctness. A model too small for the job discovers that
+        refusing everything is always defensible, which reads as diligence and is noise. Give it a
+        change whose evidence is visibly inadequate and confirm it says so <em>in JSON</em>:
+      </p>
+
+<pre><code>curl -s localhost:8003/v1/chat/completions \
+  -H 'content-type: application/json' -d '{
+  "model": "critic", "temperature": 0,
+  "messages": [
+    {"role":"system","content":"You are a reviewer whose job is to REFUTE a proposed code change. Judge it through this lens - correctness: does the change actually do what the goal asked, in every case the goal implies. Default to refuted:true when the evidence does not establish that the change is correct. Reply with JSON only: {\"refuted\": bool, \"confidence\": number between 0 and 1, \"reason\": string}."},
+    {"role":"user","content":"Goal:\nMake Divide throw on a zero divisor.\n\nProposed change:\nreturn b == 0 ? 0 : a / b;\n\nEvidence offered:\nThe project compiles.\n\nCan you refute this change?"}
+  ]}' | jq -r '.choices[0].message.content'</code></pre>
+
+      <p>
+        Two things must hold. The reply must contain a brace-delimited object that parses — check
+        it with <code>| jq</code> rather than by eye, because the fallback path above will happily
+        turn a prose refusal into an approving vote and never tell you. And
+        <code>refuted</code> must be <code>true</code>: the change returns a value where the goal
+        asked for a throw, and "it compiles" does not establish otherwise. A critic that accepts
+        this will accept anything, and its recovery-rate contribution is worthless.
+      </p>
+
+      <p>
+        Then run the opposite case — a change that is plainly correct, with a passing test as its
+        evidence — and confirm it does <em>not</em> refute. A model that refutes both is not being
+        careful, it is being useless in the direction that looks like rigour. That second check
+        matters most if you ever set <code>Critique:Gates</code>, which lets a refutation block
+        the change rather than merely be reported alongside it.
       </p>
     </section>
 
     <!-- ================= 5 ================= -->
+    <section class="part" id="why-critic">
+      <div class="part-head"><span class="num">05</span><h2>Why a small model can judge a large one</h2></div>
+
+      <p>
+        A 7B critic reviewing a 120B worker looks like the wrong way round, and the objection
+        deserves an answer rather than a reassurance: the small model knows less about code, it
+        deliberates less, and it cannot look anything up. The answer is not that it is secretly
+        good enough. It is that <b>it is asked a different question, and the harness is built on
+        the assumption that its answer is noisy.</b>
+      </p>
+
+      <h3>It is not asked to be a better coder</h3>
+
+      <p>
+        The panel never asks the critic to write, fix or improve anything. It asks it to refute,
+        through one of three lenses that rotate across the votes:
+      </p>
+
+      <ol class="prose">
+        <li><b>correctness</b> — does the change do what the goal asked, in every case the goal implies</li>
+        <li><b>regression</b> — does the change break behaviour that other code depends on</li>
+        <li><b>evidence</b> — does the evidence given actually prove the change works, or only that it compiles</li>
+      </ol>
+
+      <p>
+        The third is barely a coding question. It is reading comprehension over three texts: the
+        goal says one thing, the diff does another, the evidence claims a third. Noticing that
+        <em>the goal asked for a throw, the diff returns a value, and the evidence offered is "it
+        compiles"</em> takes no deep knowledge of the system. A 7B is genuinely capable at that
+        class of mismatch.
+      </p>
+
+      <p>
+        Underneath it is an asymmetry of output spaces. The worker must produce exactly-right code
+        from an unbounded set of candidates. The critic produces <b>one bit</b> and a sentence of
+        justification. That is what makes the verification side affordable at a smaller size.
+      </p>
+
+      <div class="note caution">
+        <span class="tag">The limit of that argument, stated plainly</span>
+        <p>
+          The asymmetry holds for <em>shallow</em> mismatches and collapses for deep ones. A race
+          condition is harder to spot than to write. A small critic will miss that entire class
+          and report no refutation with every appearance of having looked. Verification is easier
+          than generation <em>for the checks this panel actually runs</em> — not in general.
+        </p>
+      </div>
+
+      <h3>What "no reasoning, no web" actually costs</h3>
+
+      <p>
+        A non-reasoning model still computes; it just does not deliberate at length in visible
+        tokens. For "does this diff match this goal" a single pass is usually enough, because the
+        judgement is closer to perceptual than to multi-step. The advice in
+        <a href="#roles">section 4</a> to avoid reasoning models is nonetheless <b>a trade rather
+        than a free win</b>: a reasoning critic would likely be more accurate, and that accuracy
+        was traded for decode tokens — the scarce resource on this box — and for a reply the brace
+        parser can survive.
+      </p>
+
+      <p>
+        The missing web access costs nothing here, because the critique is <b>closed-book by
+        design</b>. The goal, the change and the evidence are all in the prompt. The critic is
+        never asked whether a library was the right choice, only whether this diff matches this
+        goal. Nothing it needs sits outside the window.
+      </p>
+
+      <h3>What you are buying is independence, not capability</h3>
+
+      <p>
+        Section 4 notes that a same-model critic is optimistic, because its blind spots are the
+        worker's blind spots. Run that observation backwards and it is the whole answer:
+      </p>
+
+      <div class="note">
+        <span class="tag">The principle</span>
+        <p>
+          <b>A weaker but independent critic can contribute more information than a stronger but
+          correlated one.</b> Independence is a property of the ensemble, not of any member of it.
+          That is why the <em>family</em> of the second model matters more than its size, and why
+          the budget is spent on decorrelation rather than on the largest critic that would fit.
+        </p>
+      </div>
+
+      <p>
+        A smoke detector is not smarter than a firefighter. It is cheap, independent and never
+        gets bored — and nobody asks it to put out the fire.
+      </p>
+
+      <h3>The harness already assumes the sensor is noisy</h3>
+
+      <p>Which is what makes a mediocre critic worth having rather than dangerous:</p>
+
+      <dl class="spec">
+        <div>
+          <dt>Three votes, three lenses</dt>
+          <dd>Independent calls that never see each other's verdicts, so there is no groupthink to
+              amplify one bad read.</dd>
+        </div>
+        <div>
+          <dt>Refute, not review</dt>
+          <dd>Deliberately fighting sycophancy. "Is this good?" invites agreement from a model
+              that has just been shown a plausible diff; "find what is wrong with this" is a job
+              it can fail at honestly.</dd>
+        </div>
+        <div>
+          <dt>Gates defaults to false</dt>
+          <dd>A refutation is reported beside the run rather than allowed to block it. A wrong
+              critic costs you a noisy metric, not blocked work.</dd>
+        </div>
+        <div>
+          <dt>Unavailable is not approval</dt>
+          <dd>A critic that did not answer is excluded from the tally and counts against quorum.
+              Below quorum the panel is <em>inconclusive</em>, which is a different fact from
+              having accepted the change.</dd>
+        </div>
+        <div>
+          <dt>It is rung 6, not rung 1</dt>
+          <dd>Compilation, tests and lint run first and are deterministic. The critic is left the
+              residue — "this builds, it passes, and it still is not what was asked" — which is
+              exactly the class no compiler can catch.</dd>
+        </div>
+      </dl>
+
+      <h3>Where it will fail</h3>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Failure</th><th>What it looks like</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Subtle defects</td>
+              <td>Concurrency, numerics, security. Confident silence — the most expensive shape a
+                  wrong answer can take.</td>
+            </tr>
+            <tr>
+              <td>Missing project context</td>
+              <td>Conventions and invariants that are real but nowhere in the prompt. It cannot
+                  refute what it was never shown.</td>
+            </tr>
+            <tr>
+              <td>Confidence is decorative</td>
+              <td>A 7B is poorly calibrated, and the parser's fallback path hardcodes
+                  <code>0.3</code>. Read the verdict; do not weight by the number.</td>
+            </tr>
+            <tr>
+              <td>False negatives are silent</td>
+              <td>The dangerous direction. An approving vote leaves no artefact to inspect, and
+                  the brace-parser fallback in section 4 can manufacture one out of a prose
+                  refusal.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The critic raises the floor. It does not raise the ceiling, and it is not a substitute for
+        the deterministic rungs beneath it.
+      </p>
+
+      <h3>So do not be confident — measure</h3>
+
+      <p>
+        The honest position is that a 7B critic is a <b>cheap, noisy sensor</b>, and whether it
+        earns its 13 GB is an empirical question rather than an architectural one. Seed a handful
+        of changes you know are broken and a handful you know are sound, then measure the two
+        rates separately: what fraction of the broken ones it catches, and what fraction of the
+        sound ones it refutes anyway. A critic that refutes everything looks like rigour and is
+        noise.
+      </p>
+
+      <div class="note">
+        <span class="tag">The tier above it already exists</span>
+        <p>
+          This is the cheap tier of a two-tier oracle, which is what <code>critic-remote</code> is
+          for. The local model votes on every run because it costs nothing to leave switched on;
+          the hosted frontier model is spent on the runs that warrant it, per run, from the
+          desktop app. The 7B is the floor rather than the ceiling — and the point of a floor is
+          that it is always there.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 6 ================= -->
     <section class="part" id="wire">
-      <div class="part-head"><span class="num">05</span><h2>Wiring GlassCoder to it</h2></div>
+      <div class="part-head"><span class="num">06</span><h2>Wiring GlassCoder to it</h2></div>
 
       <p>
         In <code>config/appsettings.json</code>, the roles point at the ports you just opened.
@@ -943,9 +1531,9 @@ docker pull vllm/vllm-openai:cu130-nightly</code></pre>
       </dl>
     </section>
 
-    <!-- ================= 6 ================= -->
+    <!-- ================= 7 ================= -->
     <section class="part" id="verify">
-      <div class="part-head"><span class="num">06</span><h2>Verifying it properly</h2></div>
+      <div class="part-head"><span class="num">07</span><h2>Verifying it properly</h2></div>
 
       <p>
         "The endpoint returns text" is a much weaker claim than "the endpoint calls tools
@@ -1026,9 +1614,9 @@ glasscoder run --repo /path/to/repo \
       </ol>
     </section>
 
-    <!-- ================= 7 ================= -->
+    <!-- ================= 8 ================= -->
     <section class="part" id="budget">
-      <div class="part-head"><span class="num">07</span><h2>Budgets that now make sense</h2></div>
+      <div class="part-head"><span class="num">08</span><h2>Budgets that now make sense</h2></div>
 
       <p>
         Published figures for a 120B/12B NVFP4 model on a single Spark, to calibrate what "slow"
@@ -1077,9 +1665,9 @@ glasscoder run --repo /path/to/repo \
       </div>
     </section>
 
-    <!-- ================= 8 ================= -->
+    <!-- ================= 9 ================= -->
     <section class="part" id="scale">
-      <div class="part-head"><span class="num">08</span><h2>If one Spark isn't enough</h2></div>
+      <div class="part-head"><span class="num">09</span><h2>If one Spark isn't enough</h2></div>
 
       <p>
         Two Sparks connect directly over their 200GbE ConnectX-7 ports, giving a combined
@@ -1109,15 +1697,27 @@ glasscoder run --repo /path/to/repo \
       </dl>
 
       <p>
-        Whatever you choose, keep the aliases stable. If a second machine serves
-        <code>drafter</code>, GlassCoder needs one line of configuration and no code change —
-        which is the entire point of the seam.
+        Whatever you choose, keep the aliases stable. Moving a role GlassCoder already calls onto
+        a second machine is one line of configuration and no code change — that is the point of
+        addressing aliases rather than checkpoint paths.
       </p>
+
+      <div class="note caution">
+        <span class="tag">The drafter is the exception, and it is worth being exact about why</span>
+        <p>
+          Standing <code>drafter</code> up on a second machine is <em>not</em> config-only today.
+          Uncommenting its entry in <code>appsettings.json</code> and pointing it at that machine
+          gets you a role the factory will happily build a client for — and nothing that ever asks
+          for one. There is no call site. The seam is open at the configuration layer and not yet
+          at the call layer, so the work is a harness change (decide what a drafter is handed, and
+          when), not an endpoint change.
+        </p>
+      </div>
     </section>
 
-    <!-- ================= 9 ================= -->
+    <!-- ================= 10 ================= -->
     <section class="part" id="trouble">
-      <div class="part-head"><span class="num">09</span><h2>Known rough edges</h2></div>
+      <div class="part-head"><span class="num">10</span><h2>Known rough edges</h2></div>
 
       <div class="scroller">
         <table>

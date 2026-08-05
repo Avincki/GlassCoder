@@ -99,10 +99,34 @@ public sealed class StepLogger : IStepLogger
             record.EstimatedCostUsd);
     }
 
+    /// <summary>
+    /// What the step's tool calls did, for the console line.
+    /// <para>
+    /// The status alone was ambiguous, and the ambiguity hid a real failure: a build that
+    /// reported MSB1003 and compiled nothing logged as <c>build:Succeeded</c>, because the
+    /// <em>call</em> had succeeded - a failed build is a handled outcome, not a tool fault. The
+    /// summary is what disambiguates it, so it is appended whenever the tool wrote one.
+    /// </para>
+    /// </summary>
     private static string DescribeTools(StepRecord record) =>
         record.ToolCalls.Count == 0
             ? "no tool call"
-            : string.Join(", ", record.ToolCalls.Select(c => $"{c.Name}:{c.Status}"));
+            : string.Join(", ", record.ToolCalls.Select(Describe));
+
+    private static string Describe(ToolCallRecord call)
+    {
+        string outcome = $"{call.Name}:{call.Status}";
+        return string.IsNullOrWhiteSpace(call.Summary)
+            ? outcome
+            : $"{outcome} — {Shorten(call.Summary)}";
+    }
+
+    /// <summary>One line of console is one line. The full text is in the JSONL beside it.</summary>
+    private static string Shorten(string summary)
+    {
+        string line = summary.ReplaceLineEndings(" ").Trim();
+        return line.Length <= 80 ? line : string.Concat(line.AsSpan(0, 80), "…");
+    }
 
     private StepRecord Sanitise(StepRecord record)
     {

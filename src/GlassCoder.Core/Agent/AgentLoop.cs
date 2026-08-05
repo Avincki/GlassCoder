@@ -121,6 +121,14 @@ public sealed class AgentLoop : IAgentLoop
         // changes it applied itself (workplan task 36).
         int changesSeen = 0;
 
+        // The step-budget warning is sent once. Repeating it every step would spend the very
+        // budget it is warning about.
+        bool warnedAboutSteps = false;
+
+        // How the last step failed, and how many steps running it has failed that same way.
+        string? lastFailure = null;
+        int identicalFailures = 0;
+
         while (true)
         {
             if (budget.Exhausted() is { } exhausted)
@@ -183,6 +191,12 @@ public sealed class AgentLoop : IAgentLoop
             // Result: every observation goes back to the model, successes and failures alike.
             List<ToolInvocation> invocations =
                 await ExecuteAsync(calls, budget, metrics, cancellationToken).ConfigureAwait(false);
+
+            // Repeating a call that cannot succeed is the one failure mode the budgets miss: the
+            // calls are valid, so tool-call validity stays at 100% while nothing moves.
+            string? failure = IdenticalFailure(invocations);
+            identicalFailures = failure is not null && failure == lastFailure ? identicalFailures + 1 : (failure is null ? 0 : 1);
+            lastFailure = failure;
             messages.Add(new ChatMessage(
                 ChatRole.Tool,
                 [.. invocations.Select(i => (AIContent)new FunctionResultContent(i.CallId, i.Result))]));
@@ -216,6 +230,31 @@ public sealed class AgentLoop : IAgentLoop
             }
 
             budget.CountStep();
+
+            // Nudged well before the limit, and told what the tools can do that it has not tried.
+            // A model repeating an unsatisfiable call is usually missing an option, not stuck.
+            if (identicalFailures == NudgeAfterIdenticalFailures)
+            {
+                messages.Add(new ChatMessage(
+                    ChatRole.User,
+                    $"That call has now failed the same way {identicalFailures} times: {failure}. Repeating it " +
+                    "will not work. Change approach - read the file again and quote from what it returns, use " +
+                    "create_file with overwrite: true to replace the whole file, or work on something else."));
+            }
+
+            // Told once, when it starts to matter. A run that spends its last steps re-checking
+            // finished work rather than finishing it is the common way a step limit is reached,
+            // and the agent cannot pace itself against a ceiling it cannot see.
+            if (!warnedAboutSteps && budget.IsRunningOutOfSteps)
+            {
+                warnedAboutSteps = true;
+                messages.Add(new ChatMessage(
+                    ChatRole.User,
+                    $"Budget: {budget.StepsRemaining} of {budget.MaxSteps} steps remain. Finish the highest-value " +
+                    "work now and stop. Do not re-run a build or test whose result you already have, and do not " +
+                    "start anything you cannot complete in the steps left."));
+            }
+
             LogStep(
                 step with { Prompt = prompt },
                 messages,
@@ -225,6 +264,18 @@ public sealed class AgentLoop : IAgentLoop
                 "continued",
                 null,
                 verification?.Record);
+
+            if (limits.MaxIdenticalToolFailures > 0 && identicalFailures >= limits.MaxIdenticalToolFailures)
+            {
+                // Stopping is kinder than the alternative, which is spending the rest of a
+                // finite budget on a call whose answer will not change.
+                stopReason = AgentStopReason.RepeatedToolFailure;
+                error = $"The same call failed {identicalFailures} times running: {failure}";
+                _logger.LogWarning(
+                    "Run {RunId} stopped after {Count} identical tool failures: {Failure}",
+                    request.RunId, identicalFailures, failure);
+                break;
+            }
         }
 
         AgentRunResult result = new()
@@ -354,7 +405,12 @@ public sealed class AgentLoop : IAgentLoop
                     RunFullSuite: _verification.RunFullSuite,
                     Goal: request.Goal,
                     ChangeDescription: DescribeChanges(applied),
-                    CriticRole: request.CriticRole),
+                    CriticRole: request.CriticRole)
+                {
+                    // What the step touched, so the ladder can build the project that owns it
+                    // rather than guessing at the workspace root.
+                    ChangedPaths = [.. applied.Select(c => c.Path)],
+                },
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -477,6 +533,30 @@ public sealed class AgentLoop : IAgentLoop
             Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
 
+    /// <summary>How many identical failures pass before the model is told it is repeating itself.</summary>
+    private const int NudgeAfterIdenticalFailures = 3;
+
+    /// <summary>
+    /// The way this step failed, when it failed one way and made no progress at all.
+    /// <para>
+    /// Null the moment anything succeeds, because a step that achieved something is not a step
+    /// stuck in a loop - even if one of its other calls failed.
+    /// </para>
+    /// </summary>
+    private static string? IdenticalFailure(IReadOnlyList<ToolInvocation> invocations)
+    {
+        if (invocations.Count == 0 || invocations.Any(i => i.Status == ToolCallStatus.Succeeded))
+        {
+            return null;
+        }
+
+        string? first = Key(invocations[0]);
+        return first is not null && invocations.All(i => Key(i) == first) ? first : null;
+
+        static string? Key(ToolInvocation invocation) =>
+            invocation.ErrorMessage is { } message ? $"{invocation.ToolName}: {message}" : null;
+    }
+
     private static TranscriptMessage Describe(ChatMessage message)
     {
         List<string>? toolCalls = null;
@@ -500,7 +580,8 @@ public sealed class AgentLoop : IAgentLoop
             invocation.IsValid,
             invocation.Duration.TotalMilliseconds,
             Serialise(invocation.Result),
-            invocation.ErrorMessage);
+            invocation.ErrorMessage,
+            invocation.Summary);
 
     private static string? Serialise(object? result)
     {

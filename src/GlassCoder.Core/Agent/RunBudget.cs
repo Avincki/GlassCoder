@@ -28,6 +28,22 @@ internal sealed class RunBudget
 
     public int Steps { get; private set; }
 
+    /// <summary>The step ceiling this run was given.</summary>
+    public int MaxSteps => _limits.MaxSteps;
+
+    /// <summary>How many steps are left before <see cref="AgentStopReason.StepLimit"/> trips.</summary>
+    public int StepsRemaining => Math.Max(0, _limits.MaxSteps - Steps);
+
+    /// <summary>
+    /// Whether the run is close enough to its step ceiling that the agent should be told.
+    /// <para>
+    /// A quarter of the budget, floored at three. The failure this exists for is an agent that
+    /// spends its last steps re-checking work instead of finishing it - which it cannot avoid
+    /// while the ceiling is invisible to it.
+    /// </para>
+    /// </summary>
+    public bool IsRunningOutOfSteps => _limits.MaxSteps > 0 && StepsRemaining <= Math.Max(3, _limits.MaxSteps / 4);
+
     public long InputTokens { get; private set; }
 
     public long OutputTokens { get; private set; }

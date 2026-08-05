@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.FileSystem;
@@ -12,13 +13,17 @@ namespace GlassCoder.Tools.FileSystem;
 /// <param name="EndLine">1-based line number of the last returned line.</param>
 /// <param name="TotalLines">Total lines in the file, so the agent knows what it did not see.</param>
 /// <param name="Truncated">Whether lines were withheld because of the line cap.</param>
+/// <param name="LineEndings">What the file uses: crlf, lf, mixed or none.</param>
+/// <param name="ClippedLines">How many returned lines were too long to show whole.</param>
 public sealed record ReadFileResult(
     [property: Description("Repo-relative path that was read.")] string Path,
-    [property: Description("The requested lines, joined with newlines.")] string Content,
+    [property: Description("The requested lines, joined with the line ending the file itself uses.")] string Content,
     [property: Description("1-based line number of the first returned line.")] int StartLine,
     [property: Description("1-based line number of the last returned line.")] int EndLine,
     [property: Description("Total number of lines in the file.")] int TotalLines,
-    [property: Description("True when lines were withheld because of the line cap.")] bool Truncated);
+    [property: Description("True when lines were withheld because of the line cap.")] bool Truncated,
+    [property: Description("How this file ends its lines: crlf, lf, mixed or none.")] string LineEndings,
+    [property: Description("How many returned lines were too long and are shown truncated. Those lines cannot be quoted to edit_file.")] int ClippedLines);
 
 /// <summary>
 /// <c>read_file</c> - one of the three Phase 0 read-only tools (CLAUDE.md §17, workplan task 9).
@@ -40,15 +45,17 @@ public sealed class ReadFileTool : IToolSet
 
     /// <summary>Reads a slice of a text file.</summary>
     [GlassCoderTool(ToolName, Order = 10)]
-    [Description("Read a text file from the workspace and return it with 1-based line numbers. "
-        + "Read before editing: an edit must quote an exact, unique string from the file.")]
+    [Description("Read a text file. Read before editing: an edit must quote an exact, unique string from "
+        + "the file. In a large C# file take the outline first, then the one range you need.")]
     public ToolObservation<ReadFileResult> ReadFile(
-        [Description("Path to the file, relative to the repository root, for example src/GlassCoder.Core/Agent/AgentLoop.cs.")]
+        [Description("Repo-relative path, e.g. src/Agent/AgentLoop.cs.")]
         string path,
-        [Description("1-based line number to start reading from. Use 1 for the beginning of the file.")]
+        [Description("1-based line to start from.")]
         int startLine = 1,
-        [Description("Maximum number of lines to return. Ask for a smaller window when you only need one region.")]
-        int maxLines = 400)
+        [Description("Maximum lines to return. Ask for less when you need one region.")]
+        int maxLines = 400,
+        [Description("For C#, return the declarations and their line numbers instead of the code.")]
+        bool outline = false)
     {
         PathGuardResult verdict = _guard.Resolve(path, PathAccess.Read);
         if (!verdict.Allowed || verdict.FullPath is null)
@@ -108,14 +115,30 @@ public sealed class ReadFileTool : IToolSet
                 $"maxLines must be 1 or greater, got {maxLines}.");
         }
 
-        string[] lines;
+        string text;
         try
         {
-            lines = File.ReadAllLines(verdict.FullPath);
+            text = File.ReadAllText(verdict.FullPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return Observation.Fail<ReadFileResult>(ToolName, ToolErrorCodes.Unreadable, ex.Message);
+        }
+
+        // Split without losing what the file actually is. The previous ReadAllLines/join through
+        // Environment.NewLine handed the model a reconstruction: a file's real endings were
+        // replaced by the platform's, so what it was shown was not what was on disk - while
+        // edit_file went on to demand exactly what was on disk.
+        string[] lines = text.ReplaceLineEndings(TextFile.Lf).Split(TextFile.Lf);
+        if (lines.Length > 1 && lines[^1].Length == 0)
+        {
+            // A trailing newline terminates the last line rather than starting an empty one.
+            lines = lines[..^1];
+        }
+
+        if (outline)
+        {
+            return Outline(verdict.RelativePath!, text, lines.Length);
         }
 
         int effectiveMax = Math.Min(maxLines, _options.MaxLinesPerRead);
@@ -123,9 +146,12 @@ public sealed class ReadFileTool : IToolSet
         int count = Math.Min(effectiveMax, Math.Max(lines.Length - firstIndex, 0));
         bool truncated = firstIndex + count < lines.Length;
 
+        string[] window = [.. lines.Skip(firstIndex).Take(count)];
+        int clipped = window.Count(line => line.Length > _options.MaxLineLength);
+
         string content = string.Join(
-            Environment.NewLine,
-            lines.Skip(firstIndex).Take(count).Select(line => WorkspaceFiles.Clip(line, _options.MaxLineLength)));
+            TextFile.DominantNewLine(text),
+            window.Select(line => WorkspaceFiles.Clip(line, _options.MaxLineLength)));
 
         ReadFileResult result = new(
             verdict.RelativePath!,
@@ -133,12 +159,66 @@ public sealed class ReadFileTool : IToolSet
             lines.Length == 0 ? 0 : firstIndex + 1,
             firstIndex + count,
             lines.Length,
-            truncated);
+            truncated,
+            TextFile.DescribeEndings(text),
+            clipped);
 
         string summary = truncated
             ? $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path} (truncated)."
             : $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path}.";
 
+        if (clipped > 0)
+        {
+            // Said out loud, because a clipped line is the one thing here that cannot be quoted
+            // back to edit_file - it is not what the file holds.
+            summary += $" {clipped} line(s) were too long and are shown truncated; do not quote those to edit_file.";
+        }
+
         return Observation.Ok(ToolName, result, summary);
+    }
+
+    /// <summary>
+    /// The file's declarations and where they are, instead of its text (workplan task 47).
+    /// <para>
+    /// Orienting in an unfamiliar file used to cost the whole file. This costs its shape, and
+    /// every entry carries the line number that turns the follow-up into one ranged read. It
+    /// needs only the syntax tree, so it works on a file whose project has never been built.
+    /// </para>
+    /// </summary>
+    private ToolObservation<ReadFileResult> Outline(string relativePath, string text, int totalLines)
+    {
+        if (!relativePath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return Observation.Fail<ReadFileResult>(
+                ToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{relativePath}' is not C#, and an outline is read from the C# syntax tree.",
+                "Read it without outline, or use grep to find the region you need.");
+        }
+
+        IReadOnlyList<SourceSymbol> symbols = CodeStructure.Outline(relativePath, text, _options.MaxLinesPerRead);
+        if (symbols.Count == 0)
+        {
+            return Observation.Fail<ReadFileResult>(
+                ToolName,
+                ToolErrorCodes.NotFound,
+                $"'{relativePath}' declares nothing an outline can show.",
+                "Read it without outline.");
+        }
+
+        ReadFileResult result = new(
+            relativePath,
+            CodeStructure.Render(symbols),
+            symbols[0].Line,
+            symbols[^1].EndLine,
+            totalLines,
+            Truncated: false,
+            TextFile.DescribeEndings(text),
+            ClippedLines: 0);
+
+        return Observation.Ok(
+            ToolName,
+            result,
+            $"{symbols.Count} declaration(s) in {relativePath}. Read a line range for any body.");
     }
 }

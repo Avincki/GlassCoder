@@ -22,9 +22,12 @@ public enum TodoStatus
 /// <param name="Title">What the step is.</param>
 /// <param name="Status">Where it has got to.</param>
 public sealed record TodoItem(
-    [property: Description("Stable short identifier for this item, for example 'find-bug'.")] string Id,
+    [property: Description("Short stable id, for example 'find-bug'.")] string Id,
     [property: Description("What this step is, in a few words.")] string Title,
-    [property: Description("One of: Pending, InProgress, Completed.")] TodoStatus Status = TodoStatus.Pending);
+
+    // No description: the generated schema already lists the three values and the default, and
+    // repeating them in prose is 60 characters on every request to say it twice.
+    TodoStatus Status = TodoStatus.Pending);
 
 /// <summary>
 /// The agent-maintained plan (CLAUDE.md §3.2 subsystem 4, workplan task 24).

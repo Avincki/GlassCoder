@@ -58,6 +58,54 @@ public static partial class TestOutputParser
         return new TestOutcome(passed, failed, skipped, total, failedTests);
     }
 
+    /// <summary>
+    /// Reads the names out of <c>dotnet test --list-tests</c> output (workplan task 51).
+    /// <para>
+    /// Parsed from the runner rather than scanned for attributes, which is the whole point: an
+    /// attribute scan is cheaper and wrong, because it misses custom frameworks, theory
+    /// expansions and anything generated. The authoritative list is the one the runner itself
+    /// would execute, and it is worth the build it costs.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<string> ParseDiscovered(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return [];
+        }
+
+        List<string> names = [];
+        bool listing = false;
+
+        foreach (string raw in output.Split('\n'))
+        {
+            string line = raw.Trim();
+
+            if (!listing)
+            {
+                // The runner announces the list. Anything before that is build output, and a
+                // build log holds plenty of dotted words that are not test names.
+                listing = line.Contains("Tests are available", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
+
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            if (!TestName().IsMatch(line))
+            {
+                // The list is contiguous; the first thing that is not a name ends it.
+                break;
+            }
+
+            names.Add(line);
+        }
+
+        return names;
+    }
+
     private static int Number(Match match, string group) =>
         match.Groups[group].Success && int.TryParse(match.Groups[group].Value, CultureInfo.InvariantCulture, out int value)
             ? value
@@ -76,4 +124,8 @@ public static partial class TestOutputParser
         RegexOptions.Multiline | RegexOptions.ExplicitCapture,
         1000)]
     private static partial Regex FailedTest();
+
+    // Namespace.Class.Method, optionally with a theory's arguments: Method(value: 1, other: "x")
+    [GeneratedRegex(@"^[A-Za-z_][\w.+]*\.[\w`<>+]+(?:\(.*\))?$", RegexOptions.ExplicitCapture, 1000)]
+    private static partial Regex TestName();
 }

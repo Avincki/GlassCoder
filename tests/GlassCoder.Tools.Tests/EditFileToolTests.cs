@@ -33,7 +33,7 @@ public sealed class EditFileToolTests : IDisposable
 
         observation.Ok.ShouldBeTrue(observation.Error?.Message);
         File.ReadAllText(path).ShouldContain("int Last => Count;");
-        observation.Data!.StartLine.ShouldBe(3);
+        observation.Data!.Files[0].StartLine.ShouldBe(3);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class EditFileToolTests : IDisposable
             .EditFileAsync("src/Pager.cs", "public int Last => 1;", "public int Last => ;");
 
         observation.Ok.ShouldBeTrue();
-        observation.Data!.Verified.ShouldBeFalse();
+        observation.Data!.Files[0].Verified.ShouldBeFalse();
         File.ReadAllText(path).ShouldContain("=> ;");
     }
 
@@ -174,7 +174,7 @@ public sealed class EditFileToolTests : IDisposable
         ToolObservation<EditFileResult> observation = await Tool().EditFileAsync("src/notes.md", "old line", "new line");
 
         observation.Ok.ShouldBeTrue(observation.Error?.Message);
-        observation.Data!.Verified.ShouldBeFalse();
+        observation.Data!.Files[0].Verified.ShouldBeFalse();
         File.ReadAllText(path).ShouldContain("new line");
     }
 }
