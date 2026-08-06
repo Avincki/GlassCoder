@@ -149,9 +149,20 @@ public sealed class RunTestsTool : IToolSet
             result.Duration.TotalMilliseconds,
             result.Sandbox);
 
-        string summary = payload.Ok
-            ? $"All {outcome.Total} tests passed."
-            : $"{outcome.Failed} of {outcome.Total} tests failed.";
+        // "0 of 0 tests failed" reads as green and means the opposite - the run died before a
+        // single test executed, or the target holds no tests. Both runs on 2026-08-06 took that
+        // line as a pass and deferred the real fix. Zero tests is never a quiet outcome.
+        string summary = (payload.Ok, outcome.Total) switch
+        {
+            (true, 0) =>
+                $"The test run exited cleanly but ran 0 tests in '{verdict.RelativePath}'. Nothing was " +
+                "verified - check the target is a test project and the filter matches something.",
+            (true, _) => $"All {outcome.Total} tests passed.",
+            (false, 0) =>
+                $"The test run failed before any test executed (exit code {result.ExitCode}). The output " +
+                $"ends:\n{Tail(result.CombinedOutput)}",
+            _ => $"{outcome.Failed} of {outcome.Total} tests failed.",
+        };
 
         return Observation.Ok(ToolName, payload, summary);
     }

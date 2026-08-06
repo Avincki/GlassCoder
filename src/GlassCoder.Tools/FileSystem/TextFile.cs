@@ -206,6 +206,27 @@ public static class TextFile
         return count;
     }
 
+    /// <summary>
+    /// The 1-based line number holding <paramref name="index"/>, so a refusal can say where the
+    /// matches are instead of only how many there were.
+    /// </summary>
+    public static int LineNumberAt(string haystack, int index)
+    {
+        ArgumentNullException.ThrowIfNull(haystack);
+
+        int line = 1;
+        int limit = Math.Min(index, haystack.Length);
+        for (int i = 0; i < limit; i++)
+        {
+            if (haystack[i] == '\n')
+            {
+                line++;
+            }
+        }
+
+        return line;
+    }
+
     private static (int Crlf, int Lf) Count(string text)
     {
         int crlf = 0;

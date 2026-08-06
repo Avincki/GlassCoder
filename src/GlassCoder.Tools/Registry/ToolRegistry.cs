@@ -60,7 +60,15 @@ public sealed class ToolRegistry : IToolRegistry
 
         if (!_byName.TryGetValue(call.Name, out AIFunction? function))
         {
+            // A wrong tool name is nearly always a near-miss on a right one - `run` for
+            // `run_tests` cost a step in run d18c0e57. Naming the likely intent in the message
+            // turns the retry into the call the model meant to make.
             string known = string.Join(", ", _byName.Keys);
+            string? nearest = Closest(call.Name);
+            string message = nearest is null
+                ? $"No tool named '{call.Name}'."
+                : $"No tool named '{call.Name}'. Did you mean '{nearest}'?";
+
             _logger.LogWarning("Model called unknown tool {ToolName}", call.Name);
             return new ToolInvocation
             {
@@ -69,11 +77,11 @@ public sealed class ToolRegistry : IToolRegistry
                 Status = ToolCallStatus.UnknownTool,
                 Arguments = arguments,
                 Duration = TimeSpan.Zero,
-                ErrorMessage = $"No tool named '{call.Name}'.",
+                ErrorMessage = message,
                 Result = Observation.Fail<object>(
                     call.Name,
                     ToolErrorCodes.UnknownTool,
-                    $"No tool named '{call.Name}'.",
+                    message,
                     $"Available tools: {known}."),
             };
         }
@@ -121,6 +129,57 @@ public sealed class ToolRegistry : IToolRegistry
             _logger.LogError(ex, "Tool {ToolName} threw instead of returning an observation", call.Name);
             return Faulted(call, arguments, start, ToolCallStatus.Faulted, ToolErrorCodes.Unexpected, ex, null);
         }
+    }
+
+    /// <summary>
+    /// The registered name the model most likely meant: a substring relation first, then a
+    /// small edit distance. Null when nothing is close enough to be worth suggesting.
+    /// </summary>
+    private string? Closest(string requested)
+    {
+        List<string> related = [.. _byName.Keys
+            .Where(name => name.Contains(requested, StringComparison.OrdinalIgnoreCase) ||
+                           requested.Contains(name, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(name => Math.Abs(name.Length - requested.Length))];
+        if (related.Count > 0)
+        {
+            return string.Join("' or '", related.Take(2));
+        }
+
+        (string Name, int Distance) best = _byName.Keys
+            .Select(name => (Name: name, Distance: EditDistance(name, requested)))
+            .OrderBy(candidate => candidate.Distance)
+            .First();
+
+        return best.Distance <= 3 ? best.Name : null;
+    }
+
+    /// <summary>Levenshtein distance, case-insensitive. Tool names are short; O(n·m) is nothing.</summary>
+    private static int EditDistance(string left, string right)
+    {
+        left = left.ToLowerInvariant();
+        right = right.ToLowerInvariant();
+
+        int[] previous = new int[right.Length + 1];
+        int[] current = new int[right.Length + 1];
+        for (int j = 0; j <= right.Length; j++)
+        {
+            previous[j] = j;
+        }
+
+        for (int i = 1; i <= left.Length; i++)
+        {
+            current[0] = i;
+            for (int j = 1; j <= right.Length; j++)
+            {
+                int substitution = previous[j - 1] + (left[i - 1] == right[j - 1] ? 0 : 1);
+                current[j] = Math.Min(Math.Min(previous[j] + 1, current[j - 1] + 1), substitution);
+            }
+
+            (previous, current) = (current, previous);
+        }
+
+        return previous[right.Length];
     }
 
     private static ToolInvocation Faulted(

@@ -68,6 +68,19 @@ public sealed class EditFileToolTests : IDisposable
     }
 
     [Fact]
+    public async Task An_ambiguous_target_says_which_lines_hold_the_matches()
+    {
+        // Told only "appears 2 times", the model's next step is a whole-file re-read to find
+        // out where. The line numbers make the refusal answer its own follow-up question.
+        _workspace.WriteFile("src/Pager.cs", "int a = 1;\nint keep;\nint b = 1;\n");
+
+        ToolObservation<EditFileResult> observation = await Tool().EditFileAsync("src/Pager.cs", "= 1;", "= 2;");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Message.ShouldContain("at lines 1, 3");
+    }
+
+    [Fact]
     public async Task Replace_all_changes_every_occurrence_in_one_call()
     {
         // The run this is for: five byte-identical call sites, five separate steps, each quoting

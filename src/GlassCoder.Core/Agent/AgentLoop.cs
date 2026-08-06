@@ -129,6 +129,14 @@ public sealed class AgentLoop : IAgentLoop
         string? lastFailure = null;
         int identicalFailures = 0;
 
+        // Where the ladder last left the tree. A run that stops talking while this is red is
+        // declaring victory over work that does not verify - run d18c0e57 "Completed" with
+        // eleven failed builds, and the next run inherited the wreckage. The first such stop
+        // is challenged; a second is allowed through but recorded as what it is.
+        bool lastVerificationFailed = false;
+        string? lastFailedRung = null;
+        bool completionChallenged = false;
+
         while (true)
         {
             if (budget.Exhausted() is { } exhausted)
@@ -181,10 +189,34 @@ public sealed class AgentLoop : IAgentLoop
 
             if (calls.Count == 0)
             {
+                if (lastVerificationFailed && !completionChallenged)
+                {
+                    // Once, not every time: a model that maintains "done" over a red tree after
+                    // being told is stuck, and looping the challenge would spend the rest of
+                    // the budget restating it.
+                    completionChallenged = true;
+                    budget.CountStep();
+                    messages.Add(new ChatMessage(
+                        ChatRole.User,
+                        $"Do not stop yet: the last automatic verification FAILED at {lastFailedRung ?? "an early rung"}, " +
+                        "so the tree does not verify. Fix the reported problems and confirm with a build, or state " +
+                        "explicitly what is still broken and why it cannot be fixed in this run."));
+                    LogStep(step with { Prompt = prompt }, messages, response, [], modelLatency, "continued", null);
+                    continue;
+                }
+
                 stopReason = AgentStopReason.Completed;
                 finalText = response.Text;
+                if (lastVerificationFailed)
+                {
+                    error = $"Completed while the last verification was still failing at {lastFailedRung ?? "an early rung"}.";
+                    _logger.LogWarning(
+                        "Run {RunId} completed with the last verification failing at {Rung}",
+                        request.RunId, lastFailedRung ?? "an early rung");
+                }
+
                 budget.CountStep();
-                LogStep(step with { Prompt = prompt }, messages, response, [], modelLatency, stopReason.ToString(), null);
+                LogStep(step with { Prompt = prompt }, messages, response, [], modelLatency, stopReason.ToString(), error);
                 break;
             }
 
@@ -227,6 +259,15 @@ public sealed class AgentLoop : IAgentLoop
                 // corrects after a failing tool call. Rejected-at-the-gate is the write
                 // tools' job; reverting applied work is a human's.
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
+
+                lastVerificationFailed = !verification.Record.Passed;
+                lastFailedRung = verification.Record.FailedRung;
+                if (verification.Record.Passed)
+                {
+                    // A tree that went green earns back the right to be challenged if it goes
+                    // red again later.
+                    completionChallenged = false;
+                }
             }
 
             budget.CountStep();

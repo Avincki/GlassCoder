@@ -3,6 +3,7 @@ using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Tools.Verification;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.Build;
@@ -42,11 +43,22 @@ public sealed class BuildTool : IToolSet
 {
     private const string ToolName = "build";
 
+    /// <summary>How much of the raw output a blind failure carries. Enough to hold the real
+    /// error; small enough not to crowd the window.</summary>
+    private const int MaxTailCharacters = 2000;
+
+    /// <summary>
+    /// Pause before the one retry of a failure that produced no diagnostics. Long enough for a
+    /// sync client or antivirus to release a file lock, which is what that signature usually is.
+    /// </summary>
+    private static readonly TimeSpan TransientRetryDelay = TimeSpan.FromSeconds(1);
+
     private readonly ICommandExecutor _executor;
     private readonly IPathGuard _guard;
     private readonly DiagnosticSummarizer _summarizer;
     private readonly SandboxOptions _sandbox;
     private readonly BuildCache? _cache;
+    private readonly ILogger<BuildTool> _logger;
 
     /// <summary>Creates the tool.</summary>
     public BuildTool(
@@ -54,7 +66,8 @@ public sealed class BuildTool : IToolSet
         IPathGuard guard,
         DiagnosticSummarizer summarizer,
         IOptions<SandboxOptions> sandbox,
-        BuildCache? cache = null)
+        BuildCache? cache = null,
+        ILogger<BuildTool>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(sandbox);
 
@@ -63,6 +76,7 @@ public sealed class BuildTool : IToolSet
         _summarizer = summarizer;
         _sandbox = sandbox.Value;
         _cache = cache;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<BuildTool>.Instance;
     }
 
     /// <summary>Builds a project, solution or directory.</summary>
@@ -108,36 +122,56 @@ public sealed class BuildTool : IToolSet
             arguments.Add("--no-restore");
         }
 
-        CommandResult result = await _executor.ExecuteAsync(
-            new CommandRequest("dotnet", arguments)
+        CommandResult result;
+        DiagnosticSummary summary;
+
+        for (int attempt = 0; ; attempt++)
+        {
+            result = await _executor.ExecuteAsync(
+                new CommandRequest("dotnet", arguments)
+                {
+                    WorkingDirectory = workingDirectory,
+                    RequiresNetwork = allowRestore,
+                    Timeout = TimeSpan.FromSeconds(_sandbox.CommandTimeoutSeconds),
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            if (result.FailureReason is not null)
             {
-                WorkingDirectory = workingDirectory,
-                RequiresNetwork = allowRestore,
-                Timeout = TimeSpan.FromSeconds(_sandbox.CommandTimeoutSeconds),
-            },
-            cancellationToken).ConfigureAwait(false);
+                return Observation.Fail<BuildResult>(
+                    ToolName,
+                    ToolErrorCodes.SandboxUnavailable,
+                    result.FailureReason,
+                    "A build executes arbitrary repository code, so it will not be run outside the sandbox.");
+            }
 
-        if (result.FailureReason is not null)
-        {
-            return Observation.Fail<BuildResult>(
-                ToolName,
-                ToolErrorCodes.SandboxUnavailable,
-                result.FailureReason,
-                "A build executes arbitrary repository code, so it will not be run outside the sandbox.");
+            if (result.TimedOut)
+            {
+                return Observation.Fail<BuildResult>(
+                    ToolName,
+                    ToolErrorCodes.Timeout,
+                    $"The build exceeded {_sandbox.CommandTimeoutSeconds} seconds and was stopped.",
+                    "Build a single project rather than the whole solution.");
+            }
+
+            IReadOnlyList<CodeDiagnostic> diagnostics =
+                MsBuildOutputParser.Parse(result.CombinedOutput, _guard.ToRelativePath);
+            summary = _summarizer.Summarise(diagnostics, $"Build of {verdict.RelativePath}");
+
+            if (attempt > 0 || result.ExitCode == 0 || summary.TotalErrors > 0)
+            {
+                break;
+            }
+
+            // A non-zero exit with nothing parseable is the transient signature: a file lock
+            // from a sync client or scanner, a restore race. Two runs on 2026-08-06 each burned
+            // three steps re-running exactly this build until the lock cleared; one bounded
+            // retry absorbs it without hiding a real failure, which parses and skips this.
+            _logger.LogWarning(
+                "Build of {Path} exited {ExitCode} with no parseable diagnostics; retrying once in case it was transient",
+                verdict.RelativePath, result.ExitCode);
+            await Task.Delay(TransientRetryDelay, cancellationToken).ConfigureAwait(false);
         }
-
-        if (result.TimedOut)
-        {
-            return Observation.Fail<BuildResult>(
-                ToolName,
-                ToolErrorCodes.Timeout,
-                $"The build exceeded {_sandbox.CommandTimeoutSeconds} seconds and was stopped.",
-                "Build a single project rather than the whole solution.");
-        }
-
-        IReadOnlyList<CodeDiagnostic> diagnostics =
-            MsBuildOutputParser.Parse(result.CombinedOutput, _guard.ToRelativePath);
-        DiagnosticSummary summary = _summarizer.Summarise(diagnostics, $"Build of {verdict.RelativePath}");
 
         BuildResult payload = new(
             verdict.RelativePath!,
@@ -181,8 +215,31 @@ public sealed class BuildTool : IToolSet
                 $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. {guidance}");
         }
 
+        // "Build failed with 0 error(s)" is what the model reads when the parser recognised
+        // nothing - a restore or SDK error in a format the regexes miss. Seven of those in the
+        // 2026-08-06 runs, each answered with a blind identical retry. When there is nothing
+        // parsed, the raw tail is the only information there is, so it goes in the message.
+        if (summary.TotalErrors == 0)
+        {
+            string tail = Tail(result.CombinedOutput);
+            return Observation.Ok(
+                ToolName,
+                payload with { Diagnostics = tail },
+                $"Build failed with exit code {result.ExitCode}, but no compiler diagnostics could be parsed " +
+                $"from its output. The output ends:\n{tail}");
+        }
+
         // A failed build is a handled outcome, not a tool failure: this is the single most
         // useful observation the agent receives, and it must arrive as information to act on.
         return Observation.Ok(ToolName, payload, $"Build failed with {summary.TotalErrors} error(s).");
+    }
+
+    /// <summary>The last lines of the raw output, for the failures the parser cannot type.</summary>
+    private static string Tail(string output)
+    {
+        string trimmed = output.Trim();
+        return trimmed.Length <= MaxTailCharacters
+            ? trimmed
+            : string.Concat("… ", trimmed.AsSpan(trimmed.Length - MaxTailCharacters));
     }
 }

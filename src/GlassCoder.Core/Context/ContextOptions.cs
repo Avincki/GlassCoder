@@ -32,6 +32,17 @@ public sealed class ContextOptions
     /// <summary>Token ceiling for the root context, after which it is truncated.</summary>
     public int MaxRootContextTokens { get; set; } = 6_000;
 
+    /// <summary>
+    /// Whether the window opens with a generated map of the workspace: the file listing, plus
+    /// the contents of the smallest files while the budget lasts. A small workspace is fully
+    /// visible at step 0 instead of costing half a dozen discovery steps; a large one degrades
+    /// to a capped listing.
+    /// </summary>
+    public bool IncludeWorkspaceMap { get; set; } = true;
+
+    /// <summary>Token ceiling for the workspace map, listing and inlined contents together.</summary>
+    public int MaxWorkspaceMapTokens { get; set; } = 2_000;
+
     /// <summary>Whether older turns are compacted when the budget is exceeded.</summary>
     public bool EnableCompaction { get; set; } = true;
 

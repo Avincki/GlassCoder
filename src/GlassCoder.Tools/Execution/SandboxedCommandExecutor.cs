@@ -10,8 +10,9 @@ namespace GlassCoder.Tools.Execution;
 /// When the configured sandbox is unavailable this <em>refuses</em>, unless
 /// <see cref="SandboxOptions.AllowUnsandboxedExecution"/> has been set. A downgrade from
 /// "containerised, no network" to "your machine, full access" is the kind of thing that is only
-/// noticed afterwards, so it has to be asked for - and every fallback is logged as a warning,
-/// because asked-for once is not the same as remembered on the four hundredth build.
+/// noticed afterwards, so it has to be asked for - and the fallback is logged as a warning the
+/// first time it happens, then at debug. Once per session keeps the fact on the record; thirty
+/// repeats of it per run buried the log lines that carried information.
 /// </para>
 /// </summary>
 public sealed class SandboxedCommandExecutor : ICommandExecutor
@@ -20,6 +21,7 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
     private readonly LocalCommandExecutor _local;
     private readonly SandboxOptions _options;
     private readonly ILogger<SandboxedCommandExecutor> _logger;
+    private int _fallbacks;
 
     /// <summary>Creates the executor.</summary>
     public SandboxedCommandExecutor(
@@ -73,9 +75,18 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
                 "Start Docker, or set GlassCoder:Sandbox:AllowUnsandboxedExecution to true to accept the risk.");
         }
 
-        _logger.LogWarning(
-            "Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. " +
-            "This executes repository code with the harness's own privileges.");
+        int fallbacks = Interlocked.Increment(ref _fallbacks);
+        if (fallbacks == 1)
+        {
+            _logger.LogWarning(
+                "Docker is unavailable; running on the host because AllowUnsandboxedExecution is set. " +
+                "This executes repository code with the harness's own privileges. Further fallbacks " +
+                "this session are logged at debug.");
+        }
+        else
+        {
+            _logger.LogDebug("Docker is unavailable; running on the host (fallback #{Count} this session)", fallbacks);
+        }
 
         return await _local.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
     }

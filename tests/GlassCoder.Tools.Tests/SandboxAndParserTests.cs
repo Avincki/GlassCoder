@@ -120,6 +120,36 @@ public sealed class SandboxAndParserTests
             .ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// Restore and SDK failures name the project file, not a source location, and the path is
+    /// rooted. Before the prefix admitted that shape, these lines parsed to nothing and the
+    /// model was told "Build failed with 0 error(s)" - seven times across the 2026-08-06 runs.
+    /// </summary>
+    [Fact]
+    public void A_restore_error_prefixed_by_a_rooted_project_path_is_parsed()
+    {
+        const string output = """
+            Determining projects to restore...
+            C:\repo\src\Proj\Proj.csproj : error NU1101: Unable to find package Xunit. No packages exist with this id in source(s): local
+            """;
+
+        CodeDiagnostic diagnostic = MsBuildOutputParser.Parse(output).ShouldHaveSingleItem();
+        diagnostic.Id.ShouldBe("NU1101");
+        diagnostic.Severity.ShouldBe(CodeSeverity.Error);
+        diagnostic.Message.ShouldStartWith("Unable to find package Xunit");
+    }
+
+    [Fact]
+    public void An_sdk_error_about_a_missing_assets_file_is_parsed()
+    {
+        const string output =
+            @"C:\repo\src\Tests\Tests.csproj : error NETSDK1005: Assets file 'C:\repo\src\Tests\obj\project.assets.json' not found. Run a NuGet package restore.";
+
+        CodeDiagnostic diagnostic = MsBuildOutputParser.Parse(output).ShouldHaveSingleItem();
+        diagnostic.Id.ShouldBe("NETSDK1005");
+        diagnostic.Severity.ShouldBe(CodeSeverity.Error);
+    }
+
     [Fact]
     public void A_green_test_run_is_parsed()
     {

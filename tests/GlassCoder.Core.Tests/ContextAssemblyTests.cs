@@ -70,6 +70,60 @@ public sealed class ContextAssemblyTests : IDisposable
         Should.NotThrow(() => assembler.CreateInitialMessages("system", "goal"));
     }
 
+    /// <summary>
+    /// Run 48a7af6a spent six steps discovering a five-file workspace and later re-read two of
+    /// the files. The opening window now carries that picture: every file listed, small ones
+    /// inlined, all inside one bounded block.
+    /// </summary>
+    [Fact]
+    public void A_small_workspace_is_fully_visible_at_step_zero()
+    {
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+
+        ContextAssembler assembler = TestContextAssembler.Create(
+            new ContextOptions(), _workspace.Guard(), new Tools.FileSystem.WorkspaceMapBuilder(_workspace.Guard()));
+        IReadOnlyList<ChatMessage> messages = assembler.CreateInitialMessages("system", "goal");
+
+        messages.Count.ShouldBe(3);
+        string map = messages[1].Text!;
+        map.ShouldContain("src/Pager.cs");
+        map.ShouldContain("src/Proj.csproj");
+        map.ShouldContain("public int X => 1;", customMessage: "a small file's contents belong in the map, not behind a read_file step");
+        messages[^1].Text.ShouldBe("goal");
+    }
+
+    [Fact]
+    public void The_workspace_map_is_truncated_rather_than_allowed_to_grow()
+    {
+        for (int i = 0; i < 50; i++)
+        {
+            _workspace.WriteFile($"src/File{i:D2}.cs", "class C { }");
+        }
+
+        ContextOptions options = new() { MaxWorkspaceMapTokens = 50 };
+        ContextAssembler assembler = TestContextAssembler.Create(
+            options, _workspace.Guard(), new Tools.FileSystem.WorkspaceMapBuilder(_workspace.Guard()));
+        IReadOnlyList<ChatMessage> messages = assembler.CreateInitialMessages("system", "goal");
+
+        string map = messages[1].Text!;
+        map.ShouldContain("truncated");
+        map.Length.ShouldBeLessThan(600);
+    }
+
+    [Fact]
+    public void The_workspace_map_can_be_switched_off()
+    {
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { }");
+
+        ContextAssembler assembler = TestContextAssembler.Create(
+            new ContextOptions { IncludeWorkspaceMap = false },
+            _workspace.Guard(),
+            new Tools.FileSystem.WorkspaceMapBuilder(_workspace.Guard()));
+
+        assembler.CreateInitialMessages("system", "goal").Count.ShouldBe(2);
+    }
+
     [Fact]
     public void A_window_inside_its_budget_is_left_alone()
     {

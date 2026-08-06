@@ -78,6 +78,45 @@ public sealed class AgentLoopVerificationTests
                 m.Text.Contains("FAILED at Compile") && m.Text.Contains("CS0103"));
     }
 
+    /// <summary>
+    /// Run d18c0e57 said "Completed" over eleven failed builds and the next run inherited the
+    /// wreckage. The loop now challenges the first stop over a red tree; a model that insists
+    /// is let through, but the run record says what actually happened.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_over_a_red_tree_is_challenged_once_then_recorded()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done anyway"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        harness.Client.Requests.Count.ShouldBe(3, "the first stop must be challenged, not accepted");
+        harness.Client.Requests[2].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("Do not stop yet"));
+        result.FinalText.ShouldBe("done anyway");
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("verification");
+    }
+
+    [Fact]
+    public async Task A_stop_over_a_green_tree_is_not_challenged()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(PassedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.Error.ShouldBeNull();
+        result.FinalText.ShouldBe("done");
+        harness.Client.Requests.Count.ShouldBe(2);
+    }
+
     [Fact]
     public async Task The_outcome_is_tied_to_the_change_that_produced_it()
     {

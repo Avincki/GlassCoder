@@ -76,6 +76,9 @@ public sealed class DotnetProjectTool : IToolSet
     private static readonly string[] KnownTemplates =
         ["xunit", "nunit", "mstest", "classlib", "console", "web", "webapi", "worker", "blazor"];
 
+    /// <summary>Solution formats the SDK writes, newest first - the order they are looked for.</summary>
+    private static readonly string[] SolutionExtensions = [".slnx", ".sln"];
+
     private readonly ICommandExecutor _executor;
     private readonly IPathGuard _guard;
     private readonly IChangeLog _changes;
@@ -203,9 +206,18 @@ public sealed class DotnetProjectTool : IToolSet
         RecordChange(touchedFile, before);
 
         int reformatted = RecordRewrites(sources);
-        string summary = operation == DotnetProjectOperation.Format
-            ? $"Formatted '{verdict.RelativePath}': {reformatted} file(s) rewritten."
-            : Success(operation, verdict.RelativePath!, argument);
+        string summary = operation switch
+        {
+            DotnetProjectOperation.Format =>
+                $"Formatted '{verdict.RelativePath}': {reformatted} file(s) rewritten.",
+            DotnetProjectOperation.NewSolution => DescribeCreatedSolution(verdict, argument),
+
+            // Named by the file the add really landed in, which ResolveSolution may have chosen:
+            // echoing the caller's spelling here would plant the wrong path for the next call.
+            DotnetProjectOperation.AddToSolution when touchedFile is not null =>
+                $"Added '{argument}' to '{_guard.ToRelativePath(touchedFile)}'.",
+            _ => Success(operation, verdict.RelativePath!, argument),
+        };
 
         return Observation.Ok(ToolName, payload, summary);
     }
@@ -296,7 +308,10 @@ public sealed class DotnetProjectTool : IToolSet
             }
 
             case DotnetProjectOperation.AddToSolution:
-                return (["sln", full, "add", Resolve(argument!)], root, full);
+            {
+                string solution = ResolveSolution(full);
+                return (["sln", solution, "add", Resolve(argument!)], root, solution);
+            }
 
             case DotnetProjectOperation.AddReference:
                 return (["add", full, "reference", Resolve(argument!)], root, full);
@@ -329,6 +344,55 @@ public sealed class DotnetProjectTool : IToolSet
     /// <summary>Turns a repo-relative second operand into a full path, leaving it alone if it already is one.</summary>
     private string Resolve(string relative) =>
         Path.GetFullPath(Path.Combine(_guard.RepoRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
+
+    /// <summary>
+    /// The solution file that actually exists at a caller's path, whichever format the SDK chose.
+    /// <para>
+    /// <c>dotnet new sln</c> writes <c>.slnx</c> on .NET 10, and a caller who scaffolded a
+    /// solution one step ago reasonably asks for it as <c>.sln</c> - which cost run d18c0e57 a
+    /// failed add and a dead-end glob. The name is the intent; the extension is trivia this can
+    /// forgive.
+    /// </para>
+    /// </summary>
+    private static string ResolveSolution(string full)
+    {
+        if (File.Exists(full))
+        {
+            return full;
+        }
+
+        string extension = Path.GetExtension(full);
+        if (extension is not (".sln" or ".slnx"))
+        {
+            return full;
+        }
+
+        string sibling = Path.ChangeExtension(full, extension == ".sln" ? ".slnx" : ".sln");
+        return File.Exists(sibling) ? sibling : full;
+    }
+
+    /// <summary>
+    /// Names the file <c>dotnet new sln</c> actually wrote, because the SDK picks the format:
+    /// .NET 10 writes <c>.slnx</c> where the caller may well have said <c>.sln</c>. The exact
+    /// path goes into the summary so the next add_to_solution and glob are aimed at a file that
+    /// exists.
+    /// </summary>
+    private string DescribeCreatedSolution(PathGuardResult verdict, string? argument)
+    {
+        string full = verdict.FullPath!;
+        bool namesAFile = Path.GetExtension(full) is ".sln" or ".slnx";
+        string directory = namesAFile ? Path.GetDirectoryName(full) ?? _guard.RepoRoot : full;
+        string name = argument
+            ?? Path.GetFileNameWithoutExtension(Path.TrimEndingDirectorySeparator(full));
+
+        string? created = SolutionExtensions
+            .Select(extension => Path.Combine(directory, name + extension))
+            .FirstOrDefault(File.Exists);
+
+        return created is null
+            ? $"Created a solution named '{name}'."
+            : $"Created a solution at '{_guard.ToRelativePath(created)}'. Use this exact path with add_to_solution.";
+    }
 
     /// <summary>
     /// Puts the SDK's edit into the change log, so a project file the agent never typed into is
@@ -421,7 +485,6 @@ public sealed class DotnetProjectTool : IToolSet
     {
         DotnetProjectOperation.New =>
             $"Created a {argument} project in '{path}'. Add a reference to the code under test, then build.",
-        DotnetProjectOperation.NewSolution => $"Created a solution in '{path}'.",
         DotnetProjectOperation.AddToSolution => $"Added '{argument}' to '{path}'.",
         DotnetProjectOperation.AddReference => $"'{path}' now references '{argument}'.",
         DotnetProjectOperation.AddPackage => $"'{path}' now references the {argument} package.",

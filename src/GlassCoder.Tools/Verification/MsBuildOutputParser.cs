@@ -105,8 +105,14 @@ public static partial class MsBuildOutputParser
     private static partial Regex LocatedDiagnostic();
 
     // MSBUILD : error MSB1003: Specify a project or solution file.
+    // C:\repo\Project.csproj : error NU1101: Unable to find package X.
+    //
+    // The prefix must admit a rooted path: restore and SDK failures (NU*, NETSDK*) name the
+    // project file rather than a source location, and a prefix class without '\' or the drive
+    // colon parsed those lines to nothing - which is how a failing restore reached the model
+    // as "Build failed with 0 error(s)" seven times across two runs on 2026-08-06.
     [GeneratedRegex(
-        @"^\s*(?:[A-Za-z0-9_.]+\s*:\s*)?(?<severity>error|warning)\s+(?<id>[A-Za-z]+[0-9]+)\s*:\s*(?<message>.*?)(?:\s*\[[^\]]*\])?$",
+        @"^\s*(?:(?:[A-Za-z]:)?[^:\r\n]+?\s*:\s*)?(?<severity>error|warning)\s+(?<id>[A-Za-z]+[0-9]+)\s*:\s*(?<message>.*?)(?:\s*\[[^\]]*\])?$",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture,
         1000)]
     private static partial Regex UnlocatedDiagnostic();

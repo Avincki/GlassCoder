@@ -301,6 +301,43 @@ public sealed class ProjectScaffoldingTests
         arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("Everything");
     }
 
+    /// <summary>
+    /// .NET 10's <c>dotnet new sln</c> writes <c>.slnx</c>, and a caller who scaffolded a
+    /// solution one step ago reasonably asks for it back as <c>.sln</c>. Run d18c0e57: the add
+    /// failed with exit 1, the follow-up glob for <c>*.sln</c> matched nothing, and the
+    /// solution thread of the run died there.
+    /// </summary>
+    [Fact]
+    public async Task Adding_to_a_solution_forgives_the_extension_the_sdk_did_not_use()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App.slnx", "<Solution />");
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.AddToSolution, "src/App.sln", "src/App/App.csproj");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        executor.Commands.Single().Arguments[1].ShouldEndWith("App.slnx");
+        observation.Summary.ShouldContain("App.slnx", customMessage: "the message must name the file the add landed in, not the caller's spelling");
+    }
+
+    [Fact]
+    public async Task Creating_a_solution_reports_the_file_the_sdk_actually_wrote()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src");
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("Every.slnx", customMessage: "the next add_to_solution and glob must be aimed at a file that exists");
+    }
+
     [Fact]
     public async Task A_template_this_tool_does_not_know_is_refused_before_anything_runs()
     {

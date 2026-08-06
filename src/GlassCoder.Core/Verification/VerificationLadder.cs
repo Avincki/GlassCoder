@@ -319,9 +319,17 @@ public sealed class VerificationLadder : IVerificationLadder
                 }
 
                 TestRunResult tests = observation.Data!;
-                string summary = tests.Ok
-                    ? $"{tests.Passed} tests passed."
-                    : $"{tests.Failed} of {tests.Total} tests failed: {string.Join(", ", tests.FailedTests.Take(5))}";
+
+                // Zero tests is said out loud in both directions: a clean run that verified
+                // nothing is not the same reassurance as a passing suite, and a run that died
+                // before its first test is not "0 of 0 tests failed".
+                string summary = (tests.Ok, tests.Total) switch
+                {
+                    (true, 0) => "The test run exited cleanly but ran 0 tests - nothing was verified.",
+                    (true, _) => $"{tests.Passed} tests passed.",
+                    (false, 0) => "The test run failed before any test executed.",
+                    _ => $"{tests.Failed} of {tests.Total} tests failed: {string.Join(", ", tests.FailedTests.Take(5))}",
+                };
 
                 return new RungResult(rung, tests.Ok, summary, Elapsed(start));
             }

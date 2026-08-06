@@ -55,6 +55,10 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<ITodoList, TodoList>();
         services.TryAddSingleton<IChangeLog, ChangeLog>();
 
+        // Consumed by the context assembler to open each run with a bounded picture of the
+        // tree, so a five-file workspace does not cost six discovery steps.
+        services.TryAddSingleton<WorkspaceMapBuilder>();
+
         // Fails closed: when approval is required and no interactive gate is registered, writes
         // are refused rather than silently allowed (workplan task 28).
         services.TryAddSingleton<IApprovalGate, AutoApprovalGate>();

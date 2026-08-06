@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -10,11 +11,11 @@ namespace GlassCoder.Core.Context;
 /// <summary>
 /// Default <see cref="IContextAssembler"/> (workplan task 12).
 /// <para>
-/// The window is: system prompt + a lean always-loaded root + the conversation so far, with
-/// older turns compacted once the budget is crossed. Retrieval is not done here - it is what
-/// <c>read_file</c>, <c>grep</c> and <c>glob</c> are for. That separation is the point: the
-/// agent pulls what it needs when it needs it, instead of the harness pushing a doc tree into
-/// every step (CLAUDE.md §12).
+/// The window is: system prompt + a lean always-loaded root + a bounded workspace map + the
+/// conversation so far, with older turns compacted once the budget is crossed. Beyond the map,
+/// retrieval is not done here - it is what <c>read_file</c>, <c>grep</c> and <c>glob</c> are
+/// for. That separation is the point: the agent pulls what it needs when it needs it, instead
+/// of the harness pushing a doc tree into every step (CLAUDE.md §12).
 /// </para>
 /// </summary>
 public sealed class ContextAssembler : IContextAssembler
@@ -23,6 +24,7 @@ public sealed class ContextAssembler : IContextAssembler
     private readonly ITokenEstimator _estimator;
     private readonly IConversationCompactor _compactor;
     private readonly IPathGuard _guard;
+    private readonly WorkspaceMapBuilder? _workspaceMap;
     private readonly ILogger<ContextAssembler> _logger;
     private string? _rootContext;
 
@@ -32,6 +34,7 @@ public sealed class ContextAssembler : IContextAssembler
         ITokenEstimator estimator,
         IConversationCompactor compactor,
         IPathGuard guard,
+        WorkspaceMapBuilder? workspaceMap = null,
         ILogger<ContextAssembler>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -40,6 +43,7 @@ public sealed class ContextAssembler : IContextAssembler
         _estimator = estimator;
         _compactor = compactor;
         _guard = guard;
+        _workspaceMap = workspaceMap;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ContextAssembler>.Instance;
     }
 
@@ -52,6 +56,18 @@ public sealed class ContextAssembler : IContextAssembler
         if (!string.IsNullOrWhiteSpace(root))
         {
             messages.Add(new ChatMessage(ChatRole.System, root));
+        }
+
+        // Rebuilt for every run rather than cached like the root: the previous run probably
+        // edited the very tree this describes.
+        if (_options.IncludeWorkspaceMap && _workspaceMap is not null)
+        {
+            string map = _workspaceMap.Build(
+                (int)(_options.MaxWorkspaceMapTokens * _options.CharactersPerToken));
+            if (!string.IsNullOrWhiteSpace(map))
+            {
+                messages.Add(new ChatMessage(ChatRole.System, map));
+            }
         }
 
         messages.Add(new ChatMessage(ChatRole.User, goal));

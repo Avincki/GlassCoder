@@ -443,9 +443,18 @@ public sealed class EditFileTool : IToolSet
 
         if (found is null && occurrences > 1)
         {
+            // The line numbers cost nothing here and save the model a full re-read: told only
+            // "appears 6 times", run 48a7af6a burned two steps and a re-read finding out where.
+            IReadOnlyList<TextFile.Match> sites = TextFile.FindAll(text, hunk.OldText);
+            string lines = string.Join(", ", sites.Take(8).Select(m => TextFile.LineNumberAt(text, m.Start)));
+            if (sites.Count > 8)
+            {
+                lines += ", …";
+            }
+
             return HunkResult.Refused(
                 ToolErrorCodes.AmbiguousTarget,
-                $"{which}the text to replace appears {occurrences} times in '{path}'.",
+                $"{which}the text to replace appears {occurrences} times in '{path}', at lines {lines}.",
                 "Pass replaceAll: true to change every occurrence, or include more surrounding "
                     + "context so the target is unique.");
         }

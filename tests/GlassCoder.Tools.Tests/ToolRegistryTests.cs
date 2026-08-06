@@ -95,6 +95,22 @@ public sealed class ToolRegistryTests
             .Error!.Code.ShouldBe(ToolErrorCodes.UnknownTool);
     }
 
+    /// <summary>
+    /// A wrong name is nearly always a near-miss on a right one - run d18c0e57 called `run`
+    /// meaning `run_tests` and spent a step learning only that it does not exist. The refusal
+    /// should hand back the intended call.
+    /// </summary>
+    [Fact]
+    public async Task An_unknown_tool_that_nearly_names_a_real_one_gets_that_name_suggested()
+    {
+        ToolRegistry registry = new([new WellFormedTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent("c5", "ech", null));
+
+        invocation.Status.ShouldBe(ToolCallStatus.UnknownTool);
+        invocation.ErrorMessage.ShouldContain("Did you mean 'echo'?");
+    }
+
     [Fact]
     public async Task A_tool_that_throws_is_contained_and_reported_as_faulted()
     {
