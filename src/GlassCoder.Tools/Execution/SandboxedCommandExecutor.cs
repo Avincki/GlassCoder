@@ -20,6 +20,7 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
     private readonly DockerCommandExecutor _docker;
     private readonly LocalCommandExecutor _local;
     private readonly SandboxOptions _options;
+    private readonly DropboxIgnoreMarker? _ignoreMarker;
     private readonly ILogger<SandboxedCommandExecutor> _logger;
     private int _fallbacks;
 
@@ -28,6 +29,7 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
         DockerCommandExecutor docker,
         LocalCommandExecutor local,
         IOptions<SandboxOptions> options,
+        DropboxIgnoreMarker? ignoreMarker = null,
         ILogger<SandboxedCommandExecutor>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -35,6 +37,7 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
         _docker = docker;
         _local = local;
         _options = options.Value;
+        _ignoreMarker = ignoreMarker;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<SandboxedCommandExecutor>.Instance;
     }
 
@@ -59,13 +62,13 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
         if (_options.Mode == SandboxMode.Local)
         {
             return _options.AllowUnsandboxedExecution
-                ? await _local.ExecuteAsync(request, cancellationToken).ConfigureAwait(false)
+                ? await RunSweptAsync(() => _local.ExecuteAsync(request, cancellationToken)).ConfigureAwait(false)
                 : Refuse("Sandbox mode is Local but GlassCoder:Sandbox:AllowUnsandboxedExecution is false.");
         }
 
         if (await _docker.IsAvailableAsync(cancellationToken).ConfigureAwait(false))
         {
-            return await _docker.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
+            return await RunSweptAsync(() => _docker.ExecuteAsync(request, cancellationToken)).ConfigureAwait(false);
         }
 
         if (!_options.AllowUnsandboxedExecution)
@@ -88,7 +91,21 @@ public sealed class SandboxedCommandExecutor : ICommandExecutor
             _logger.LogDebug("Docker is unavailable; running on the host (fallback #{Count} this session)", fallbacks);
         }
 
-        return await _local.ExecuteAsync(request, cancellationToken).ConfigureAwait(false);
+        return await RunSweptAsync(() => _local.ExecuteAsync(request, cancellationToken)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a command between two Dropbox ignore sweeps: before, so output that already exists
+    /// is marked ahead of the SDK touching it, and after, so folders the command itself created
+    /// are marked before the sync client picks them up. The Docker branch sweeps too - the
+    /// container writes through a bind mount, and the folders it leaves behind are host folders.
+    /// </summary>
+    private async Task<CommandResult> RunSweptAsync(Func<Task<CommandResult>> execute)
+    {
+        _ignoreMarker?.EnsureWorkspaceMarked();
+        CommandResult result = await execute().ConfigureAwait(false);
+        _ignoreMarker?.EnsureWorkspaceMarked();
+        return result;
     }
 
     private CommandResult Refuse(string reason)

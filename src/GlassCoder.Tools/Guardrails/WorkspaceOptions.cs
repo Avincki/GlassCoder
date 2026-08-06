@@ -46,4 +46,12 @@ public sealed class WorkspaceOptions
     /// simplest way to walk a path allow-list straight out of the workspace.
     /// </summary>
     public bool FollowSymbolicLinks { get; set; }
+
+    /// <summary>
+    /// Whether build-output folders under the workspace (bin, obj and friends) are marked with
+    /// the <c>com.dropbox.ignored</c> stream around every sandboxed command. On by default and
+    /// a no-op unless the workspace actually lives inside a Dropbox folder - where an unmarked
+    /// obj is a sync client racing every build for the same files.
+    /// </summary>
+    public bool ExcludeBuildOutputFromDropbox { get; set; } = true;
 }

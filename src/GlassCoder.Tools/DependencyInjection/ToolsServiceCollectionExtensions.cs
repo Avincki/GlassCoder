@@ -72,8 +72,11 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<DiagnosticSummarizer>();
 
         // Execution: a build is arbitrary code execution, so it goes through the sandbox seam.
+        // The Dropbox marker rides that seam - a workspace inside Dropbox gets its build
+        // output excluded from sync around every command, including folders born mid-run.
         services.TryAddSingleton<DockerCommandExecutor>();
         services.TryAddSingleton<LocalCommandExecutor>();
+        services.TryAddSingleton<DropboxIgnoreMarker>();
         services.TryAddSingleton<ICommandExecutor, SandboxedCommandExecutor>();
 
         AddPhase0Tools(services);
