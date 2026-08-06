@@ -121,6 +121,25 @@ public sealed class SandboxAndParserTests
     }
 
     /// <summary>
+    /// The file group must survive parentheses in the path: on a machine whose repos live under
+    /// "Dropbox (Personal)", the old <c>[^(]</c> file group stopped mid-directory-name and every
+    /// located diagnostic lost its file and line. Run d21eb210 received CS0101 as "across 0
+    /// file(s)", guessed wrong about which files collided, and deleted its own deliverable.
+    /// </summary>
+    [Fact]
+    public void A_path_containing_parentheses_keeps_its_location()
+    {
+        const string output =
+            @"C:\Users\A\Dropbox (Personal)\repos\Test\src\Class1.cs(1,11): error CS0101: The namespace '<global namespace>' already contains a definition for 'ArrayProcessor' [C:\Users\A\Dropbox (Personal)\repos\Test\src\Proj.csproj]";
+
+        CodeDiagnostic diagnostic = MsBuildOutputParser.Parse(output).ShouldHaveSingleItem();
+        diagnostic.Id.ShouldBe("CS0101");
+        diagnostic.FilePath.ShouldEndWith("Class1.cs");
+        diagnostic.Line.ShouldBe(1);
+        diagnostic.Column.ShouldBe(11);
+    }
+
+    /// <summary>
     /// Restore and SDK failures name the project file, not a source location, and the path is
     /// rooted. Before the prefix admitted that shape, these lines parsed to nothing and the
     /// model was told "Build failed with 0 error(s)" - seven times across the 2026-08-06 runs.

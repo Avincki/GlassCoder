@@ -59,6 +59,44 @@ public sealed class CreateFileToolTests : IDisposable
         File.Exists(Path.Combine(_workspace.Root, "src", "deep", "nested", "Thing.cs")).ShouldBeTrue();
     }
 
+    /// <summary>
+    /// Three sessions in a row opened by writing a class at the workspace root before any
+    /// project existed - and the "Nothing buildable" warning went to the log, which the model
+    /// cannot read. The observation itself has to say the file is an orphan.
+    /// </summary>
+    [Fact]
+    public async Task A_source_file_outside_every_project_says_so_in_the_observation()
+    {
+        ToolObservation<CreateFileResult> observation = await Tool()
+            .CreateFileAsync("src/Orphan.cs", "public class Orphan { }");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("No project contains this file");
+        observation.Summary.ShouldContain("dotnet_project");
+    }
+
+    [Fact]
+    public async Task A_source_file_inside_a_project_carries_no_orphan_warning()
+    {
+        _workspace.WriteFile("src/App/App.csproj", Project);
+
+        ToolObservation<CreateFileResult> observation = await Tool()
+            .CreateFileAsync("src/App/Thing.cs", "namespace Demo; public sealed class Thing { }");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldNotContain("No project contains");
+    }
+
+    [Fact]
+    public async Task A_non_source_file_is_not_asked_to_belong_to_a_project()
+    {
+        ToolObservation<CreateFileResult> observation = await Tool()
+            .CreateFileAsync("src/README.md", "# notes");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldNotContain("No project contains");
+    }
+
     [Fact]
     public async Task An_existing_file_is_never_overwritten()
     {

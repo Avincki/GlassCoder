@@ -98,8 +98,15 @@ public static partial class MsBuildOutputParser
         value.Equals("error", StringComparison.OrdinalIgnoreCase) ? CodeSeverity.Error : CodeSeverity.Warning;
 
     // Path\File.cs(12,34): error CS0103: The name 'x' does not exist [C:\repo\Project.csproj]
+    //
+    // The file group must tolerate parentheses IN the path: `[^(\r\n]` stopped at the first
+    // '(', which under a path like "Dropbox (Personal)" is the middle of a directory name -
+    // so no located diagnostic on such a machine ever carried its file and line. Run d21eb210
+    // received CS0101 as "across 0 file(s)", guessed wrong about which files collided, and
+    // deleted the only copy of its deliverable. The lazy `.+?` walks each '(' until one is
+    // followed by the full (line,col): severity sequence; the timeout bounds the walk.
     [GeneratedRegex(
-        @"^\s*(?<file>[^(\r\n]+?)\((?<line>\d+),(?<column>\d+)\)\s*:\s*(?<severity>error|warning)\s+(?<id>[A-Za-z]+[0-9]+)\s*:\s*(?<message>.*?)(?:\s*\[[^\]]*\])?$",
+        @"^\s*(?<file>.+?)\((?<line>\d+),(?<column>\d+)\)\s*:\s*(?<severity>error|warning)\s+(?<id>[A-Za-z]+[0-9]+)\s*:\s*(?<message>.*?)(?:\s*\[[^\]]*\])?$",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture,
         1000)]
     private static partial Regex LocatedDiagnostic();

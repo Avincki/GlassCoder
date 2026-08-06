@@ -151,10 +151,14 @@ public sealed class FileOperationTool : IToolSet
         int lines = Lines(before);
         _logger.LogInformation("Deleted {Path}: {Lines} lines", source.RelativePath, lines);
 
+        // The change log holds the deleted text, and the model is told so here: run d21eb210
+        // deleted the only copy of its deliverable and, when the build then missed it, removed
+        // the reference instead of the mistake - not knowing that restoring was one call away.
         return Observation.Ok(
             ToolName,
             new FileOperationResult("delete", source.RelativePath!, null, lines, change.Id),
-            $"Deleted {source.RelativePath} ({lines} lines).");
+            $"Deleted {source.RelativePath} ({lines} lines). Its content is preserved in the change log; " +
+            "if this delete turns out to be wrong, re-create the file rather than removing references to it.");
     }
 
     private async Task<ToolObservation<FileOperationResult>> MoveAsync(

@@ -199,7 +199,44 @@ public sealed class CreateFileTool : IToolSet
         return Observation.Ok(
             ToolName,
             result,
-            $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines).");
+            $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines).{OrphanNotice(verdict.FullPath)}");
+    }
+
+    /// <summary>
+    /// Says, in the observation itself, when a compilable file lands outside every project.
+    /// <para>
+    /// The harness always knew - "Nothing buildable found" went to the log at the exact moment
+    /// run d21eb210 created its class at the workspace root - but the model never heard it, and
+    /// three sessions in a row began with a source file the eventual project would have to be
+    /// contorted around. The warning has to be in the message the model is already reading.
+    /// </para>
+    /// </summary>
+    private string OrphanNotice(string fullPath)
+    {
+        if (!_analyzer.Handles(fullPath))
+        {
+            return string.Empty;
+        }
+
+        string? project;
+        try
+        {
+            project = ProjectLocator.FindProjectFile(fullPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return string.Empty;
+        }
+
+        // A project above the repo root is someone else's; inside the workspace it must sit.
+        bool owned = project is not null &&
+            project.StartsWith(_guard.RepoRoot, StringComparison.OrdinalIgnoreCase);
+
+        return owned
+            ? string.Empty
+            : " No project contains this file, so nothing will compile or test it. Scaffold a project first " +
+              "with dotnet_project (new) and create source files inside its directory - a file wired in from " +
+              "outside is how name collisions and duplicate-compile errors start.";
     }
 
     /// <summary>

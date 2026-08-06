@@ -36,6 +36,10 @@ public sealed class FileOperationTests : IDisposable
         change.Status.ShouldBe(ChangeStatus.Applied);
         change.BeforeText.ShouldBe("public class Dead { }\n");
         change.AfterText.ShouldBeEmpty();
+
+        // And the model is told the content survives: run d21eb210 deleted its deliverable and,
+        // not knowing restoring was possible, removed the references to it instead.
+        observation.Summary.ShouldContain("preserved in the change log");
     }
 
     [Fact]

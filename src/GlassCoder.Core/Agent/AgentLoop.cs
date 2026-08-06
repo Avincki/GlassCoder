@@ -489,10 +489,19 @@ public sealed class AgentLoop : IAgentLoop
             report.FailedRung ?? report.HighestRungReached,
             report.DurationMs);
 
+        // A failure right after a deletion gets one extra sentence: run d21eb210 deleted the
+        // only copy of its deliverable, and when the build then missed the file, "fixed" it by
+        // removing the reference too - the goal quietly went with it. The recovery that keeps
+        // the work has to be named at the moment the wrong one looks easier.
+        bool deleted = applied.Any(c => c.BeforeText.Length > 0 && c.AfterText.Length == 0);
         string message = report.Passed
             ? $"Automatic verification of your change passed (reached {report.HighestRungReached}).\n{report.Summary}"
             : $"Automatic verification of your change FAILED at {report.FailedRung}.\n{report.Summary}\n" +
-              "The change is written but does not verify. Fix the reported problems before continuing.";
+              "The change is written but does not verify. Fix the reported problems before continuing." +
+              (deleted
+                  ? " This step deleted a file; if the failure is a missing source or symbol, restore the " +
+                    "file (its content is in the change log) instead of removing whatever refers to it."
+                  : string.Empty);
 
         return new StepVerification(
             new StepVerificationRecord(

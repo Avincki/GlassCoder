@@ -117,6 +117,43 @@ public sealed class AgentLoopVerificationTests
         harness.Client.Requests.Count.ShouldBe(2);
     }
 
+    /// <summary>
+    /// Run d21eb210 deleted the only copy of its deliverable; when the build then missed the
+    /// file, it removed the reference instead of restoring the file, and the goal quietly went
+    /// with it. A failure right after a deletion names the recovery that keeps the work.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_climb_after_a_deletion_names_the_restore_path()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("remove"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done anyway"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        await harness.RunAsync();
+
+        harness.Client.Requests[1].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("restore the file"));
+    }
+
+    [Fact]
+    public async Task A_failed_climb_after_an_ordinary_edit_does_not_mention_restoring()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done anyway"));
+        harness.Ladder.Enqueue(FailedReport());
+
+        await harness.RunAsync();
+
+        harness.Client.Requests[1].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("FAILED at Compile"));
+        harness.Client.Requests[1].Messages
+            .ShouldNotContain(m => m.Text != null && m.Text.Contains("restore the file"));
+    }
+
     [Fact]
     public async Task The_outcome_is_tied_to_the_change_that_produced_it()
     {
@@ -444,6 +481,16 @@ public sealed class AgentLoopVerificationTests
         [Description("Echoes text back, for tests.")]
         public ToolObservation<MutateData> Echo([Description("Text to echo back.")] string text = "hello") =>
             Observation.Ok("echo", new MutateData(text), "echoed");
+
+        [GlassCoderTool("remove", Order = 3)]
+        [Description("Deletes the test file, for tests.")]
+        public ToolObservation<MutateData> Remove()
+        {
+            // Before-text to nothing is the shape the change log gives a deletion.
+            CodeChange change = _changes.Propose("src/C.cs", "remove", "public class C { }", string.Empty);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            return Observation.Ok("remove", new MutateData(change.Id), "removed");
+        }
     }
 
     public sealed record MutateData([property: Description("Identifier or echoed text.")] string Value);
