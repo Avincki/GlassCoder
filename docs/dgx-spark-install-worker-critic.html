@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="A verbatim, as-built record of standing up the GlassCoder worker (Qwen3-Coder-Next NVFP4) and critic (phi-4) as two vLLM containers on one DGX Spark: the image, every flag and why, the memory budget, the errors hit, and the health checks that prove it works.">
+<title>Installing the worker and critic on DGX Spark — as built</title>
+
+<style>
+  :root {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #101414;
+      --surface: #171C1D;
+      --sunk: #1C2223;
+      --ink: #E7EBEB;
+      --muted: #93A0A1;
+      --faint: #6A7677;
+      --rule: #263030;
+      --rule-strong: #3A4647;
+      --signal: #45C4DA;
+      --signal-soft: #10282C;
+      --pass: #86C34A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #1A2412;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101414;
+    --surface: #171C1D;
+    --sunk: #1C2223;
+    --ink: #E7EBEB;
+    --muted: #93A0A1;
+    --faint: #6A7677;
+    --rule: #263030;
+    --rule-strong: #3A4647;
+    --signal: #45C4DA;
+    --signal-soft: #10282C;
+    --pass: #86C34A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #1A2412;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 56ch;
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 2.25rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.67rem;
+    display: block;
+  }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.7rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.22rem; font-weight: 600; margin: 2.3rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.77rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.7rem 0 0.6rem;
+  }
+
+  p, ul.prose, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+    word-break: break-word;
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.6;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; word-break: normal; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.06rem; }
+
+  dl.spec { border-top: 1px solid var(--rule); margin: 0 0 1.4rem; }
+
+  dl.spec > div {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  dl.spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  dl.spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: 0.9rem; }
+
+  th {
+    text-align: left;
+    font-size: 0.69rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td { padding: 0.62rem 1rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.83rem; }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.caution { border-left-color: var(--warn); }
+  .note p:last-child, .note pre:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.caution .tag { color: var(--warn); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.71rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+
+  /* ---- memory budget: the binding constraint, drawn ---- */
+
+  .budget { max-width: var(--measure); margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .budget-row { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .budget-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: 0.92rem;
+  }
+
+  .budget-head b { font-weight: 600; }
+  .budget-head span { font-family: var(--mono); font-size: 0.79rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .bar {
+    display: flex;
+    height: 1.6rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sunk);
+  }
+
+  .bar i {
+    display: block;
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    line-height: 1.6rem;
+    padding-left: 0.4rem;
+    color: var(--surface);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .bar .weights { background: var(--signal); }
+  .bar .kv { background: var(--rule-strong); color: var(--ink); }
+  .bar .second { background: var(--pass); }
+  .bar .free { background: transparent; color: var(--faint); border-left: 1px dashed var(--rule-strong); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.2rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: -0.4rem 0 1.5rem;
+  }
+
+  .legend b { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: baseline; }
+  .legend .w { background: var(--signal); }
+  .legend .k { background: var(--rule-strong); }
+  .legend .s { background: var(--pass); }
+  .legend .f { border: 1px dashed var(--rule-strong); }
+
+  /* ---- throughput bars ---- */
+
+  .tput td.bar-cell { width: 40%; }
+  .tput .tbar { display: flex; align-items: center; gap: 0.5rem; }
+  .tput .tbar i { display: block; height: 0.55rem; background: var(--signal); border-radius: 2px; }
+  .tput .tbar span { font-family: var(--mono); font-size: 0.79rem; font-variant-numeric: tabular-nums; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+
+  footer a { color: var(--muted); }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    dl.spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">As-built install record · companion to the operator's guide</div>
+    <h1>Installing the worker and critic on one&nbsp;Spark</h1>
+    <p class="standfirst">
+      Two vLLM containers on a single DGX&nbsp;Spark — a Qwen3-Coder-Next worker and a
+      phi-4 critic — written down exactly as they were brought up, including the flags that
+      matter, the memory arithmetic that decides them, and the four errors worth recognising.
+    </p>
+    <div class="specstrip">
+      <div><b>Worker</b> RedHatAI/Qwen3-Coder-Next-NVFP4 · :8002</div>
+      <div><b>Critic</b> microsoft/phi-4 (fp8) · :8003</div>
+      <div><b>Server</b> vllm/vllm-openai:v0.20.0</div>
+      <div><b>Box</b> DGX Spark · 128 GB unified · arm64</div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#shape">What gets built</a></li>
+      <li><a href="#vllm">Where vLLM comes from</a></li>
+      <li><a href="#budget">The memory budget</a></li>
+      <li><a href="#worker">Installing the worker</a></li>
+      <li><a href="#weights">Fetching the critic weights</a></li>
+      <li><a href="#critic">Installing the critic</a></li>
+      <li><a href="#health">Verifying health</a></li>
+      <li><a href="#calibrate">Calibrating the critic</a></li>
+      <li><a href="#wire">Wiring GlassCoder</a></li>
+      <li><a href="#flags">Every flag, and why</a></li>
+      <li><a href="#trouble">Errors we actually hit</a></li>
+      <li><a href="#scale">If one Spark isn't enough</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= 1 ================= -->
+    <section class="part" id="shape">
+      <div class="part-head"><span class="num">01</span><h2>What gets built</h2></div>
+
+      <p>
+        Two independent OpenAI-compatible model servers, each its own Docker container, each on
+        its own port, both reading from the same Hugging Face cache. The <b>worker</b> does the
+        agent loop; the <b>critic</b> runs the refutation pass on the verification ladder. They are
+        deliberately different model families, so the critic's blind spots are not the worker's.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Role</th><th>Model</th><th class="m">Port</th><th class="m">Alias</th><th>Quant</th><th class="m">Util</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Worker</td>
+              <td class="m">RedHatAI/Qwen3-Coder-Next-NVFP4</td>
+              <td class="m">8002</td><td class="m">worker</td>
+              <td>NVFP4 (pre-quantised)</td><td class="m">0.65</td>
+            </tr>
+            <tr>
+              <td>Critic</td>
+              <td class="m">microsoft/phi-4</td>
+              <td class="m">8003</td><td class="m">critic</td>
+              <td>FP8 (at load)</td><td class="m">0.18</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">Why phi-4 as the critic here</span>
+        <p>
+          The worker is a Qwen. The one rule that overrides every other critic choice is
+          <b>do not judge a Qwen worker with a Qwen critic</b> — that is precisely the correlation
+          the second model exists to avoid. <code>microsoft/phi-4</code> is MIT-licensed, ungated
+          (no Hugging Face licence click, no token needed), dense 14B, and unusually strong at
+          judgement per parameter. The alternative for a non-Qwen critic, <code>google/gemma-3-12b-it</code>,
+          costs a licence acceptance and an <code>HF_TOKEN</code>; phi-4 costs neither.
+        </p>
+      </div>
+
+      <p>
+        Everything downstream — the ports, the two containers, the alias names — is what GlassCoder's
+        configuration already expects, so wiring the harness to this is a matter of pointing it at
+        the right hosts, not reshaping it.
+      </p>
+    </section>
+
+    <!-- ================= 2 ================= -->
+    <section class="part" id="vllm">
+      <div class="part-head"><span class="num">02</span><h2>Where vLLM comes from</h2></div>
+
+      <p>
+        The server is the stock upstream vLLM OpenAI image, pulled from Docker Hub. Both containers
+        use the same tag, which means one image download covers both roles:
+      </p>
+
+      <pre><code><span class="k">vllm/vllm-openai:v0.20.0</span>   <span class="c"># Docker Hub, the reference build</span></code></pre>
+
+      <p>
+        There is a second, NVIDIA-published build — <code>nvcr.io/nvidia/vllm:26.02-py3</code> from
+        the NGC catalog — tuned for Blackwell. Either serves these models. We stayed on the Docker
+        Hub image because the worker was already running on it, so reusing it avoids a second
+        multi-gigabyte pull and guarantees both roles behave identically.
+      </p>
+
+      <div class="note caution">
+        <span class="tag">The entrypoint has <code>serve</code> baked in</span>
+        <p>
+          This image's entrypoint is already <code>vllm serve</code>. So the model is passed as the
+          <b>first positional argument</b> — do <b>not</b> prepend <code>serve</code> yourself, or
+          the container crash-loops with <code>error: unrecognized arguments: serve</code>. Every
+          <code>docker run</code> below therefore reads <code>… vllm/vllm-openai:v0.20.0 &lt;model-id&gt; --flag …</code>,
+          never <code>… serve &lt;model-id&gt; …</code>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 3 ================= -->
+    <section class="part" id="budget">
+      <div class="part-head"><span class="num">03</span><h2>The memory budget</h2></div>
+
+      <p>
+        On the Spark the GPU and CPU share one ~119&nbsp;GB usable pool. Every
+        <code>--gpu-memory-utilization</code> value is a fraction of that <em>whole</em> pool, and
+        the two containers' fractions add up. The knob is not just about fitting the models — it is
+        what decides whether the desktop survives.
+      </p>
+
+      <div class="note caution">
+        <span class="tag">The lesson that set these numbers</span>
+        <p>
+          At worker util <code>0.85</code> the worker claimed ~108&nbsp;GB, leaving ~10&nbsp;GB for
+          the OS, the desktop and Firefox — and Firefox was OOM-killed. On unified memory an
+          over-committed model server takes the browser down with it. The fix is not more RAM; it is
+          a lower worker utilisation that reserves desktop headroom.
+        </p>
+      </div>
+
+      <p>
+        The settled split — worker <code>0.65</code>, critic <code>0.18</code> — leaves roughly a
+        fifth of the box for everything else:
+      </p>
+
+      <div class="budget">
+        <div class="budget-row">
+          <div class="budget-head">
+            <b>Worker · util 0.65</b>
+            <span>~77 GB</span>
+          </div>
+          <div class="bar">
+            <i class="weights" style="width:65%">worker ~77 GB</i>
+            <i class="second" style="width:16%">critic ~19 GB</i>
+            <i class="free" style="width:19%">desktop ~23 GB</i>
+          </div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><b class="w"></b>worker (weights + KV)</span>
+        <span><b class="s"></b>critic (phi-4 fp8 + KV)</span>
+        <span><b class="f"></b>OS + desktop + Firefox</span>
+      </div>
+
+      <p>
+        Two properties of this arithmetic are worth keeping in mind. First, the reservations are
+        <b>persistent</b> — a loaded container holds its slice whether or not it is decoding, so
+        free RAM for the desktop is fixed by these two numbers, not by whether the models are busy.
+        Second, co-residency is affordable precisely because the critic is <b>cold most of the
+        time</b>: critique is a rung the agent loop <code>await</code>s, so the worker is not
+        decoding while the panel votes, and the two models are almost never hot at once.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>If the desktop is…</th><th class="m">Worker util</th><th>Trade</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Idle / headless</td><td class="m">0.70–0.75</td><td>More worker KV and context; least desktop headroom.</td></tr>
+            <tr><td>Light browsing</td><td class="m">0.70</td><td>~19 GB free — the guide's default.</td></tr>
+            <tr><td>Heavy browsing</td><td class="m">0.65</td><td>~23 GB free; costs some worker KV / max context. <span class="pill pass">chosen</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 4 ================= -->
+    <section class="part" id="worker">
+      <div class="part-head"><span class="num">04</span><h2>Installing the worker</h2></div>
+
+      <p>
+        If a worker is already running and you are only changing its memory footprint, recover its
+        exact launch arguments first, so you change one number and nothing else:
+      </p>
+
+      <pre><code>docker inspect vllm-qwen --format 'IMAGE={{.Config.Image}}{{"\n"}}ARGS:{{range .Args}} {{.}}{{end}}'</code></pre>
+
+      <p>
+        Then remove the old container and start the new one. The model is the first positional
+        argument (no <code>serve</code>):
+      </p>
+
+      <pre><code>docker rm -f vllm-qwen
+
+docker run -d --name vllm-qwen --restart unless-stopped \
+  --gpus all --ipc=host -p 8002:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:v0.20.0 \
+  RedHatAI/Qwen3-Coder-Next-NVFP4 \
+  <span class="k">--served-model-name</span> worker \
+  <span class="k">--max-model-len</span> 131072 \
+  <span class="k">--gpu-memory-utilization</span> 0.65 \
+  <span class="k">--max-num-seqs</span> 4 \
+  <span class="k">--moe-backend</span> marlin \
+  <span class="k">--enable-auto-tool-choice</span> \
+  <span class="k">--tool-call-parser</span> qwen3_coder</code></pre>
+
+      <dl class="spec">
+        <div><dt>-p 8002:8000</dt><dd>Container serves on 8000; host exposes it on 8002. The critic takes 8003.</dd></div>
+        <div><dt>-v ~/.cache/huggingface</dt><dd>The shared weight cache. Both containers mount it, so weights download once.</dd></div>
+        <div><dt>--served-model-name worker</dt><dd>The alias clients call. It masks the checkpoint path — this is the seam that lets GlassCoder stay agnostic about which model is behind it.</dd></div>
+        <div><dt>--max-model-len 131072</dt><dd>128 K context. If the smaller pool can't hold its KV, lower this (see errors below).</dd></div>
+        <div><dt>--moe-backend marlin</dt><dd>The MoE kernel for this NVFP4 mixture-of-experts model.</dd></div>
+        <div><dt>--enable-auto-tool-choice<br>--tool-call-parser qwen3_coder</dt><dd>The worker is sent tools, so it needs tool-call parsing — with the Qwen3-Coder parser. The critic gets neither.</dd></div>
+      </dl>
+
+      <div class="note caution">
+        <span class="tag">Dropping util re-reads all the weights</span>
+        <p>
+          Restarting the worker re-loads every gigabyte of weights — budget 10–15 minutes before it
+          is ready, and do not start the critic against the old, full pool or you meet the OOM
+          killer instead of a clean error.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 5 ================= -->
+    <section class="part" id="weights">
+      <div class="part-head"><span class="num">05</span><h2>Fetching the critic weights</h2></div>
+
+      <p>
+        Pre-fetch the critic checkpoint into the same cache the container mounts. Doing it here
+        rather than inside <code>docker run</code> means a failed download looks like a failed
+        download, not a container that never becomes ready. First confirm the repo is ungated —
+        cheaper than discovering it 15&nbsp;GB in:
+      </p>
+
+      <pre><code>M=microsoft/phi-4
+curl -s "https://huggingface.co/api/models/$M" \
+  | jq -r '"\(.id) gated=\(.gated) downloads=\(.downloads)"'   <span class="c"># expect gated=false</span></code></pre>
+
+      <p>
+        The Hugging Face CLI may not be installed, and its command was recently renamed from
+        <code>huggingface-cli</code> to <code>hf</code>. Install it in an isolated environment with
+        pipx, then put its bin directory on <code>PATH</code>:
+      </p>
+
+      <pre><code>sudo apt-get install -y pipx || python3 -m pip install --user pipx
+pipx install "huggingface_hub[cli]"
+export PATH="$HOME/.local/bin:$PATH"   <span class="c"># this shell now</span>
+pipx ensurepath                        <span class="c"># persist for new shells</span></code></pre>
+
+      <div class="note caution">
+        <span class="tag">The cache is probably owned by root</span>
+        <p>
+          If the worker container created the cache, every file in it is owned by <code>root</code>,
+          and a user-space <code>hf download</code> fails with
+          <code>PermissionError: [Errno 13]</code>. Hand the cache back to yourself first — the
+          container reads it just fine afterwards:
+        </p>
+        <pre><code>sudo chown -R "$USER:$USER" ~/.cache/huggingface</code></pre>
+      </div>
+
+      <pre><code>hf download microsoft/phi-4
+du -sh ~/.cache/huggingface/hub/models--microsoft--phi-4   <span class="c"># ~28 GB BF16 when complete</span></code></pre>
+
+      <p>
+        The ~28&nbsp;GB is the BF16 checkpoint; it is quantised to FP8 as it loads in the next step,
+        so there is no pre-quantised checkpoint to hunt down.
+      </p>
+    </section>
+
+    <!-- ================= 6 ================= -->
+    <section class="part" id="critic">
+      <div class="part-head"><span class="num">06</span><h2>Installing the critic</h2></div>
+
+      <p>
+        Only start the critic once the worker has been restarted at the lower utilisation and
+        <code>free -g</code> shows the headroom is really there. Same image, model as the first
+        positional argument, and note what is <em>absent</em>:
+      </p>
+
+      <pre><code>docker run -d --name vllm-critic --restart unless-stopped \
+  --gpus all --ipc=host -p 8003:8000 \
+  -v ~/.cache/huggingface:/root/.cache/huggingface \
+  vllm/vllm-openai:v0.20.0 \
+  microsoft/phi-4 \
+  <span class="k">--served-model-name</span> critic \
+  <span class="k">--quantization</span> fp8 \
+  <span class="k">--max-model-len</span> 8192 \
+  <span class="k">--gpu-memory-utilization</span> 0.18 \
+  <span class="k">--max-num-seqs</span> 3</code></pre>
+
+      <dl class="spec">
+        <div><dt>--quantization fp8</dt><dd>Quantises the BF16 weights as they load. Blackwell has native FP8; this is the path with the fewest moving parts. It is also <b>required</b> here — BF16 phi-4 (~28 GB) will not fit the util slice.</dd></div>
+        <div><dt>--max-model-len 8192</dt><dd>The critic only ever sees a diff, capped by GlassCoder at 20 000 characters (~5 K tokens). An 8 K window is ample and keeps the KV cache small.</dd></div>
+        <div><dt>--gpu-memory-utilization 0.18</dt><dd>fp8 phi-4 weights plus runtime overhead consume ~18.6 GB; 0.18 (~21 GB) leaves ~2.8 GB for KV — comfortably above the 1.56 GB an 8 K window needs. 0.16 was too tight and failed to start.</dd></div>
+        <div><dt>--max-num-seqs 3</dt><dd>The critic panel fans out three votes in parallel (<code>Critique:CriticCount</code>), so three concurrent sequences.</dd></div>
+        <div><dt><em>no</em> tool flags</dt><dd>No <code>--enable-auto-tool-choice</code>, no <code>--tool-call-parser</code>, no <code>--moe-backend</code>: the critic is never sent a tool, and phi-4 is dense, not MoE.</dd></div>
+      </dl>
+
+      <div class="note">
+        <span class="tag">A harmless warning on start</span>
+        <p>
+          <code>Warning: You are sending unauthenticated requests to the HF Hub</code> is cosmetic —
+          the weights are already cached, so vLLM only hit the Hub for a metadata check. It does not
+          block loading. Add <code>-e HF_TOKEN=…</code> to silence it if you like; nothing needs
+          redoing.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 7 ================= -->
+    <section class="part" id="health">
+      <div class="part-head"><span class="num">07</span><h2>Verifying health</h2></div>
+
+      <p>
+        A container that exists is not a server that answers. Check, in order: the container is
+        <em>Up</em> (not <em>Restarting</em>), the log reached startup, the model alias is served,
+        and the box still has headroom.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <div class="step-body">
+            <h3>Is it up, or crash-looping?</h3>
+            <pre><code>docker ps --filter name=vllm --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'</code></pre>
+            <p><code>Up …</code> is healthy; <code>Restarting (…)</code> means it is failing on boot — read the log.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Did it finish starting?</h3>
+            <pre><code>docker logs -f vllm-qwen     <span class="c"># and vllm-critic</span>
+<span class="c"># wait for: "Application startup complete." — Ctrl-C to detach</span></code></pre>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Is each alias actually served?</h3>
+            <pre><code>curl -s localhost:8002/v1/models | jq -r '.data[].id'   <span class="c"># → worker</span>
+curl -s localhost:8003/v1/models | jq -r '.data[].id'   <span class="c"># → critic</span></code></pre>
+          </div>
+        </li>
+        <li>
+          <div class="step-body">
+            <h3>Is there still headroom?</h3>
+            <pre><code>free -g   <span class="c"># 'available' should sit ~20 GB with both models up</span></code></pre>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ================= 8 ================= -->
+    <section class="part" id="calibrate">
+      <div class="part-head"><span class="num">08</span><h2>Calibrating the critic</h2></div>
+
+      <p>
+        A critic that serves is not yet a critic that judges. Give it a change whose evidence is
+        visibly inadequate — a divisor guard that returns a value where the goal asked for a throw —
+        and confirm it refutes, in parseable JSON:
+      </p>
+
+      <pre><code>curl -s localhost:8003/v1/chat/completions \
+  -H 'content-type: application/json' -d '{
+  "model": "critic", "temperature": 0,
+  "messages": [
+    {"role":"system","content":"You are a reviewer whose job is to REFUTE a proposed code change. Judge it through this lens - correctness: does the change actually do what the goal asked, in every case the goal implies. Default to refuted:true when the evidence does not establish that the change is correct. Reply with JSON only: {\"refuted\": bool, \"confidence\": number between 0 and 1, \"reason\": string}."},
+    {"role":"user","content":"Goal:\nMake Divide throw on a zero divisor.\n\nProposed change:\nreturn b == 0 ? 0 : a / b;\n\nEvidence offered:\nThe project compiles.\n\nCan you refute this change?"}
+  ]}' | jq -r '.choices[0].message.content'</code></pre>
+
+      <p>Two things must hold, and both are checked with <code>jq</code>, not by eye:</p>
+      <ul class="prose">
+        <li>The reply contains a brace-delimited object that <b>parses</b>. The harness's fallback path will happily turn a prose refusal into an approving vote, so a reply that only <em>reads</em> like a refusal is a failure.</li>
+        <li><code>refuted</code> is <b>true</b>. A critic that accepts this change — a value where a throw was asked for, justified by "it compiles" — will accept anything, and its contribution is worthless.</li>
+      </ul>
+    </section>
+
+    <!-- ================= 9 ================= -->
+    <section class="part" id="wire">
+      <div class="part-head"><span class="num">09</span><h2>Wiring GlassCoder</h2></div>
+
+      <p>
+        Because <code>--served-model-name</code> keeps the aliases stable, the harness needs almost
+        nothing changed. In <code>config/appsettings.json</code> the roles point at the endpoints:
+      </p>
+
+      <pre><code>"Roles": {
+  "worker": { "Endpoint": "http://localhost:8002/v1", "ModelAlias": "worker" },
+  "critic": { "Endpoint": "http://localhost:8003/v1", "ModelAlias": "critic" }
+}</code></pre>
+
+      <div class="note caution">
+        <span class="tag">Confirm the worker port matches</span>
+        <p>
+          The stock config ships the worker role at <code>:8001</code>, but this worker serves on
+          <code>:8002</code>. A critique pass is useless if the worker role cannot be reached, so the
+          worker endpoint must say <code>8002</code> to match what is actually running.
+        </p>
+      </div>
+
+      <p>
+        The critique pass itself is <b>off by default</b>. Turn it on with either the config key or
+        an environment variable:
+      </p>
+
+      <pre><code>"Critique": { "Enabled": true, "Role": "critic", "CriticCount": 3, "Quorum": 2, "Gates": false }
+
+<span class="c"># or, without editing the file:</span>
+GlassCoder__Critique__Enabled=true</code></pre>
+
+      <p>
+        <code>Gates: false</code> is deliberate: a small critic refuting a compiler-verified change
+        is a claim worth reading, not a veto worth obeying. Compilation, tests and analyzers gate;
+        the critic advises.
+      </p>
+
+      <p>
+        If GlassCoder runs on a different machine than the Spark, swap <code>localhost</code> for the
+        box's hostname — e.g. <code>http://spark.local:8003/v1</code>. The alias is unchanged.
+      </p>
+    </section>
+
+    <!-- ================= 10 ================= -->
+    <section class="part" id="flags">
+      <div class="part-head"><span class="num">10</span><h2>Every flag, and why</h2></div>
+
+      <p>The full surface of both launch commands, in one place.</p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Flag</th><th class="m">Worker</th><th class="m">Critic</th><th>Reason it is set the way it is</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="m">image</td><td class="m">v0.20.0</td><td class="m">v0.20.0</td><td>One Docker Hub image for both — a single pull, identical behaviour.</td></tr>
+            <tr><td class="m">model (positional)</td><td class="m">Qwen3-Coder-Next-NVFP4</td><td class="m">phi-4</td><td>Different families — the critic must not correlate with the worker.</td></tr>
+            <tr><td class="m">--served-model-name</td><td class="m">worker</td><td class="m">critic</td><td>Stable alias the harness calls; hides the checkpoint.</td></tr>
+            <tr><td class="m">-p</td><td class="m">8002:8000</td><td class="m">8003:8000</td><td>Two servers, two host ports.</td></tr>
+            <tr><td class="m">--quantization</td><td class="m">— (NVFP4 already)</td><td class="m">fp8</td><td>Worker ships pre-quantised; critic is quantised at load to fit its slice.</td></tr>
+            <tr><td class="m">--max-model-len</td><td class="m">131072</td><td class="m">8192</td><td>Worker needs long context; critic only ever reads a capped diff.</td></tr>
+            <tr><td class="m">--gpu-memory-utilization</td><td class="m">0.65</td><td class="m">0.18</td><td>Sum leaves ~19% of the pool for the desktop.</td></tr>
+            <tr><td class="m">--max-num-seqs</td><td class="m">4</td><td class="m">3</td><td>Critic runs a 3-vote panel in parallel.</td></tr>
+            <tr><td class="m">--moe-backend</td><td class="m">marlin</td><td class="m">—</td><td>Worker is MoE; phi-4 is dense.</td></tr>
+            <tr><td class="m">--enable-auto-tool-choice</td><td class="m">yes</td><td class="m">no</td><td>Only the worker is sent tools.</td></tr>
+            <tr><td class="m">--tool-call-parser</td><td class="m">qwen3_coder</td><td class="m">—</td><td>Matches the worker's tool-call format.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 11 ================= -->
+    <section class="part" id="trouble">
+      <div class="part-head"><span class="num">11</span><h2>Errors we actually hit</h2></div>
+
+      <h3><code>error: unrecognized arguments: serve</code></h3>
+      <p>
+        The image entrypoint is already <code>vllm serve</code>, so a leading <code>serve</code> in
+        the command produces <code>vllm serve serve …</code>. <b>Fix:</b> pass the model as the first
+        positional argument, no <code>serve</code>.
+      </p>
+
+      <h3><code>huggingface-cli: command not found</code></h3>
+      <p>
+        The CLI is not installed, or is installed as <code>hf</code> and its bin dir is off
+        <code>PATH</code>. <b>Fix:</b> <code>pipx install "huggingface_hub[cli]"</code>, then
+        <code>export PATH="$HOME/.local/bin:$PATH"</code> and use <code>hf download</code>.
+      </p>
+
+      <h3><code>PermissionError: [Errno 13]</code> during download</h3>
+      <p>
+        The cache directory is owned by <code>root</code> (the container created it). <b>Fix:</b>
+        <code>sudo chown -R "$USER:$USER" ~/.cache/huggingface</code>.
+      </p>
+
+      <h3><code>max seq len larger than KV cache</code></h3>
+      <p>
+        The utilisation slice held the weights but left too little for the KV cache — the critic hit
+        this at <code>0.16</code> (0.39 GiB KV, needed 1.56 GiB). <b>Fix:</b> raise
+        <code>--gpu-memory-utilization</code> (0.16 → 0.18) or lower <code>--max-model-len</code>.
+        The same error can appear on the <em>worker</em> after dropping its util — there, lower
+        <code>--max-model-len</code> (e.g. 65536) instead.
+      </p>
+
+      <h3>Firefox / the desktop crashes</h3>
+      <p>
+        Unified-memory over-commit: the model servers left too little for the desktop. <b>Fix:</b>
+        lower the worker utilisation so the sum of both fractions leaves ≥15% free. This is why the
+        worker sits at <code>0.65</code> rather than <code>0.85</code>.
+      </p>
+    </section>
+
+    <!-- ================= 12 ================= -->
+    <section class="part" id="scale">
+      <div class="part-head"><span class="num">12</span><h2>If one Spark isn't enough</h2></div>
+
+      <p>
+        The binding constraint on one box is memory, not speed — so a second Spark helps most by
+        removing the co-residency squeeze, in one of two ways:
+      </p>
+
+      <dl class="spec">
+        <div>
+          <dt>Isolation</dt>
+          <dd>Worker on one box, critic on the other — two independent servers over the ordinary
+          network, no special link. The worker reclaims the whole pool (util back to 0.85, full
+          context), the critic gets a dedicated box, and the desktop stops contending with both. In
+          GlassCoder, only the critic role's <code>Endpoint</code> changes to the second host. This
+          is the setup that solves the memory squeeze.</dd>
+        </div>
+        <div>
+          <dt>Sharding</dt>
+          <dd>Link the two Sparks over their ConnectX fabric and run one much larger <em>worker</em>
+          tensor/pipeline-parallel across both. More setup, and only worth it to grow the worker —
+          not for the critic.</dd>
+        </div>
+      </dl>
+
+      <div class="note">
+        <span class="tag">Not a prerequisite</span>
+        <p>
+          One Spark is a legitimate steady-state configuration: the critic is cold most of the time,
+          and both models already co-reside here. A second box is a comfort-and-scale upgrade — buy
+          it to reclaim worker context or to run a stronger, isolated critic, not to make this work.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder · as-built install record for the worker and critic on DGX Spark ·
+  companion to <a href="dgx-spark-setup.html">Serving a model to GlassCoder on DGX Spark</a>
+</footer>
+
+</body>
+</html>
