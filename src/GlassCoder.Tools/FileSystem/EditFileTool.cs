@@ -574,7 +574,11 @@ public sealed class EditFileTool : IToolSet
             introduced,
             $"This edit would introduce {introduced.Count} new compile error(s).");
 
-        return (_options.RejectEditsThatBreakTheBuild, introducedSummary.Text, true);
+        // The refusal carries the diagnosis, not just the error: where a missing type actually
+        // lives, and the reference or using that reaches it (run 05e1bedb).
+        string hints = SymbolHints.Describe(introduced, fullPath, _guard.RepoRoot);
+
+        return (_options.RejectEditsThatBreakTheBuild, introducedSummary.Text + hints, true);
     }
 
     private static IReadOnlyList<CodeDiagnostic> Introduced(DiagnosticReport before, DiagnosticReport after)
