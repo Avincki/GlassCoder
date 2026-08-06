@@ -249,15 +249,33 @@ public sealed class RunReviewer : IRunReviewer
             string.Equals(c.RunId, runId, StringComparison.Ordinal) &&
             c.Status is ChangeStatus.Applied or ChangeStatus.Proposed)];
 
-    /// <summary>Renders the run's edits as diffs - "it edited Pager.cs" is not reviewable (CLAUDE.md §10).</summary>
+    /// <summary>
+    /// Renders the run's work as one net diff per file - "it edited Pager.cs" is not reviewable
+    /// (CLAUDE.md §10), and neither is the journey. Replaying every intermediate edit showed the
+    /// panel a wrong expected value being written before it was fixed, and the panel refuted the
+    /// finished run for having once been wrong (run ff74b2d4, all three critics at full
+    /// confidence). The claim under judgment is the final shape of the work; the journey stays
+    /// in the transcript for humans.
+    /// </summary>
     private string DescribeChanges(IReadOnlyList<CodeChange> changes)
     {
         StringBuilder text = new();
-        foreach (CodeChange change in changes)
+        foreach (IGrouping<string, CodeChange> file in changes.GroupBy(c => c.Path, StringComparer.Ordinal))
         {
-            text.Append(CultureInfo.InvariantCulture, $"--- {change.Path} ({change.Status})");
+            CodeChange first = file.First();
+            CodeChange last = file.Last();
+
+            // Edited and then put back: net nothing. Saying so beats showing an empty diff.
+            if (string.Equals(first.BeforeText, last.AfterText, StringComparison.Ordinal))
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"--- {file.Key}: no net change.");
+                text.AppendLine();
+                continue;
+            }
+
+            text.Append(CultureInfo.InvariantCulture, $"--- {file.Key} ({last.Status})");
             text.AppendLine();
-            foreach (DiffLine line in change.Diff())
+            foreach (DiffLine line in TextDiff.Compute(first.BeforeText, last.AfterText))
             {
                 text.AppendLine(line.ToString());
             }
@@ -275,19 +293,35 @@ public sealed class RunReviewer : IRunReviewer
     }
 
     /// <summary>
-    /// What the run offers as proof. The verification summaries are the real evidence; the loop
-    /// counters are there so a critic can tell a clean run from one that flailed to a stop.
+    /// What the run offers as proof: the last verification climb, which describes the tree as
+    /// the run left it.
+    /// <para>
+    /// This used to be every change's summary in the order they happened, unlabelled - so "ran
+    /// 0 tests" from before the tests existed and the suite that later passed read as coequal
+    /// facts about one state, and the panel refuted the contradiction at full confidence (run
+    /// ff74b2d4). A run that breaks something and fixes it is the loop working; the evidence
+    /// for the finished claim is the state it finished in.
+    /// </para>
     /// </summary>
     private static string DescribeEvidence(AgentRunResult result, IReadOnlyList<CodeChange> changes)
     {
         StringBuilder text = new();
+        text.AppendLine(
+            "The changes are the run's net result; intermediate attempts it corrected itself are " +
+            "not shown and are not grounds for refutation. Judge the state the run finished in.");
+        text.AppendLine();
         text.AppendLine(CultureInfo.InvariantCulture,
             $"The run stopped as {result.StopReason} after {result.Steps} steps, " +
             $"{result.ToolCallsTotal} tool calls ({result.ToolCallValidityRate:P0} valid).");
 
-        foreach (CodeChange change in changes.Where(c => !string.IsNullOrWhiteSpace(c.VerificationSummary)))
+        // The last climb is the one that describes the finished tree; every earlier summary
+        // describes a state the run has since replaced.
+        CodeChange? verified = changes.LastOrDefault(c => !string.IsNullOrWhiteSpace(c.VerificationSummary));
+        if (verified is not null)
         {
-            text.AppendLine(CultureInfo.InvariantCulture, $"{change.Path}: {change.VerificationSummary}");
+            text.AppendLine();
+            text.AppendLine("Final verification of the finished tree:");
+            text.AppendLine(verified.VerificationSummary);
         }
 
         if (!string.IsNullOrWhiteSpace(result.FinalText))

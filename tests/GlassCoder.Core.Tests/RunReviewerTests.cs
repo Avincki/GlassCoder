@@ -242,6 +242,76 @@ public sealed class RunReviewerTests
         RunReviewer.ComposeRetryGoal("Sort the values ascending.", review).ShouldContain(persisted);
     }
 
+    // ── What the panel is shown (run ff74b2d4) ──
+    //
+    // That run wrote a test with a wrong expected value, watched it fail, fixed it, and finished
+    // green - and the review refuted it 3/3 at full confidence, quoting the "ran 0 tests" line
+    // from before the tests existed and the failure the run had already fixed. The panel judged
+    // exactly what it was shown; what it was shown was the journey.
+
+    [Fact]
+    public async Task The_evidence_is_the_final_climb_not_the_journey()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+
+        RunContext.Set(new RunContext("run-1", "task-1"));
+        CodeChange early = changes.Propose("src/Sorter.cs", "create_file", string.Empty, "public class Sorter { }\n");
+        changes.Update(early.Id, ChangeStatus.Applied,
+            verificationSummary: "The test run exited cleanly but ran 0 tests - nothing was verified.");
+        CodeChange late = changes.Propose("tests/SorterTests.cs", "create_file", string.Empty, "public class SorterTests { }\n");
+        changes.Update(late.Id, ChangeStatus.Applied, verificationSummary: "3 tests passed.");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        critics.LastEvidence.ShouldNotBeNull();
+        critics.LastEvidence.ShouldContain("3 tests passed.");
+        critics.LastEvidence.ShouldNotContain("ran 0 tests",
+            customMessage: "a summary from before the tests existed reads as a contradiction of the finished state");
+        critics.LastEvidence.ShouldContain("Judge the state the run finished in");
+    }
+
+    [Fact]
+    public async Task The_change_under_review_is_the_net_diff_not_the_journey()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+
+        RunContext.Set(new RunContext("run-1", "task-1"));
+        CodeChange wrong = changes.Propose("tests/SorterTests.cs", "create_file",
+            string.Empty, "int expected = old_expectation;\n");
+        changes.Update(wrong.Id, ChangeStatus.Applied);
+        CodeChange fixedUp = changes.Propose("tests/SorterTests.cs", "edit_file",
+            "int expected = old_expectation;\n", "int expected = fixed_expectation;\n");
+        changes.Update(fixedUp.Id, ChangeStatus.Applied, verificationSummary: "3 tests passed.");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        critics.LastChange.ShouldNotBeNull();
+        critics.LastChange.ShouldContain("fixed_expectation");
+        critics.LastChange.ShouldNotContain("old_expectation",
+            customMessage: "a mistake the run already fixed is not part of the claim under judgment");
+    }
+
+    [Fact]
+    public async Task A_file_edited_and_put_back_reviews_as_no_net_change()
+    {
+        StubCriticPanel critics = new();
+        RunReviewer reviewer = Reviewer(critics, out ChangeLog changes);
+
+        RunContext.Set(new RunContext("run-1", "task-1"));
+        CodeChange there = changes.Propose("src/Sorter.cs", "edit_file", "int x = 1;\n", "int x = 2;\n");
+        changes.Update(there.Id, ChangeStatus.Applied);
+        CodeChange back = changes.Propose("src/Sorter.cs", "edit_file", "int x = 2;\n", "int x = 1;\n");
+        changes.Update(back.Id, ChangeStatus.Applied, verificationSummary: "3 tests passed.");
+
+        await reviewer.ReviewAsync(Result("run-1", AgentStopReason.Completed));
+
+        critics.LastChange.ShouldNotBeNull();
+        critics.LastChange.ShouldContain("no net change");
+        critics.LastChange.ShouldNotContain("int x = 2;", customMessage: "an empty diff dressed as an edit invites a verdict on nothing");
+    }
+
     private static RunReviewer Reviewer(StubCriticPanel critics, out ChangeLog changes)
     {
         changes = new ChangeLog();
