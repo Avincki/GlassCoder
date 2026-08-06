@@ -9,6 +9,39 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (coda) — The swap the CLI kept refusing
+
+**Shipped.** From reviewing run `4b562c91` (20 steps, 123k - the template fix verified): a
+swapped `add_to_solution` is now put the right way round. 645 tests green, +3.
+
+**What the run said.** The scaffold detour is gone - `new wpf` in one call, straight to `src`,
+skeleton edited in place. The new bottleneck was solution ceremony: five `add_to_solution`
+calls with the project and solution swapped, every one failing at the CLI with "Solution
+argument is misplaced", plus two hallucinated `run` tool calls trying to escape to the raw CLI.
+The run shipped an **empty** `sln.slnx` and claimed success over it; nothing downstream noticed
+because build targets the csproj.
+
+**Decided**
+
+- **When the argument names a solution, the shapes cannot be what the contract says and the
+  intent is unambiguous** - the edit_file lesson again. The project is the path when it names
+  one, else the directory's single project; the solution is taken as named when it exists, else
+  found beside the project (a bare `sln.slnx` means "the one I just made there"). A shape that
+  cannot be repaired goes through unchanged and fails where it always failed.
+
+**Open**
+
+- Five near-identical failures armed no loop-breaker: `dotnet_project` reports a failed command
+  as an *ok* observation (information, not fault), so the sentry's failure counter never saw
+  them, and the varying arguments kept the stall tracker quiet. Failure-as-information tools
+  are invisible to the repetition machinery - the class remains even though this instance is
+  fixed.
+- The critics' verdict on "compiles but untested" straddles the majority line: the same claim
+  shape was refuted 2/3 in run `e3993510` and accepted 2/3 in `4b562c91`, with the same
+  dissenting rationale at 0.9 both times.
+
+---
+
 ## 2026-08-06 (last) — The template the model kept asking for
 
 **Shipped.** From reviewing run `e3993510` (the first healthy WPF run): `dotnet_project` now

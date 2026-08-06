@@ -132,6 +132,16 @@ public sealed class DotnetProjectTool : IToolSet
         string? version = null,
         CancellationToken cancellationToken = default)
     {
+        // Meet the model where it is (the edit_file lesson): run 4b562c91 sent add_to_solution
+        // with the project in 'path' and the solution in 'argument' five times running, and the
+        // CLI's "Solution argument is misplaced" taught it nothing all five times. When the
+        // argument names the solution, the intent is unambiguous - put the pieces the right way
+        // round instead of relaying the swap.
+        if (operation == DotnetProjectOperation.AddToSolution && !string.IsNullOrWhiteSpace(argument))
+        {
+            (path, argument) = NormalizeSolutionAdd(path, argument);
+        }
+
         // Everything here writes, so the writable set is the gate - the same one the file tools
         // answer to. 'restore' is the exception in spirit but not in practice: it writes obj/.
         PathGuardResult verdict = _guard.Resolve(path, PathAccess.Write);
@@ -358,6 +368,80 @@ public sealed class DotnetProjectTool : IToolSet
     /// <summary>Turns a repo-relative second operand into a full path, leaving it alone if it already is one.</summary>
     private string Resolve(string relative) =>
         Path.GetFullPath(Path.Combine(_guard.RepoRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
+
+    /// <summary>Project extensions an add_to_solution argument can name.</summary>
+    private static readonly string[] ProjectExtensions = [".csproj", ".fsproj", ".vbproj"];
+
+    /// <summary>
+    /// Puts a swapped <c>add_to_solution</c> the right way round: the solution as the target and
+    /// the project as the argument, however the caller sent them.
+    /// <para>
+    /// Only when the argument names a solution - then the shapes cannot be what the contract
+    /// says, and the caller's intent is unambiguous. The project is the path when it names one,
+    /// else the single project in the directory the path points at; the solution is taken as
+    /// named when it exists, else looked for beside the project, because a bare
+    /// <c>sln.slnx</c> means "the solution I just made there", not one at the workspace root.
+    /// A shape this cannot repair goes through unchanged and fails where it always failed.
+    /// </para>
+    /// </summary>
+    private (string Path, string Argument) NormalizeSolutionAdd(string path, string argument)
+    {
+        if (!HasExtension(argument, SolutionExtensions))
+        {
+            return (path, argument);
+        }
+
+        try
+        {
+            string root = _guard.RepoRoot;
+            string fullPath = Path.GetFullPath(
+                Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar)));
+
+            string? project = HasExtension(path, ProjectExtensions)
+                ? fullPath
+                : Directory.Exists(fullPath)
+                    ? SingleProjectIn(fullPath)
+                    : null;
+
+            if (project is null)
+            {
+                return (path, argument);
+            }
+
+            string solution = Path.GetFullPath(
+                Path.Combine(root, argument.Replace('/', Path.DirectorySeparatorChar)));
+            if (!File.Exists(solution))
+            {
+                string beside = Path.Combine(Path.GetDirectoryName(project)!, Path.GetFileName(argument));
+                if (File.Exists(beside))
+                {
+                    solution = beside;
+                }
+            }
+
+            return (_guard.ToRelativePath(solution), _guard.ToRelativePath(project));
+        }
+        catch (Exception ex) when (
+            ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return (path, argument);
+        }
+    }
+
+    private static bool HasExtension(string value, string[] extensions) =>
+        extensions.Contains(Path.GetExtension(value), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The directory's one project file, or null when there is none or no single answer.</summary>
+    private static string? SingleProjectIn(string directory)
+    {
+        List<string> projects = [];
+        foreach (string extension in ProjectExtensions)
+        {
+            projects.AddRange(Directory.EnumerateFiles(directory, "*" + extension));
+        }
+
+        return projects.Count == 1 ? projects[0] : null;
+    }
 
     /// <summary>
     /// The solution file that actually exists at a caller's path, whichever format the SDK chose.

@@ -544,6 +544,74 @@ public sealed class ProjectScaffoldingTests
         executor.Commands.ShouldBeEmpty("a refused template must not reach the SDK");
     }
 
+    /// <summary>
+    /// Run 4b562c91 sent add_to_solution with the project and solution swapped five times
+    /// running, and the CLI's "Solution argument is misplaced" taught it nothing - the run
+    /// shipped an empty solution. When the argument names the solution the intent is
+    /// unambiguous, so the pieces go the right way round whichever way they arrive.
+    /// </summary>
+    [Fact]
+    public async Task A_swapped_add_to_solution_is_put_the_right_way_round()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/sln.slnx", "<Solution />");
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor)
+            .RunAsync(DotnetProjectOperation.AddToSolution, "src/App/App.csproj", "src/App/sln.slnx");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        IReadOnlyList<string> arguments = executor.Commands[0].Arguments;
+        arguments[0].ShouldBe("sln");
+        arguments[1].ShouldEndWith("sln.slnx");
+        arguments[2].ShouldBe("add");
+        arguments[3].ShouldEndWith("App.csproj");
+        observation.Summary.ShouldContain("App.csproj");
+    }
+
+    /// <summary>
+    /// The run's other shape: the project's directory as the path and a bare solution name as
+    /// the argument. The directory holds exactly one project, and the solution sits beside it -
+    /// a bare 'sln.slnx' means "the one I just made there", not one at the workspace root.
+    /// </summary>
+    [Fact]
+    public async Task A_directory_and_a_bare_solution_name_still_find_the_project_and_the_solution()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/sln.slnx", "<Solution />");
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor)
+            .RunAsync(DotnetProjectOperation.AddToSolution, "src/App", "sln.slnx");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        IReadOnlyList<string> arguments = executor.Commands[0].Arguments;
+        arguments[1].ShouldEndWith("sln.slnx");
+        arguments[1].ShouldContain("App");
+        arguments[3].ShouldEndWith("App.csproj");
+    }
+
+    [Fact]
+    public async Task An_unrepairable_swap_goes_through_unchanged()
+    {
+        // Two projects in the directory: no single answer, so no guess - the CLI's own error
+        // is then the honest one.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/Other.csproj", Project());
+        workspace.WriteFile("src/App/sln.slnx", "<Solution />");
+        ScriptedCommandExecutor executor = new();
+
+        await Tool(workspace, executor)
+            .RunAsync(DotnetProjectOperation.AddToSolution, "src/App", "sln.slnx");
+
+        // No guess: the call reaches the SDK exactly as sent, and the CLI's own answer stands.
+        executor.Commands[0].Arguments[1].ShouldEndWith("App");
+        executor.Commands[0].Arguments[3].ShouldEndWith("sln.slnx");
+    }
+
     private static DotnetProjectTool Tool(TempWorkspace workspace, ICommandExecutor executor) =>
         new(executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()));
 
