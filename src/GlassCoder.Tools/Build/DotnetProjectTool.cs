@@ -113,7 +113,8 @@ public sealed class DotnetProjectTool : IToolSet
             + "otherwise the project or solution to change.")]
         string path,
         [Description("Template for new (xunit, classlib, console...); the project for add_reference and "
-            + "add_to_solution; the package id for add_package. Unused otherwise.")]
+            + "add_to_solution; the package id for add_package; optional solution name for new_solution. "
+            + "Unused otherwise.")]
         string? argument = null,
         [Description("Package version for add_package. Omit for the latest.")]
         string? version = null,
@@ -302,8 +303,8 @@ public sealed class DotnetProjectTool : IToolSet
                 string directory = namesAFile
                     ? Path.GetDirectoryName(full) ?? root
                     : full;
-                string name = argument
-                    ?? Path.GetFileNameWithoutExtension(Path.TrimEndingDirectorySeparator(full));
+                string name = SolutionName(
+                    argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(full)));
 
                 return (["new", "sln", "-o", directory, "-n", name], root, null);
             }
@@ -371,6 +372,17 @@ public sealed class DotnetProjectTool : IToolSet
         string sibling = Path.ChangeExtension(full, extension == ".sln" ? ".slnx" : ".sln");
         return File.Exists(sibling) ? sibling : full;
     }
+
+    /// <summary>
+    /// The bare name <c>-n</c> wants: any .sln/.slnx suffix goes, because the SDK appends its
+    /// format extension to the name verbatim - 'ArrayProcessor.sln' came back as
+    /// 'ArrayProcessor.sln.slnx' in run 56f01cc5. The name is the caller's; the extension is
+    /// the SDK's.
+    /// </summary>
+    private static string SolutionName(string name) =>
+        Path.GetExtension(name) is ".sln" or ".slnx"
+            ? Path.GetFileNameWithoutExtension(name)
+            : name;
 
     /// <summary>Stub files test templates scaffold, in the order they are looked for.</summary>
     private static readonly string[] TestStubNames = ["UnitTest1.cs", "Test1.cs"];
@@ -443,8 +455,8 @@ public sealed class DotnetProjectTool : IToolSet
         string full = verdict.FullPath!;
         bool namesAFile = Path.GetExtension(full) is ".sln" or ".slnx";
         string directory = namesAFile ? Path.GetDirectoryName(full) ?? _guard.RepoRoot : full;
-        string name = argument
-            ?? Path.GetFileNameWithoutExtension(Path.TrimEndingDirectorySeparator(full));
+        string name = SolutionName(
+            argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(full)));
 
         string? created = SolutionExtensions
             .Select(extension => Path.Combine(directory, name + extension))

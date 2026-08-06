@@ -301,6 +301,24 @@ public sealed class ProjectScaffoldingTests
         arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("Everything");
     }
 
+    [Fact]
+    public async Task A_solution_named_in_the_argument_loses_its_extension_too()
+    {
+        // Run 56f01cc5: refused at the repository root, the agent retried with a writable
+        // directory as the path and the file name in the argument - and the argument went to
+        // -n verbatim, so 'dotnet new sln -n ArrayProcessor.sln' wrote ArrayProcessor.sln.slnx.
+        // The SDK appends its format extension to whatever name it is handed.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+
+        await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.NewSolution, "src", "ArrayProcessor.sln");
+
+        List<string> arguments = [.. executor.Commands.Single().Arguments];
+        arguments[arguments.IndexOf("-n") + 1].ShouldBe("ArrayProcessor", "the extension is the SDK's to choose");
+        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("src");
+    }
+
     /// <summary>
     /// .NET 10's <c>dotnet new sln</c> writes <c>.slnx</c>, and a caller who scaffolded a
     /// solution one step ago reasonably asks for it back as <c>.sln</c>. Run d18c0e57: the add
