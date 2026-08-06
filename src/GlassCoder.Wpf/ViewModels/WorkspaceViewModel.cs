@@ -144,7 +144,9 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private readonly IDesktopShell _shell;
     private readonly Dispatcher _dispatcher;
     private readonly Matcher? _denied;
+    private readonly IReadOnlyList<string> _writableRoots;
     private readonly string _rootPrefix;
+    private bool _isAgentRunning;
     private readonly Lock _pendingGate = new();
     private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
     private readonly FileSystemWatcher? _watcher;
@@ -187,11 +189,14 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             _denied.AddIncludePatterns(workspace.Value.DeniedGlobs);
         }
 
+        _writableRoots = [.. workspace.Value.WritablePaths];
+
         _changes.Changed += OnChanged;
 
         BrowseCommand = new RelayCommand(Browse, () => !_isLoading);
         RestartCommand = new RelayCommand(_shell.Restart, () => HasPendingRoot);
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !_isLoading);
+        CleanCommand = new RelayCommand(Clean, () => !_isLoading && !IsAgentRunning);
         OpenFileCommand = new RelayCommand(OpenFile, CanOpenFile);
 
         (_watcher, _watchFailure) = StartWatching();
@@ -242,8 +247,22 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     /// <summary>Re-reads the tree from disk.</summary>
     public RelayCommand RefreshCommand { get; }
 
+    /// <summary>Empties the writable roots, after asking, so the next run starts blank.</summary>
+    public RelayCommand CleanCommand { get; }
+
     /// <summary>Opens the double-clicked file in a read-only viewer window.</summary>
     public RelayCommand OpenFileCommand { get; }
+
+    /// <summary>
+    /// Whether a run is in flight. Set by the shell, exactly like the Changes surface's flag:
+    /// emptying the folders an agent is mid-way through writing would hand it a workspace that
+    /// stopped matching every observation it has made, so Clean stands down for the duration.
+    /// </summary>
+    public bool IsAgentRunning
+    {
+        get => _isAgentRunning;
+        set => SetProperty(ref _isAgentRunning, value);
+    }
 
     /// <summary>
     /// Clears the marking, and starts counting again for the run about to begin.
@@ -346,6 +365,87 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 
         PendingRoot = chosen;
         Status = "Workspace saved.";
+    }
+
+    /// <summary>
+    /// Empties the writable roots so the next run starts from the blank workspace the opening
+    /// message promises. Only those roots: a run's output lives inside the folders the guard
+    /// lets it write and nowhere else, so a clean that reached further would be deleting things
+    /// no run ever made - a README beside them, or the workspace's own .git. Asks first, and
+    /// deletes what it can rather than stopping at the first locked file: half a clean plus an
+    /// honest count beats a sync client winning by holding one handle.
+    /// </summary>
+    private void Clean()
+    {
+        if (_writableRoots.Count == 0)
+        {
+            Status = "No writable roots are configured, so there is nothing to clean.";
+            return;
+        }
+
+        string names = string.Join(", ", _writableRoots);
+        if (!_shell.Confirm(
+                "Clean the workspace",
+                $"Delete everything inside {names} under:\n{RootPath}\n\n" +
+                "The folders themselves stay. There is no undo."))
+        {
+            Status = "Clean cancelled; nothing was deleted.";
+            return;
+        }
+
+        int removed = 0;
+        List<string> failures = [];
+
+        foreach (string root in _writableRoots)
+        {
+            string full = Path.GetFullPath(Path.Combine(RootPath, root));
+            if (!IsInsideRoot(full))
+            {
+                // "." or an absolute path elsewhere. Emptying it would reach the workspace's own
+                // .git or another project entirely, and this button only deletes what a run
+                // could have made.
+                failures.Add($"'{root}' skipped: it is not strictly inside the workspace");
+                continue;
+            }
+
+            try
+            {
+                // Recreated when missing, so a clean always leaves the roots the guard promises.
+                Directory.CreateDirectory(full);
+
+                foreach (FileSystemInfo entry in new DirectoryInfo(full).EnumerateFileSystemInfos())
+                {
+                    try
+                    {
+                        if (entry is DirectoryInfo directory)
+                        {
+                            directory.Delete(recursive: true);
+                        }
+                        else
+                        {
+                            entry.Delete();
+                        }
+
+                        removed++;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        failures.Add($"{entry.Name}: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                failures.Add($"{root}: {ex.Message}");
+            }
+        }
+
+        Status = failures.Count == 0
+            ? string.Create(CultureInfo.InvariantCulture, $"Cleaned {names}: {removed} item(s) removed.")
+            : string.Create(CultureInfo.InvariantCulture,
+                $"Cleaned {names}: {removed} item(s) removed, {failures.Count} could not be. {failures[0]}");
+
+        _ = RefreshAsync();
     }
 
     /// <summary>

@@ -30,6 +30,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly ICriticPanel _critics;
     private readonly IRunReviewer _reviewer;
     private readonly CritiqueOptions _critique;
+    private readonly IUiStateStore? _uiState;
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
@@ -53,7 +54,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         IAboutDialog about,
         ICriticPanel critics,
         IRunReviewer reviewer,
-        IOptions<CritiqueOptions> critique)
+        IOptions<CritiqueOptions> critique,
+        IUiStateStore? uiState = null)
     {
         ArgumentNullException.ThrowIfNull(critique);
 
@@ -64,12 +66,18 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         _critics = critics;
         _reviewer = reviewer;
         _critique = critique.Value;
+        _uiState = uiState;
 
         Transcript = transcript;
         Changes = changes;
         Metrics = metrics;
         Workspace = workspace;
         _currentView = transcript;
+
+        // The last run's goal, so a repeated test run is a press of Run rather than a paste.
+        // Still just a pre-fill: the box is editable and empty on a first-ever start.
+        string? saved = _uiState?.LastGoal;
+        _goal = string.IsNullOrWhiteSpace(saved) ? string.Empty : saved;
 
         RunCommand = new RelayCommand(async () => await RunAsync().ConfigureAwait(true), () => !IsRunning);
         CancelCommand = new RelayCommand(() => _cancellation?.Cancel(), () => IsRunning);
@@ -167,8 +175,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 OnPropertyChanged(nameof(CanRetry));
 
                 // The manual git buttons stand down mid-run: committing a tree the agent has not
-                // finished changing would record work in progress as if it were finished.
+                // finished changing would record work in progress as if it were finished. Clean
+                // stands down for the twin reason - emptying folders mid-run would pull the
+                // workspace out from under the agent.
                 Changes.IsAgentRunning = value;
+                Workspace.IsAgentRunning = value;
             }
         }
     }
@@ -360,6 +371,13 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         if (string.IsNullOrWhiteSpace(goal) || IsRunning)
         {
             return;
+        }
+
+        // Saved at the moment it becomes what runs - not on every keystroke, and before the run
+        // rather than after it, so a crash mid-run still leaves the goal for the next start.
+        if (_uiState is not null)
+        {
+            _uiState.LastGoal = goal;
         }
 
         IsRunning = true;

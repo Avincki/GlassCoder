@@ -56,6 +56,10 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<MainWindow>();
         services.Replace(ServiceDescriptor.Singleton<IApprovalGate, WpfApprovalGate>());
 
+        // UI state, not settings: it lives in the registry precisely so it never reaches
+        // IConfiguration, whose hash is what makes a run's arm identifiable.
+        services.AddSingleton<IUiStateStore, RegistryUiStateStore>();
+
         // Settings: transient, so Cancel discards the edits rather than leaving a half-edited
         // view model behind for the next time the dialog opens.
         services.AddSingleton<IDesktopShell, DesktopShell>();

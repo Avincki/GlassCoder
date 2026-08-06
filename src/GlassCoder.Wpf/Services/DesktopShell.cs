@@ -65,6 +65,14 @@ public interface IDesktopShell
     /// <param name="message">What the passphrase is for, in the operator's terms.</param>
     /// <param name="confirm">Whether to ask twice, which an export wants and an import does not.</param>
     string? PromptForPassphrase(string title, string message, bool confirm);
+
+    /// <summary>
+    /// Asks before a destructive action. True only when the user explicitly said yes: closing
+    /// the dialog is a no, because the safe reading of an unanswered question is "do not".
+    /// </summary>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="message">What is about to be destroyed, in the operator's terms.</param>
+    bool Confirm(string title, string message);
 }
 
 /// <summary>The Windows implementation of <see cref="IDesktopShell"/>.</summary>
@@ -185,6 +193,17 @@ public sealed class DesktopShell : IDesktopShell
         };
 
         return window.ShowDialog() == true ? window.Passphrase : null;
+    }
+
+    /// <inheritdoc />
+    public bool Confirm(string title, string message)
+    {
+        Window? owner = Application.Current?.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive);
+        MessageBoxResult answer = owner is null
+            ? MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
+            : MessageBox.Show(owner, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+
+        return answer == MessageBoxResult.Yes;
     }
 
     private static void SetInitialDirectory(Microsoft.Win32.FileDialog dialog, string? initialDirectory)

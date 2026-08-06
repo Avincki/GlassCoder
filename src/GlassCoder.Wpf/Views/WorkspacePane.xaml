@@ -43,6 +43,12 @@
       <Button DockPanel.Dock="Right" Content="Refresh" Padding="10,2" Margin="6,0,0,0"
               Command="{Binding RefreshCommand}"
               ToolTip="Re-read the whole tree from disk. The pane follows the workspace on its own; this is the way back if it ever stops." />
+      <!-- Beside Refresh rather than beside Browse: it belongs with the tree's maintenance, not
+           with choosing the workspace. Disabled mid-run - emptying folders an agent is writing
+           would pull the workspace out from under it. -->
+      <Button DockPanel.Dock="Right" Content="Clean" Padding="10,2" Margin="6,0,0,0"
+              Command="{Binding CleanCommand}"
+              ToolTip="Empty the writable roots so the next run starts from a blank workspace. Asks first; there is no undo." />
       <TextBlock Foreground="{StaticResource PaneMutedForeground}" TextWrapping="Wrap"
                  VerticalAlignment="Center" Text="{Binding Status}" />
     </DockPanel>

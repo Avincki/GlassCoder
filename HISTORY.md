@@ -9,6 +9,36 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (night) — Two conveniences for test runs
+
+**Shipped.** The goal box remembers the last run's prompt across a restart, and the workspace
+pane grew a Clean button that empties the writable roots. 635 tests green, +7.
+
+**Decided**
+
+- **The last goal lives in the registry (`HKCU\Software\GlassCoder`), not the settings store** -
+  deliberately. Everything the settings store saves feeds `IConfiguration`, and the provenance
+  stamp hashes that configuration to identify a run's arm (`ProvenanceStamp.ConfigHash`); a
+  prompt saved there would relabel every arm on every new prompt. UI state lives where
+  configuration never looks, behind `IUiStateStore` so tests never touch the real registry.
+  Saved at the moment Run is pressed - not per keystroke, and before the run, so a crash still
+  leaves the pre-fill.
+- **Clean empties exactly the writable roots, nothing else.** A run's output lives inside the
+  folders the guard lets it write; a README beside them or the workspace's own .git is not a
+  run's to have made, so not Clean's to delete. Roots are recreated when missing, a root that
+  is not strictly inside the workspace (".", an absolute path) is skipped, and locked files are
+  reported and skipped rather than aborting the sweep - Dropbox holding one handle should not
+  win the whole clean. Asks first through the shell seam (`IDesktopShell.Confirm`), where
+  closing the dialog means no; disabled mid-run, like the git buttons and for the twin reason.
+
+**Open**
+
+- Clean bypasses the change log, so `BuildCache` could in principle replay a cached green build
+  over the emptied tree. In practice a fresh run scaffolds first and scaffolding empties the
+  cache; noted in case a run ever builds before it scaffolds.
+
+---
+
 ## 2026-08-06 (evening) — What the digest keeps, and what the sentry hears
 
 **Shipped.** The two remaining layers of the anti-loop design: the compaction digest now keeps
