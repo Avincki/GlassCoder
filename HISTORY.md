@@ -9,6 +9,78 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 — The day the observations learned to tell the truth
+
+**Shipped.** Seven commits (`5db383e`…`b7aa360`) from analyzing four live runs, each run exposing
+what the previous fixes could not yet see. 583 tests green, +35 today.
+
+**What the runs said, in order.**
+
+- `d18c0e57`/`48a7af6a` (morning, 29+25 steps for one small task): half the steps were spent being
+  misled - "Build failed with 0 error(s)" answered with blind identical retries, "0 of 0 tests
+  failed" read as green, a `.sln` glob for a file .NET 10 had written as `.slnx`, and six
+  discovery steps over a five-file workspace. The first run "Completed" over eleven red builds.
+- `d21eb210`: hit CS0101 (its class colliding with the classlib template's namespace), received it
+  as "1 error(s) across 0 file(s)", guessed wrong, **deleted the only copy of its deliverable**,
+  went green over the empty template, and reported success on a file that never existed.
+- `21f25fea`: refused one scaffold at the unwritable root, then cycled three read-only calls for
+  25 steps of byte-identical answers - 100% tool-call validity all the way to the step limit.
+- `d9c984cf` (headless, via `glasscoder run`): 12 steps, complete, both stubs handled - the
+  first run of the day where every mechanism fired and nothing needed explaining.
+
+**Decided**
+
+- **The information has to be in the message the model is already reading** - the day's one
+  principle, applied eight ways: raw output tail when the parser types nothing, zero-tests said
+  loudly in both directions, the real solution path from `dotnet_project`, orphan files announced
+  at `create_file`, ambiguous edits naming their line numbers, unknown tools suggesting their
+  nearest real name, writable roots in the opening window, and the workspace map speaking even -
+  especially - when the workspace is empty.
+- **A suggestion the model reliably ignores is not a mechanism.** The test stub was named-not-
+  deleted first ("replace it or delete it"); two runs read the warning and left it padding the
+  pass count. Both template stubs now die at scaffold time, through the change log.
+- **The located-diagnostic regex must survive parentheses in paths.** `[^(]` stopped at the "(" in
+  `Dropbox (Personal)` - on this machine no compiler diagnostic had *ever* carried its file and
+  line. This was the hidden half of "0 error(s)", and the reason `d21eb210` could invent a wrong
+  theory unchallenged.
+- **Progress-watching is one component, not ten flags.** `RunProgressSentry` owns the failure
+  loop-breaker, the stall tracker, and the completion gate. The stall unit is deliberately the
+  *step*, consecutive, not the call cumulative: a habitual status check beside novel work, or a
+  re-read after compaction dropped the content, must never read as a stall. Its stops
+  (`Stalled`, `RepeatedToolFailure`) are limit exit codes, not internal errors.
+- **The harness excludes its own build output from Dropbox.** The launcher sweeps the launched
+  folder at launch - wrong root and wrong time for a workspace the harness scaffolds into
+  mid-run. `DropboxIgnoreMarker` rides the sandbox seam around every command, pre-creating marked
+  bin/obj beside each project file; the transient-lock build flakes get a 1s in-tool retry as the
+  symptom-side guard. Dropbox-side sync exclusions were deliberately left alone.
+- **Green ≠ goal-met is not the completion gate's problem.** The gate challenges a stop over a
+  red tree once, then records an insistent one. Judging whether a *verifying* tree also achieves
+  the goal is the critique rung's designed role - enabling it is configuration spend, not code.
+
+**Worth knowing**
+
+- Both stall shapes are invisible to tool-call validity: the failed-loop scores 100% because the
+  calls bind, the success-loop because they succeed. The transcript is where dead runs are found.
+- Verification messages only ever reached the log, not the model, in three separate places before
+  today ("Nothing buildable", stub existence, writable roots). Grep for `LogWarning` near
+  model-facing moments when a run behaves as if it wasn't told - it probably wasn't.
+- The headless surface (`glasscoder run --goal … --repo …`) is the fastest way to trial a harness
+  change: same DI graph as the desktop app, exit codes, no UI in the way.
+
+**Open**
+
+- **This evening's trial** is the end-to-end validation: reset `GlassCoderTest`, rebuild, same
+  goals. Watch for: the map's empty-workspace orientation replacing the 30-step spiral; stub
+  deletions in the scaffold summaries; compiler diagnostics arriving *with file and line*; the
+  sentry's nudge appearing only if the model actually stalls. The midday `tests/UnitTest1.cs`
+  leftover predates stub deletion and vanishes with the reset.
+- The critique rung stays off, so a green-but-empty completion is still possible - if the evening
+  trial shows another goal regression, enabling critics is the next lever, and it costs tokens.
+- `MaxStalledSteps = 5` is a first guess. A worker this small may need the nudge earlier or the
+  ceiling later; the trial's transcripts will say.
+
+---
+
 ## 2026-08-04 — The gate judged the fix against a library that no longer exists
 
 **Shipped.** Three fixes from reading run `e8f9186a`. 538 tests green, +8.
