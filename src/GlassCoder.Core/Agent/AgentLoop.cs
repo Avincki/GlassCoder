@@ -39,6 +39,7 @@ public sealed class AgentLoop : IAgentLoop
     private readonly IProvenanceStamper? _provenance;
     private readonly IVerificationLadder? _verifier;
     private readonly IChangeLog? _changes;
+    private readonly ICriticPanel? _critics;
     private readonly VerificationLadderOptions _verification;
     private readonly AgentOptions _defaults;
     private readonly TimeProvider _time;
@@ -58,7 +59,8 @@ public sealed class AgentLoop : IAgentLoop
         ILogger<AgentLoop>? logger = null,
         IVerificationLadder? verifier = null,
         IChangeLog? changes = null,
-        IOptions<VerificationLadderOptions>? verificationOptions = null)
+        IOptions<VerificationLadderOptions>? verificationOptions = null,
+        ICriticPanel? critics = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -71,6 +73,7 @@ public sealed class AgentLoop : IAgentLoop
         _provenance = provenance;
         _verifier = verifier;
         _changes = changes;
+        _critics = critics;
         _verification = verificationOptions?.Value ?? new VerificationLadderOptions();
         _defaults = options.Value;
         _time = timeProvider ?? TimeProvider.System;
@@ -124,6 +127,11 @@ public sealed class AgentLoop : IAgentLoop
         // The step-budget warning is sent once. Repeating it every step would spend the very
         // budget it is warning about.
         bool warnedAboutSteps = false;
+
+        // The critique panel speaks once per run, at the moment the model first claims the goal
+        // is met, and the last ladder summary is the evidence it judges that claim against.
+        bool critiqueSpent = false;
+        string? lastVerificationSummary = null;
 
         // Everything about not-making-progress - repeated failures, stalled read loops, and
         // stopping over a red tree - lives in the sentry, so the loop body stays the cycle.
@@ -192,6 +200,31 @@ public sealed class AgentLoop : IAgentLoop
                     continue;
                 }
 
+                // The critique boundary. The panel used to sit on the ladder and judge every
+                // applied change against the whole run goal - a question no intermediate step
+                // can answer, so it refuted 14 of 14 changes in run 4b582162 and its prose
+                // drove the worker into a revert loop until the run was cancelled. "The goal
+                // is met" is the one claim the refutation prompt was built for, and it is
+                // judged exactly once.
+                StepVerification? critique = null;
+                if (!critiqueSpent && _critics is not null)
+                {
+                    critiqueSpent = true;
+                    critique = await CritiqueCompletionAsync(
+                        request, response.Text, lastVerificationSummary, budget, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (critique?.Message is { } review)
+                    {
+                        budget.CountStep();
+                        messages.Add(new ChatMessage(ChatRole.User, review));
+                        LogStep(
+                            step with { Prompt = prompt },
+                            messages, response, [], modelLatency, "continued", null, critique.Record);
+                        continue;
+                    }
+                }
+
                 stopReason = AgentStopReason.Completed;
                 finalText = response.Text;
                 if (sentry.CompletionCaveat() is { } caveat)
@@ -201,7 +234,9 @@ public sealed class AgentLoop : IAgentLoop
                 }
 
                 budget.CountStep();
-                LogStep(step with { Prompt = prompt }, messages, response, [], modelLatency, stopReason.ToString(), error);
+                LogStep(
+                    step with { Prompt = prompt },
+                    messages, response, [], modelLatency, stopReason.ToString(), error, critique?.Record);
                 break;
             }
 
@@ -246,6 +281,7 @@ public sealed class AgentLoop : IAgentLoop
                 // tools' job; reverting applied work is a human's.
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
                 sentry.ObserveVerification(verification.Record.Passed, verification.Record.FailedRung);
+                lastVerificationSummary = verification.Record.Summary;
             }
 
             budget.CountStep();
@@ -422,7 +458,10 @@ public sealed class AgentLoop : IAgentLoop
                     TestFilter: _verification.TestFilter,
                     RunFullSuite: _verification.RunFullSuite,
                     Goal: request.Goal,
-                    ChangeDescription: DescribeChanges(applied),
+                    // Deliberately absent, which parks the critique rung: a panel judging one
+                    // step's diff against the whole run goal refuted everything it saw (run
+                    // 4b582162). The panel now speaks at the completion claim instead.
+                    ChangeDescription: null,
                     CriticRole: request.CriticRole)
                 {
                     // What the step touched, so the ladder can build the project that owns it
@@ -491,7 +530,100 @@ public sealed class AgentLoop : IAgentLoop
             message);
     }
 
-    /// <summary>Renders the step's edits as diffs for the critique rung - "it edited Pager.cs" is not refutable.</summary>
+    /// <summary>
+    /// Ceiling on the critique text handed back to the worker. The full verdicts go to the
+    /// transcript; the worker gets the tally and the leading reasons. Three full paragraphs of
+    /// critic prose per step is most of what turned run 4b582162's context into critique.
+    /// </summary>
+    private const int MaxCritiqueFeedbackCharacters = 800;
+
+    /// <summary>
+    /// One critique of the finished work, at the moment the model first claims the goal is met.
+    /// <para>
+    /// Null when there was nothing to judge - no panel, no applied changes, a panel that could
+    /// not be reached. A non-null result with a null <see cref="StepVerification.Message"/> is
+    /// an acceptance: recorded, but not worth a message the model would have to answer.
+    /// </para>
+    /// <para>
+    /// The refutation is worded as advisory unless critique gates: the compiler and tests have
+    /// already had their say, and a small worker treats critic prose as instructions whatever
+    /// the flag says - so the wording, the cap and the single shot are the actual guardrails.
+    /// </para>
+    /// </summary>
+    private async Task<StepVerification?> CritiqueCompletionAsync(
+        AgentRunRequest request,
+        string claim,
+        string? evidence,
+        RunBudget budget,
+        CancellationToken cancellationToken)
+    {
+        if (_critics is null || _changes is null || !_critics.CanCritique(request.CriticRole))
+        {
+            return null;
+        }
+
+        IReadOnlyList<CodeChange> applied = [.. _changes.All()
+            .Where(c => string.Equals(c.RunId, request.RunId, StringComparison.Ordinal) &&
+                        c.Status == ChangeStatus.Applied)];
+        if (applied.Count == 0)
+        {
+            // A run that changed nothing made no refutable claim - it answered a question.
+            return null;
+        }
+
+        long start = Stopwatch.GetTimestamp();
+        CritiqueResult critique;
+        try
+        {
+            critique = await _critics.CritiqueAsync(
+                request.Goal,
+                DescribeChanges(applied),
+                $"{evidence ?? "No automatic verification ran."}\n\nThe agent's completion summary: " +
+                $"{(string.IsNullOrWhiteSpace(claim) ? "(none given)" : claim)}",
+                request.CriticRole,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The panel failing is not the model failing; finish rather than block on a critic.
+            _logger.LogWarning(ex, "Completion critique could not run; finishing without it");
+            return null;
+        }
+
+        budget.AddCriticSpend(critique.EstimatedCostUsd);
+        _logger.LogInformation(
+            "Completion critique for run {RunId}: {Outcome} - {Summary}",
+            request.RunId,
+            critique.Inconclusive ? "inconclusive" : critique.Refuted ? "REFUTED" : "accepted",
+            critique.Summary);
+
+        string? message = null;
+        if (critique.Refuted)
+        {
+            string reasons = Cap(critique.Summary, MaxCritiqueFeedbackCharacters);
+            message = _verification.CritiqueGates
+                ? $"A critique panel refuted the finished work: {reasons}\n" +
+                  "Address the refutation, then reply with your final summary to finish."
+                : $"Advisory review of the finished work - the compiler and test results above remain " +
+                  $"the authority, and you may finish as-is if you disagree: {reasons}\n" +
+                  "Address only what you agree with, then reply with your final summary to finish.";
+        }
+
+        return new StepVerification(
+            new StepVerificationRecord(
+                !critique.Refuted || !_verification.CritiqueGates,
+                nameof(VerificationRung.Critique),
+                critique.Refuted && _verification.CritiqueGates ? nameof(VerificationRung.Critique) : null,
+                Stopwatch.GetElapsedTime(start).TotalMilliseconds,
+                critique.Summary,
+                critique.EstimatedCostUsd),
+            message);
+    }
+
+    private static string Cap(string text, int limit) =>
+        text.Length <= limit ? text : text[..limit] + " [...]";
+
+    /// <summary>Renders the run's edits as diffs for the critique - "it edited Pager.cs" is not refutable.</summary>
     private string DescribeChanges(IReadOnlyList<CodeChange> applied)
     {
         StringBuilder text = new();
@@ -608,8 +740,8 @@ public sealed class AgentLoop : IAgentLoop
         }
     }
 
-    /// <summary>One climb's outcome: what to log, and what to tell the model.</summary>
-    private sealed record StepVerification(StepVerificationRecord Record, string Message);
+    /// <summary>One climb's outcome: what to log, and what - if anything - to tell the model.</summary>
+    private sealed record StepVerification(StepVerificationRecord Record, string? Message);
 
     /// <summary>Per-step scratch state, kept out of the loop body so it stays readable.</summary>
     private sealed record StepContext(

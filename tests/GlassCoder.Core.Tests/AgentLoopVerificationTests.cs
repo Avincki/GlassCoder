@@ -21,7 +21,9 @@ namespace GlassCoder.Core.Tests;
 /// The loop climbs the verification ladder after every step that applied a change (workplan
 /// task 36). The properties that matter: a read-only step never climbs, a failed climb reaches
 /// the model as an observation rather than killing the run, the outcome is tied to the change
-/// that produced it, and the critique rung's spend is billed at the critic's own prices.
+/// that produced it, and the critique rung's spend is billed at the critic's own prices. The
+/// critique panel itself no longer rides the per-step ladder: it judges the completion claim,
+/// once, and its refutation reaches the model as capped advice (run 4b582162).
 /// </summary>
 public sealed class AgentLoopVerificationTests
 {
@@ -40,8 +42,8 @@ public sealed class AgentLoopVerificationTests
         request.FileText.ShouldBe("public class C { }");
         request.Goal.ShouldBe("Do the thing.");
         request.CriticRole.ShouldBe("critic-remote");
-        request.ChangeDescription.ShouldNotBeNull();
-        request.ChangeDescription.ShouldContain("src/C.cs");
+        request.ChangeDescription.ShouldBeNull(
+            "per-step climbs offer nothing to refute - the panel judges the completion claim instead");
 
         // The clean bill is an observation too - otherwise the model spends its next step
         // calling build to learn what the harness already knows.
@@ -420,6 +422,129 @@ public sealed class AgentLoopVerificationTests
         run.RecoveryOpportunities.ShouldBe(1);
     }
 
+    // ── The completion critique ──
+    //
+    // Run 4b582162: the panel sat on the ladder, judged every step's diff against the whole run
+    // goal, and refuted 14 of 14 changes - including the correct ones - until the user cancelled
+    // the run. The panel now speaks once, at the completion claim, and as advice.
+
+    [Fact]
+    public async Task A_refuted_completion_claim_gets_one_advisory_look_then_finishes()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(
+                    true, [], 3, $"3/3 critics refuted the change: {new string('x', 2000)}")
+                {
+                    RespondingVotes = 3,
+                },
+            },
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.FinalText.ShouldBe("done for real");
+        result.Error.ShouldBeNull("an advisory refutation is not a caveat on the run");
+
+        // One panel, ever: the second "done" completes without another round of critics.
+        harness.Critics.Requests.Count.ShouldBe(1);
+
+        // The refutation reached the model marked as advice, capped rather than verbatim.
+        string advisory = harness.Client.Requests[2].Messages
+            .Last(m => m.Role == ChatRole.User).Text.ShouldNotBeNull();
+        advisory.ShouldContain("Advisory review");
+        advisory.ShouldContain("finish as-is if you disagree");
+        advisory.ShouldContain("[...]", customMessage: "two thousand characters of critic prose must not reach the worker");
+
+        // The full verdict is in the transcript, on the step that was challenged.
+        StepVerificationRecord record = harness.StepLogger.Steps[1].Verification.ShouldNotBeNull();
+        record.Passed.ShouldBeTrue("critique does not gate");
+        record.HighestRungReached.ShouldBe(nameof(VerificationRung.Critique));
+        record.Summary.ShouldContain("3/3 critics refuted");
+    }
+
+    [Fact]
+    public async Task The_critics_judge_the_claim_against_the_last_ladder_evidence()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+        harness.Ladder.Enqueue(PassedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.FinalText.ShouldBe("done");
+
+        (string goal, string change, string evidence, string? role) = harness.Critics.Requests.ShouldHaveSingleItem();
+        goal.ShouldBe("Do the thing.");
+        change.ShouldContain("src/C.cs", customMessage: "the panel judges the run's diffs, not a paraphrase");
+        evidence.ShouldContain("3 tests passed.", customMessage: "the ladder's last word is the evidence");
+        evidence.ShouldContain("done", customMessage: "the claim under judgment is the agent's own summary");
+        role.ShouldBe("critic-remote");
+
+        // Accepted: no extra message, no extra step - but the verdict lands in the step record.
+        harness.Client.Requests.Count.ShouldBe(2);
+        harness.StepLogger.Steps[1].Verification.ShouldNotBeNull()
+            .Summary.ShouldContain("accepted");
+    }
+
+    [Fact]
+    public async Task A_run_that_changed_nothing_makes_no_refutable_claim()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("echo"), FakeChatClient.Text("the answer is 4"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        harness.Critics.Requests.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_broken_critic_panel_does_not_block_completion()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"))
+        {
+            CriticsOverride = new ThrowingCriticPanel(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.FinalText.ShouldBe("done");
+    }
+
+    [Fact]
+    public async Task Completion_critique_spend_is_billed_at_the_critic_roles_prices()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(false, [], 0, "3/3 critics accepted the change.")
+                {
+                    RespondingVotes = 3,
+                    EstimatedCostUsd = 0.42m,
+                },
+            },
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.EstimatedCostUsd.ShouldBe(0.42m);
+        harness.StepLogger.Steps[1].Verification.ShouldNotBeNull().CritiqueCostUsd.ShouldBe(0.42m);
+    }
+
     private static VerificationReport PassedReport() => new(
         true,
         VerificationRung.UnitTests,
@@ -491,6 +616,49 @@ public sealed class AgentLoopVerificationTests
             throw new InvalidOperationException("the sandbox exploded");
     }
 
+    /// <summary>A panel that returns a scripted verdict and records what it was asked to judge.</summary>
+    private sealed class FakeCriticPanel : ICriticPanel
+    {
+        public List<(string Goal, string Change, string Evidence, string? Role)> Requests { get; } = [];
+
+        public CritiqueResult Next { get; set; } =
+            new(false, [], 0, "3/3 critics accepted the change.") { RespondingVotes = 3 };
+
+        public bool Enabled => true;
+
+        public bool CanCritique(string? role) => true;
+
+        public string ResolveRole(string? role) => role ?? "critic";
+
+        public Task<CritiqueResult> CritiqueAsync(
+            string goal,
+            string change,
+            string evidence,
+            string? role = null,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add((goal, change, evidence, role));
+            return Task.FromResult(Next);
+        }
+    }
+
+    private sealed class ThrowingCriticPanel : ICriticPanel
+    {
+        public bool Enabled => true;
+
+        public bool CanCritique(string? role) => true;
+
+        public string ResolveRole(string? role) => role ?? "critic";
+
+        public Task<CritiqueResult> CritiqueAsync(
+            string goal,
+            string change,
+            string evidence,
+            string? role = null,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("the critic endpoint is down");
+    }
+
     /// <summary>Wires the loop over a scripted client, a change-writing tool and a scripted ladder.</summary>
     private sealed class Harness
     {
@@ -513,6 +681,12 @@ public sealed class AgentLoopVerificationTests
 
         public IVerificationLadder? LadderOverride { get; init; }
 
+        // Null by default: most of these tests are about the ladder, and a panel that speaks
+        // on every completion would entangle them with the critique boundary.
+        public FakeCriticPanel? Critics { get; init; }
+
+        public ICriticPanel? CriticsOverride { get; init; }
+
         public ChangeLog Changes { get; } = new();
 
         public RecordingStepLogger StepLogger { get; } = new();
@@ -530,7 +704,8 @@ public sealed class AgentLoopVerificationTests
                 Options.Create(new AgentOptions()),
                 verifier: LadderOverride ?? Ladder,
                 changes: Changes,
-                verificationOptions: Options.Create(_options));
+                verificationOptions: Options.Create(_options),
+                critics: CriticsOverride ?? Critics);
 
             return loop.RunAsync(
                 new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing.", CriticRole = "critic-remote" },

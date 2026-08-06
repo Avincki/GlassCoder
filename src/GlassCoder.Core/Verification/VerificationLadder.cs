@@ -31,7 +31,9 @@ public enum VerificationRung
 
     /// <summary>
     /// Rung 6: multi-critic refutation (Phase 2). Runs last because it is the only rung whose
-    /// oracle is another model rather than a compiler or a test.
+    /// oracle is another model rather than a compiler or a test - and only when the caller
+    /// offers a change description to refute. The agent loop deliberately offers none per step:
+    /// it asks the panel once, at the completion claim, where refutation is a fair question.
     /// </summary>
     Critique = 6,
 }
@@ -338,7 +340,7 @@ public sealed class VerificationLadder : IVerificationLadder
             {
                 if (!_critics.CanCritique(request.CriticRole) || request.ChangeDescription is null)
                 {
-                    return Skip(rung, "Critique is not enabled for this run.", start);
+                    return Skip(rung, "Critique is not enabled for this run, or nothing was offered to refute.", start);
                 }
 
                 CritiqueResult critique = await _critics.CritiqueAsync(

@@ -102,6 +102,12 @@ public sealed class CritiqueOptions
 /// honestly. Critics vote independently and never see each other's verdicts.
 /// </para>
 /// <para>
+/// The panel judges <em>finished</em> work - a completion claim, a finished run - never an
+/// intermediate step. Refutation is only a fair question of a claim the evidence could in
+/// principle establish; asked of a single step toward a larger goal it refutes everything,
+/// which is a panel nobody can act on (run 4b582162).
+/// </para>
+/// <para>
 /// The role is chosen per call rather than per process. A hosted critic costs money and a local
 /// one does not, so which oracle judges a run is a decision the caller makes before the run
 /// starts - and one the transcript then records.
@@ -121,7 +127,7 @@ public interface ICriticPanel
     /// <summary>The role a request for <paramref name="role"/> would actually run on.</summary>
     string ResolveRole(string? role);
 
-    /// <summary>Asks the panel to try to refute a change.</summary>
+    /// <summary>Asks the panel to try to refute the claim that a finished change meets its goal.</summary>
     Task<CritiqueResult> CritiqueAsync(
         string goal,
         string change,
@@ -335,16 +341,21 @@ public sealed class CriticPanel : ICriticPanel
     {
         string lens = Lenses[index % Lenses.Length];
 
+        // The object of refutation is the CLAIM that finished work meets its goal - a statement
+        // evidence can actually establish. The earlier wording asked whether "the change is
+        // correct", and against one intermediate step no evidence can establish that, so a
+        // temperature-0 critic refuted every step it saw (run 4b582162, 14 of 14).
         List<ChatMessage> messages =
         [
             new(ChatRole.System,
-                "You are a reviewer whose job is to REFUTE a proposed code change. " +
+                "You are a reviewer whose job is to REFUTE the claim that a finished change meets its goal. " +
                 $"Judge it through this lens - {lens}. " +
-                "Default to refuted:true when the evidence does not establish that the change is correct. " +
+                "Judge only the change and evidence in front of you; default to refuted:true when the " +
+                "evidence cannot support the claim. " +
                 "Reply with JSON only: {\"refuted\": bool, \"confidence\": number between 0 and 1, \"reason\": string}."),
             new(ChatRole.User,
-                $"Goal:\n{goal}\n\nProposed change:\n{change}\n\nEvidence offered:\n{evidence}\n\n" +
-                "Can you refute this change?"),
+                $"Goal:\n{goal}\n\nThe change:\n{change}\n\nEvidence:\n{evidence}\n\n" +
+                "Can you refute the claim that this change meets the goal?"),
         ];
 
         try
