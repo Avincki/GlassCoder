@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Design review and blueprint for a small Python service that watches the worker and critic vLLM containers on a DGX Spark, stores 24h of metrics in SQLite, and serves a dashboard reachable over Tailscale — health, GPU, and token usage as daily totals, peaks, and a 24h graph.">
+<title>A health &amp; metrics monitor for the Spark's vLLM services</title>
+
+<style>
+  :root {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #101414;
+      --surface: #171C1D;
+      --sunk: #1C2223;
+      --ink: #E7EBEB;
+      --muted: #93A0A1;
+      --faint: #6A7677;
+      --rule: #263030;
+      --rule-strong: #3A4647;
+      --signal: #45C4DA;
+      --signal-soft: #10282C;
+      --pass: #86C34A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #1A2412;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #101414;
+    --surface: #171C1D;
+    --sunk: #1C2223;
+    --ink: #E7EBEB;
+    --muted: #93A0A1;
+    --faint: #6A7677;
+    --rule: #263030;
+    --rule-strong: #3A4647;
+    --signal: #45C4DA;
+    --signal-soft: #10282C;
+    --pass: #86C34A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #1A2412;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F5F6F6;
+    --surface: #FFFFFF;
+    --sunk: #E9ECEC;
+    --ink: #14191A;
+    --muted: #5A6768;
+    --faint: #8A9698;
+    --rule: #D6DBDC;
+    --rule-strong: #B6BFC0;
+    --signal: #0F7A8A;
+    --signal-soft: #E0F0F2;
+    --pass: #4E8C1E;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #EBF2E2;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.15rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.1;
+    letter-spacing: -0.015em;
+    margin: 0;
+    max-width: 22ch;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 56ch;
+    margin: 0;
+    font-size: 1.08rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem 2.25rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.67rem;
+    display: block;
+  }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.7rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.22rem; font-weight: 600; margin: 2.3rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.77rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.7rem 0 0.6rem;
+  }
+
+  p, ul.prose, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+    word-break: break-word;
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.83rem;
+    line-height: 1.6;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; word-break: normal; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0 0 1.5rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  ol.steps > li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    gap: 0 0.9rem;
+  }
+
+  ol.steps > li::before {
+    content: counter(step);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--signal);
+    border: 1px solid var(--rule-strong);
+    border-radius: 50%;
+    width: 1.7rem;
+    height: 1.7rem;
+    display: grid;
+    place-items: center;
+    margin-top: 0.15rem;
+  }
+
+  ol.steps .step-body { min-width: 0; }
+  ol.steps h3 { margin: 0.1rem 0 0.5rem; font-size: 1.06rem; }
+
+  dl.spec { border-top: 1px solid var(--rule); margin: 0 0 1.4rem; }
+
+  dl.spec > div {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 1fr);
+    gap: 0 1.5rem;
+    padding: 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: baseline;
+  }
+
+  dl.spec dt {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  dl.spec dd { margin: 0; color: var(--muted); font-size: 0.94rem; }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table { border-collapse: collapse; width: 100%; min-width: 34rem; font-size: 0.9rem; }
+
+  th {
+    text-align: left;
+    font-size: 0.69rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  td { padding: 0.62rem 1rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--muted); }
+  td:first-child { color: var(--ink); }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.83rem; }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.caution { border-left-color: var(--warn); }
+  .note p:last-child, .note pre:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.caution .tag { color: var(--warn); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.71rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+
+  /* ---- memory budget: the binding constraint, drawn ---- */
+
+  .budget { max-width: var(--measure); margin: 0 0 1.5rem; display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .budget-row { display: flex; flex-direction: column; gap: 0.35rem; }
+
+  .budget-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: 0.92rem;
+  }
+
+  .budget-head b { font-weight: 600; }
+  .budget-head span { font-family: var(--mono); font-size: 0.79rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .bar {
+    display: flex;
+    height: 1.6rem;
+    border: 1px solid var(--rule-strong);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--sunk);
+  }
+
+  .bar i {
+    display: block;
+    font-style: normal;
+    font-family: var(--mono);
+    font-size: 0.67rem;
+    line-height: 1.6rem;
+    padding-left: 0.4rem;
+    color: var(--surface);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .bar .weights { background: var(--signal); }
+  .bar .kv { background: var(--rule-strong); color: var(--ink); }
+  .bar .second { background: var(--pass); }
+  .bar .free { background: transparent; color: var(--faint); border-left: 1px dashed var(--rule-strong); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.2rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin: -0.4rem 0 1.5rem;
+  }
+
+  .legend b { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.35rem; vertical-align: baseline; }
+  .legend .w { background: var(--signal); }
+  .legend .k { background: var(--rule-strong); }
+  .legend .s { background: var(--pass); }
+  .legend .f { border: 1px dashed var(--rule-strong); }
+
+  /* ---- throughput bars ---- */
+
+  .tput td.bar-cell { width: 40%; }
+  .tput .tbar { display: flex; align-items: center; gap: 0.5rem; }
+  .tput .tbar i { display: block; height: 0.55rem; background: var(--signal); border-radius: 2px; }
+  .tput .tbar span { font-family: var(--mono); font-size: 0.79rem; font-variant-numeric: tabular-nums; }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+  }
+
+  footer a { color: var(--muted); }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+    dl.spec > div { grid-template-columns: minmax(0, 1fr); gap: 0.15rem; }
+    ol.steps > li { grid-template-columns: 1.7rem minmax(0, 1fr); gap: 0 0.7rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Design review &amp; proposal · monitoring</div>
+    <h1>A health &amp; metrics monitor for the Spark's vLLM&nbsp;services</h1>
+    <p class="standfirst">
+      A small Python service that watches the worker and critic containers, keeps 24&nbsp;hours of
+      samples in SQLite, and serves one dashboard to every device on your tailnet. Most of the data
+      already exists — the work is collecting it honestly and drawing it clearly.
+    </p>
+    <div class="specstrip">
+      <div><b>Watches</b> worker :8002 · critic :8003</div>
+      <div><b>Source</b> vLLM /metrics + /health · nvidia-smi</div>
+      <div><b>Stack</b> Python · SQLite · FastAPI</div>
+      <div><b>Reach</b> tailscale serve (tailnet only)</div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#verdict">The verdict</a></li>
+      <li><a href="#sources">What's already exposed</a></li>
+      <li><a href="#arch">Architecture</a></li>
+      <li><a href="#display">What to display</a></li>
+      <li><a href="#tailscale">Reaching it over Tailscale</a></li>
+      <li><a href="#gotchas">Gotchas that bite</a></li>
+      <li><a href="#phases">Build it in phases</a></li>
+      <li><a href="#alt">The off-the-shelf alternative</a></li>
+      <li><a href="#decisions">Open decisions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ================= 1 ================= -->
+    <section class="part" id="verdict">
+      <div class="part-head"><span class="num">01</span><h2>The verdict</h2></div>
+
+      <p>
+        The proposal is sound and correctly scoped. Watching the two services, surfacing GPU and
+        token usage, and showing daily totals plus a 24-hour graph is exactly the right amount of
+        observability for a single box with two models on it — enough to answer "is it up, is it
+        busy, what did it cost me today," without standing up a monitoring platform you then have to
+        monitor. Four refinements shape the design:
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Proposed</th><th>Verdict</th><th>Refinement</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Observe health of the 2 services</td>
+              <td><span class="pill pass">keep</span></td>
+              <td>Use each container's <code>/health</code> for liveness — cheap, and it does not count as an inference request.</td>
+            </tr>
+            <tr>
+              <td>Display GPU + token usage</td>
+              <td><span class="pill pass">free</span></td>
+              <td>vLLM already serves a Prometheus <code>/metrics</code> endpoint per port. Tokens, throughput, queue depth and KV-cache % come from there — nothing to instrument.</td>
+            </tr>
+            <tr>
+              <td>Daily totals / max values</td>
+              <td><span class="pill warn">care</span></td>
+              <td>Token counts are monotonic counters that reset when a container restarts. Sum <em>deltas</em> with reset detection, or a restart silently erases the day.</td>
+            </tr>
+            <tr>
+              <td>Graph of the last 24 h</td>
+              <td><span class="pill pass">keep</span></td>
+              <td>Trivial in storage terms — at 15 s cadence that is ~5 760 points per series. SQLite handles it without noticing.</td>
+            </tr>
+            <tr>
+              <td>Reachable on all Tailscale devices</td>
+              <td><span class="pill pass">keep</span></td>
+              <td>Expose with <code>tailscale serve</code> (tailnet-only HTTPS), never <code>funnel</code> (public internet).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">The one idea that changes everything</span>
+        <p>
+          You are not building a metrics <em>pipeline</em>; you are building a thin reader over one
+          that already runs. vLLM is a Prometheus exporter out of the box. The service's real job is
+          to poll two <code>/metrics</code> endpoints on a timer, add the GPU/host numbers vLLM
+          cannot see, keep a day of history, and draw it. That is a few hundred lines of Python, not
+          a platform.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 2 ================= -->
+    <section class="part" id="sources">
+      <div class="part-head"><span class="num">02</span><h2>What's already exposed</h2></div>
+
+      <h3>Per service — straight from vLLM</h3>
+      <p>
+        Each container answers on its own port. Liveness and the metric feed are both HTTP GETs, so
+        the collector needs no client library beyond an HTTP call:
+      </p>
+
+      <pre><code>curl -s localhost:8002/health              <span class="c"># 200 = alive (worker)</span>
+curl -s localhost:8003/health              <span class="c"># 200 = alive (critic)</span>
+curl -s localhost:8002/metrics | grep '^vllm:'   <span class="c"># Prometheus text exposition</span></code></pre>
+
+      <p>The series worth reading, and what each one is for:</p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Metric</th><th>Type</th><th>Feeds</th></tr></thead>
+          <tbody>
+            <tr><td class="m">vllm:generation_tokens_total</td><td>counter</td><td>Daily output-token total; decode tok/s (as a rate).</td></tr>
+            <tr><td class="m">vllm:prompt_tokens_total</td><td>counter</td><td>Daily input-token total; prefill volume.</td></tr>
+            <tr><td class="m">vllm:request_success_total</td><td>counter</td><td>Requests served today; with failures, an error rate.</td></tr>
+            <tr><td class="m">vllm:num_requests_running</td><td>gauge</td><td>Live concurrency; peak concurrency for the day.</td></tr>
+            <tr><td class="m">vllm:num_requests_waiting</td><td>gauge</td><td>Queue depth — the number that says "the box is saturated."</td></tr>
+            <tr><td class="m">vllm:gpu_cache_usage_perc</td><td>gauge</td><td>KV-cache fullness; peak KV% is your context-pressure gauge.</td></tr>
+            <tr><td class="m">vllm:time_to_first_token_seconds</td><td>histogram</td><td>TTFT p50/p95 — prefill responsiveness.</td></tr>
+            <tr><td class="m">vllm:e2e_request_latency_seconds</td><td>histogram</td><td>End-to-end latency percentiles.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note caution">
+        <span class="tag">Metric names drift between vLLM versions</span>
+        <p>
+          The <code>vllm:</code> series above are stable on v0.20.0, but names and label sets do move
+          across releases. The collector should treat every series as optional — read what is
+          present, skip what is not, and never crash because a counter was renamed. Pin the parser to
+          "if the line starts with a known key, use it" rather than a fixed schema.
+        </p>
+      </div>
+
+      <h3>Host + GPU — what vLLM can't see</h3>
+      <p>
+        vLLM reports its own cache, not the machine. GPU utilisation, temperature, power and the
+        unified-memory picture come from the host:
+      </p>
+
+      <pre><code>nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw \
+  --format=csv,noheader,nounits
+free -b                                   <span class="c"># unified pool: used / available</span></code></pre>
+
+      <div class="note caution">
+        <span class="tag">Unified memory reads differently here</span>
+        <p>
+          On the GB10 the CPU and GPU share one pool, so "GPU memory" and "system memory" are the
+          same 128&nbsp;GB. Report the <em>unified</em> figure from <code>free</code> as the source of
+          truth, and verify which <code>nvidia-smi</code> fields actually populate on this silicon
+          before you trust them — some are blank on Grace-Blackwell. If a field is empty, fall back to
+          <code>tegrastats</code>. Per-<em>container</em> GPU memory is not directly available; do not
+          promise a per-model memory split the hardware won't give you.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 3 ================= -->
+    <section class="part" id="arch">
+      <div class="part-head"><span class="num">03</span><h2>Architecture</h2></div>
+
+      <p>
+        Three concerns, one small Python process: a <b>collector</b> that samples on a timer, a
+        <b>store</b> that keeps a rolling day plus durable daily rollups, and a <b>web layer</b> that
+        serves the dashboard and a tiny JSON API it reads from.
+      </p>
+
+      <dl class="spec">
+        <div><dt>Collector</dt><dd>An <code>asyncio</code> task on a fixed cadence (10–15 s). Each tick: GET both <code>/health</code>, GET both <code>/metrics</code>, run <code>nvidia-smi</code> + read <code>free</code>, parse, write one row per service. Runs inside the web app as a background task, or as its own systemd unit — either way it must keep sampling when nobody has the page open.</dd></div>
+        <div><dt>Store</dt><dd>SQLite. One <code>samples</code> table (timestamp, service, the gauges, the counter readings) pruned to 24 h for the graph; one <code>daily</code> table (date, service, token totals, peak concurrency, peak KV%, uptime %) that survives restarts and lets "daily totals" outlive the 24 h window.</dd></div>
+        <div><dt>Web layer</dt><dd>FastAPI (or Flask). Two routes: <code>/</code> serves the dashboard HTML; <code>/api/summary</code> returns the tiles + the 24 h series as JSON. The page fetches that JSON and redraws on an interval.</dd></div>
+      </dl>
+
+      <h3>Why counters become totals in the collector, not the query</h3>
+      <p>
+        Because a counter can reset under you, the honest daily total is accumulated at sample time,
+        where a decrease is visible as a reset:
+      </p>
+
+      <pre><code>def add_delta(prev, cur):
+    <span class="c"># cur &lt; prev means the container restarted and zeroed the counter;</span>
+    <span class="c"># the tokens since the last sample are then just 'cur', not cur - prev.</span>
+    return cur if cur &lt; prev else cur - prev
+
+today_out += add_delta(prev_out, cur_out)   <span class="c"># write to the 'daily' table</span>
+prev_out = cur_out</code></pre>
+
+      <p>
+        Storing the accumulated total (not the raw counter) means a restart costs you nothing, and
+        the dashboard reads a number it can trust without re-deriving it.
+      </p>
+
+      <div class="note">
+        <span class="tag">Footprint discipline</span>
+        <p>
+          The monitor must be invisible on the memory budget it is reporting on. A Python poller is
+          ~40–60&nbsp;MB of RAM and zero GPU — run it as a normal systemd unit or a tiny container, and
+          never let it hold model memory. Polling <code>/metrics</code> every 10–15 s is negligible
+          load; do not scrape per-second.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 4 ================= -->
+    <section class="part" id="display">
+      <div class="part-head"><span class="num">04</span><h2>What to display</h2></div>
+
+      <p>
+        Two registers, as you proposed: <b>at-a-glance state</b> (tiles — current value, today's
+        total, today's peak) and <b>the last 24 hours</b> (a few small time-series). Split by service,
+        because the worker and critic have very different rhythms.
+      </p>
+
+      <h4>Status &amp; daily tiles</h4>
+      <ul class="prose">
+        <li><b>Up / down</b> per service, with uptime % for the day and time-since-last-seen.</li>
+        <li><b>Tokens today</b> — input and output totals, per service and combined.</li>
+        <li><b>Requests today</b> — served, and failed (error rate).</li>
+        <li><b>Peak decode</b> — the day's max generation tok/s (your ~23 tok/s ceiling, observed).</li>
+        <li><b>Peak concurrency</b> and <b>max queue depth</b> — did anything ever wait?</li>
+        <li><b>Peak KV-cache %</b> and <b>max GPU temp / power</b>.</li>
+        <li><b>Unified memory</b> — used / available right now, the number that predicts a desktop OOM.</li>
+      </ul>
+
+      <h4>24-hour graphs</h4>
+      <ul class="prose">
+        <li>Generation tok/s (decode throughput) — worker and critic on one axis.</li>
+        <li>GPU utilisation % and unified memory used.</li>
+        <li>KV-cache % and queue depth.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">The critic will look idle — that's correct</span>
+        <p>
+          Critique is a rung the agent loop <code>await</code>s, so the critic is cold except in
+          short bursts while a panel votes. Its throughput graph being flat most of the day is the
+          co-residency design working, not a broken feed. Label it expected-idle so a quiet line does
+          not read as a fault.
+        </p>
+      </div>
+
+      <div class="note">
+        <span class="tag">Drawing the graph, self-contained</span>
+        <p>
+          Vendor a small plotting library (uPlot is ~40&nbsp;KB and built for exactly this — many
+          points, live redraw) into the app's static files rather than pulling a CDN at runtime. It
+          keeps the dashboard working on a tailnet with no outbound internet, and keeps the page fast.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 5 ================= -->
+    <section class="part" id="tailscale">
+      <div class="part-head"><span class="num">05</span><h2>Reaching it over Tailscale</h2></div>
+
+      <p>
+        Bind the app to localhost, then let Tailscale publish it to the tailnet with automatic HTTPS
+        and a MagicDNS name. No firewall ports open to the LAN, no public exposure:
+      </p>
+
+      <pre><code><span class="c"># app listens on 127.0.0.1:8090; Tailscale terminates TLS and proxies to it</span>
+tailscale serve --bg 8090
+
+<span class="c"># now reachable from every device on the tailnet at:</span>
+<span class="c">#   https://spark.&lt;your-tailnet&gt;.ts.net/</span>
+tailscale serve status</code></pre>
+
+      <div class="note caution">
+        <span class="tag">serve, not funnel</span>
+        <p>
+          <code>tailscale serve</code> keeps the dashboard inside your tailnet — visible to your
+          devices, invisible to the internet. <code>tailscale funnel</code> publishes to the public
+          internet; that is not what you want for a page that reveals your usage patterns and service
+          health. Use <code>serve</code>. Because it is tailnet-only, the app itself needs no login —
+          Tailscale ACLs are the access control.
+        </p>
+      </div>
+    </section>
+
+    <!-- ================= 6 ================= -->
+    <section class="part" id="gotchas">
+      <div class="part-head"><span class="num">06</span><h2>Gotchas that bite</h2></div>
+
+      <dl class="spec">
+        <div><dt>Counter resets</dt><dd>Handled at sample time (§3). The alternative — diffing counters at query time — reports a huge negative spike every restart.</dd></div>
+        <div><dt>Self-metering</dt><dd>Probe liveness with <code>/health</code>, not a completion. A monitor that sends inference to check "is it up" inflates the very token totals it reports.</dd></div>
+        <div><dt>Sampling must outlive the tab</dt><dd>If the poller lives only while a browser is connected, closing the page creates gaps and wrong daily totals. Keep it a background task/daemon independent of any request.</dd></div>
+        <div><dt>Unified memory semantics</dt><dd>Report <code>free</code>'s pool as truth; verify <code>nvidia-smi</code> fields on GB10; don't invent a per-container GPU split.</dd></div>
+        <div><dt>Day boundary &amp; timezone</dt><dd>Decide what "daily" means — local midnight, in one fixed timezone — and roll over on it consistently, or totals smear across two days.</dd></div>
+        <div><dt>Restart durability</dt><dd>The <code>daily</code> rollup lives in SQLite on disk, so a monitor restart (or a Spark reboot) doesn't lose the day. The 24 h sample buffer can be ephemeral; the daily totals can't.</dd></div>
+      </dl>
+    </section>
+
+    <!-- ================= 7 ================= -->
+    <section class="part" id="phases">
+      <div class="part-head"><span class="num">07</span><h2>Build it in phases</h2></div>
+
+      <ol class="steps">
+        <li><div class="step-body"><h3>Liveness only</h3>
+          <p>Poll both <code>/health</code>, render a two-row up/down page, serve it over <code>tailscale serve</code>. This alone answers the most common question — "are the models up?" — from your phone.</p></div></li>
+        <li><div class="step-body"><h3>Metrics ingest</h3>
+          <p>Parse <code>/metrics</code>, add <code>nvidia-smi</code> + <code>free</code>, write samples to SQLite, accumulate daily totals with reset handling. No graph yet — just the tiles.</p></div></li>
+        <li><div class="step-body"><h3>The 24 h graph</h3>
+          <p>Add the <code>/api/summary</code> JSON route and the vendored plot. Now the page has both registers.</p></div></li>
+        <li><div class="step-body"><h3>Polish</h3>
+          <p>Per-service split, expected-idle labelling for the critic, day rollover, and a small "packaged as a systemd unit / container" step so it starts on boot.</p></div></li>
+      </ol>
+    </section>
+
+    <!-- ================= 8 ================= -->
+    <section class="part" id="alt">
+      <div class="part-head"><span class="num">08</span><h2>The off-the-shelf alternative</h2></div>
+
+      <p>
+        Everything above can be bought instead of built: <b>Prometheus</b> scrapes the two
+        <code>/metrics</code> endpoints (plus <code>node-exporter</code> / a GPU exporter for the
+        host), and <b>Grafana</b> draws the dashboard — 24 h graphs, daily aggregations via PromQL,
+        and alerting, with almost no code.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead><tr><th>Choose</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td>Python service <span class="pill pass">recommended</span></td><td>One box, two services, you want a single small dependency-light thing that matches the rest of this project and you fully control. The 24 h / daily scope is modest enough that Prometheus is more machinery than the job needs.</td></tr>
+            <tr><td>Prometheus + Grafana</td><td>You want alerting, retention beyond a day, or you expect to add more services and hosts. Then the platform earns its keep — and it can also receive GlassCoder's own OpenTelemetry (its <code>OtlpEndpoint</code> is currently null) to put run-level cost and pass@1 next to the server metrics.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Recommendation: build the Python service. It is the right size for the problem, it stays
+        self-contained on a tailnet with no outbound internet, and it keeps you owning the one thing
+        that matters here — an honest daily number. Reach for Grafana only when the scope grows past
+        one box.
+      </p>
+    </section>
+
+    <!-- ================= 9 ================= -->
+    <section class="part" id="decisions">
+      <div class="part-head"><span class="num">09</span><h2>Open decisions</h2></div>
+      <p>Four choices to make before the first line, none of them blocking:</p>
+      <ul class="prose">
+        <li><b>Retention beyond 24 h?</b> The graph is 24 h by design; do you want the daily rollups kept for 30/90 days to see week-over-week, or is today-plus-yesterday enough?</li>
+        <li><b>One dashboard or per-service pages?</b> Combined is simpler; per-service reads cleaner given how differently the two behave.</li>
+        <li><b>Packaging.</b> systemd unit on the host (lightest) vs a third small container next to the models (consistent with how the models run). Either is fine; pick the one you'd rather operate.</li>
+        <li><b>GlassCoder tie-in, later.</b> Whether to eventually surface run-level numbers (tokens-to-solve, cost, pass@1) from GlassCoder's metrics next to the server metrics — natural, but out of scope for v1.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Scope for v1</span>
+        <p>
+          Two services' health, host GPU + unified memory, per-service token totals and peaks for the
+          day, and a 24 h graph of throughput / memory / KV — served over <code>tailscale serve</code>.
+          That is a genuinely small, genuinely useful service, and every number in it is one the
+          hardware or vLLM already emits.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder · design review for a Python vLLM health/metrics monitor on DGX Spark ·
+  companion to <a href="dgx-spark-install-worker-critic.html">Installing the worker and critic</a>
+</footer>
+
+</body>
+</html>
