@@ -367,26 +367,31 @@ public sealed class ProjectScaffoldingTests
     }
 
     /// <summary>
-    /// The test stub is different: its empty test quietly counts as a pass ("All 6 tests
-    /// passed" was five real tests plus the stub), but the model may also want to write into
-    /// it - so it is named in the message rather than removed.
+    /// The test stub goes too. It was named-not-deleted first, on the theory the model might
+    /// write into it - and two runs in a row read the warning, wrote their tests in a fresh
+    /// file, and left the empty stub counting as a pass. A suggestion the model reliably
+    /// ignores is not a mechanism.
     /// </summary>
     [Fact]
-    public async Task A_test_template_stub_is_named_rather_than_removed()
+    public async Task A_test_template_stub_is_removed_at_scaffold_time()
     {
         using TempWorkspace workspace = new();
         workspace.CreateDirectory("tests");
         string stub = Path.Combine(workspace.Root, "tests", "UnitTest1.cs");
+        ChangeLog changes = new();
 
         ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
             new RewritingExecutor(stub, "namespace tests;\n\npublic class UnitTest1\n{\n    [Fact]\n    public void Test1()\n    {\n\n    }\n}\n"),
-            workspace.Guard("tests"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            workspace.Guard("tests"), changes, Options.Create(new SandboxOptions()))
             .RunAsync(DotnetProjectOperation.New, "tests", "xunit");
 
         observation.Ok.ShouldBeTrue(observation.Error?.Message);
-        observation.Summary.ShouldContain("UnitTest1.cs");
-        observation.Summary.ShouldContain("counts as a pass");
-        File.Exists(stub).ShouldBeTrue("the model may want to write its tests into the stub");
+        observation.Summary.ShouldContain("UnitTest1.cs was removed");
+        File.Exists(stub).ShouldBeFalse();
+
+        CodeChange recorded = changes.All().ShouldHaveSingleItem();
+        recorded.Status.ShouldBe(ChangeStatus.Applied);
+        recorded.AfterText.ShouldBeEmpty();
     }
 
     [Fact]

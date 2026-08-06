@@ -379,13 +379,14 @@ public sealed class DotnetProjectTool : IToolSet
     private static readonly string[] TestTemplates = ["xunit", "nunit", "mstest"];
 
     /// <summary>
-    /// Describes a scaffolded project, and deals with the template's stub file - because left
-    /// alone, the stubs outlive every run. A classlib's <c>Class1.cs</c> serves no purpose and
-    /// once collided with the very class the run was writing (CS0101, run d21eb210), so it is
-    /// deleted here, through the change log. A test template's <c>UnitTest1.cs</c> is worse
-    /// left unmentioned: its empty test quietly counts as a pass ("All 6 tests passed" was
-    /// five real tests plus the stub), but the model may also legitimately want to write into
-    /// it - so it is named in the summary rather than removed.
+    /// Describes a scaffolded project, deleting the template's stub file on the way - because
+    /// left alone, the stubs outlive every run. <c>Class1.cs</c> once collided with the very
+    /// class a run was writing (CS0101, run d21eb210). <c>UnitTest1.cs</c> got a gentler
+    /// treatment first - named in the summary with "replace or delete it" - and two runs in a
+    /// row read the warning, wrote their tests in a fresh file, and left the stub padding the
+    /// pass count ("All 5 tests passed" was four real tests plus an assertion of nothing). A
+    /// suggestion the model reliably ignores is not a mechanism, the stub is one tool call
+    /// old, and the change log accounts for the delete - so now both kinds go.
     /// </summary>
     private string DescribeCreatedProject(PathGuardResult verdict, string template)
     {
@@ -393,27 +394,15 @@ public sealed class DotnetProjectTool : IToolSet
         string created = $"Created a {template} project in '{verdict.RelativePath}'.";
         const string next = "Add a reference to the code under test, then build.";
 
-        if (template.Equals("classlib", StringComparison.OrdinalIgnoreCase))
-        {
-            string stub = Path.Combine(directory, "Class1.cs");
-            return TryDeleteStub(stub)
-                ? $"{created} The template's empty Class1.cs was removed. {next}"
-                : $"{created} {next}";
-        }
+        string? stub = template.Equals("classlib", StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(directory, "Class1.cs")
+            : TestTemplates.Contains(template, StringComparer.OrdinalIgnoreCase)
+                ? TestStubNames.Select(name => Path.Combine(directory, name)).FirstOrDefault(File.Exists)
+                : null;
 
-        if (TestTemplates.Contains(template, StringComparer.OrdinalIgnoreCase))
-        {
-            string? stub = TestStubNames
-                .Select(name => Path.Combine(directory, name))
-                .FirstOrDefault(File.Exists);
-            if (stub is not null)
-            {
-                return $"{created} The template scaffolded {_guard.ToRelativePath(stub)} - an empty placeholder " +
-                       "whose test counts as a pass. Replace it with real tests or delete it. " + next;
-            }
-        }
-
-        return $"{created} {next}";
+        return stub is not null && TryDeleteStub(stub)
+            ? $"{created} The template's empty {Path.GetFileName(stub)} was removed - create your files fresh. {next}"
+            : $"{created} {next}";
     }
 
     /// <summary>
