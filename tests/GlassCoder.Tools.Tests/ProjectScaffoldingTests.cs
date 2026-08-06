@@ -338,6 +338,57 @@ public sealed class ProjectScaffoldingTests
         observation.Summary.ShouldContain("Every.slnx", customMessage: "the next add_to_solution and glob must be aimed at a file that exists");
     }
 
+    /// <summary>
+    /// The classlib template's Class1.cs serves no purpose, outlives every run that does not
+    /// happen to delete it, and once collided with the very class the run was writing (CS0101,
+    /// run d21eb210). It is removed at scaffold time, through the change log.
+    /// </summary>
+    [Fact]
+    public async Task A_classlib_template_stub_is_removed_at_scaffold_time()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/Lib");
+        string stub = Path.Combine(workspace.Root, "src", "Lib", "Class1.cs");
+        ChangeLog changes = new();
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new RewritingExecutor(stub, "namespace Lib;\n\npublic class Class1\n{\n\n}\n"),
+            workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/Lib", "classlib");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("Class1.cs was removed");
+        File.Exists(stub).ShouldBeFalse();
+
+        // Through the change log, so a file that existed for one tool call is still accounted for.
+        CodeChange recorded = changes.All().ShouldHaveSingleItem();
+        recorded.Status.ShouldBe(ChangeStatus.Applied);
+        recorded.AfterText.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// The test stub is different: its empty test quietly counts as a pass ("All 6 tests
+    /// passed" was five real tests plus the stub), but the model may also want to write into
+    /// it - so it is named in the message rather than removed.
+    /// </summary>
+    [Fact]
+    public async Task A_test_template_stub_is_named_rather_than_removed()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("tests");
+        string stub = Path.Combine(workspace.Root, "tests", "UnitTest1.cs");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new RewritingExecutor(stub, "namespace tests;\n\npublic class UnitTest1\n{\n    [Fact]\n    public void Test1()\n    {\n\n    }\n}\n"),
+            workspace.Guard("tests"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "tests", "xunit");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("UnitTest1.cs");
+        observation.Summary.ShouldContain("counts as a pass");
+        File.Exists(stub).ShouldBeTrue("the model may want to write its tests into the stub");
+    }
+
     [Fact]
     public async Task A_template_this_tool_does_not_know_is_refused_before_anything_runs()
     {

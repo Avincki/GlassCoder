@@ -210,6 +210,7 @@ public sealed class DotnetProjectTool : IToolSet
         {
             DotnetProjectOperation.Format =>
                 $"Formatted '{verdict.RelativePath}': {reformatted} file(s) rewritten.",
+            DotnetProjectOperation.New => DescribeCreatedProject(verdict, argument!),
             DotnetProjectOperation.NewSolution => DescribeCreatedSolution(verdict, argument),
 
             // Named by the file the add really landed in, which ResolveSolution may have chosen:
@@ -371,6 +372,77 @@ public sealed class DotnetProjectTool : IToolSet
         return File.Exists(sibling) ? sibling : full;
     }
 
+    /// <summary>Stub files test templates scaffold, in the order they are looked for.</summary>
+    private static readonly string[] TestStubNames = ["UnitTest1.cs", "Test1.cs"];
+
+    /// <summary>Templates whose stub is a placeholder test rather than a placeholder class.</summary>
+    private static readonly string[] TestTemplates = ["xunit", "nunit", "mstest"];
+
+    /// <summary>
+    /// Describes a scaffolded project, and deals with the template's stub file - because left
+    /// alone, the stubs outlive every run. A classlib's <c>Class1.cs</c> serves no purpose and
+    /// once collided with the very class the run was writing (CS0101, run d21eb210), so it is
+    /// deleted here, through the change log. A test template's <c>UnitTest1.cs</c> is worse
+    /// left unmentioned: its empty test quietly counts as a pass ("All 6 tests passed" was
+    /// five real tests plus the stub), but the model may also legitimately want to write into
+    /// it - so it is named in the summary rather than removed.
+    /// </summary>
+    private string DescribeCreatedProject(PathGuardResult verdict, string template)
+    {
+        string directory = verdict.FullPath!;
+        string created = $"Created a {template} project in '{verdict.RelativePath}'.";
+        const string next = "Add a reference to the code under test, then build.";
+
+        if (template.Equals("classlib", StringComparison.OrdinalIgnoreCase))
+        {
+            string stub = Path.Combine(directory, "Class1.cs");
+            return TryDeleteStub(stub)
+                ? $"{created} The template's empty Class1.cs was removed. {next}"
+                : $"{created} {next}";
+        }
+
+        if (TestTemplates.Contains(template, StringComparer.OrdinalIgnoreCase))
+        {
+            string? stub = TestStubNames
+                .Select(name => Path.Combine(directory, name))
+                .FirstOrDefault(File.Exists);
+            if (stub is not null)
+            {
+                return $"{created} The template scaffolded {_guard.ToRelativePath(stub)} - an empty placeholder " +
+                       "whose test counts as a pass. Replace it with real tests or delete it. " + next;
+            }
+        }
+
+        return $"{created} {next}";
+    }
+
+    /// <summary>
+    /// Removes a stub the SDK just wrote, recording the removal so the Changes surface accounts
+    /// for a file that existed for one tool call. False when there was nothing to delete or the
+    /// delete could not be done - either way the stub is then merely mentioned, not hidden.
+    /// </summary>
+    private bool TryDeleteStub(string fullPath)
+    {
+        try
+        {
+            if (!File.Exists(fullPath))
+            {
+                return false;
+            }
+
+            string before = File.ReadAllText(fullPath);
+            File.Delete(fullPath);
+
+            CodeChange change = _changes.Propose(_guard.ToRelativePath(fullPath), ToolName, before, string.Empty);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Names the file <c>dotnet new sln</c> actually wrote, because the SDK picks the format:
     /// .NET 10 writes <c>.slnx</c> where the caller may well have said <c>.sln</c>. The exact
@@ -483,8 +555,6 @@ public sealed class DotnetProjectTool : IToolSet
 
     private static string Success(DotnetProjectOperation operation, string path, string? argument) => operation switch
     {
-        DotnetProjectOperation.New =>
-            $"Created a {argument} project in '{path}'. Add a reference to the code under test, then build.",
         DotnetProjectOperation.AddToSolution => $"Added '{argument}' to '{path}'.",
         DotnetProjectOperation.AddReference => $"'{path}' now references '{argument}'.",
         DotnetProjectOperation.AddPackage => $"'{path}' now references the {argument} package.",
