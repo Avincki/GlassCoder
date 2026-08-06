@@ -111,6 +111,27 @@ public sealed class ContextAssemblyTests : IDisposable
         map.Length.ShouldBeLessThan(600);
     }
 
+    /// <summary>
+    /// An empty workspace is when orientation matters most: run 21f25fea aimed its first
+    /// scaffold at the unwritable root, was refused, and looped to the step limit. The map's
+    /// one-line answer - empty, and here is where you may write - pre-empts the whole spiral.
+    /// </summary>
+    [Fact]
+    public void An_empty_workspace_still_names_its_writable_roots()
+    {
+        ContextAssembler assembler = TestContextAssembler.Create(
+            new ContextOptions(),
+            _workspace.Guard("src"),
+            new Tools.FileSystem.WorkspaceMapBuilder(
+                _workspace.Guard("src"), TempWorkspace.Wrap(_workspace.Options("src"))));
+
+        IReadOnlyList<ChatMessage> messages = assembler.CreateInitialMessages("system", "goal");
+
+        messages.Count.ShouldBe(3);
+        messages[1].Text.ShouldContain("empty");
+        messages[1].Text.ShouldContain("Writable roots: src");
+    }
+
     [Fact]
     public void The_workspace_map_can_be_switched_off()
     {

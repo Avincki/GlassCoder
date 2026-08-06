@@ -118,6 +118,52 @@ public sealed class AgentLoopVerificationTests
     }
 
     /// <summary>
+    /// Run 21f25fea cycled read-only calls for twenty-five steps of byte-identical answers at
+    /// 100% validity - the failure loop-breaker never armed because nothing failed. The
+    /// success-side twin: nudge at three verbatim repeats, stop as stalled at the limit.
+    /// </summary>
+    [Fact]
+    public async Task A_run_spinning_on_identical_successful_calls_is_nudged_then_stopped()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("echo"),
+            FakeChatClient.ToolCall("echo", callId: "c2"),
+            FakeChatClient.ToolCall("echo", callId: "c3"),
+            FakeChatClient.ToolCall("echo", callId: "c4"),
+            FakeChatClient.ToolCall("echo", callId: "c5"),
+            FakeChatClient.ToolCall("echo", callId: "c6"));
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Stalled);
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("identical answer");
+        result.Steps.ShouldBe(5, "the default limit is five verbatim repeats");
+
+        // The nudge landed after the third repeat, in the window the model saw next.
+        harness.Client.Requests[3].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("cannot add information"));
+    }
+
+    [Fact]
+    public async Task A_repeated_call_that_applies_changes_is_progress_not_a_stall()
+    {
+        // Every mutate lands a change, so the repeat counter resets each step and the run
+        // completes normally - re-inspecting a workspace you just changed is legitimate.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.ToolCall("mutate", callId: "c2"),
+            FakeChatClient.ToolCall("mutate", callId: "c3"),
+            FakeChatClient.ToolCall("mutate", callId: "c4"),
+            FakeChatClient.ToolCall("mutate", callId: "c5"),
+            FakeChatClient.Text("done"));
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+    }
+
+    /// <summary>
     /// Run d21eb210 deleted the only copy of its deliverable; when the build then missed the
     /// file, it removed the reference instead of restoring the file, and the goal quietly went
     /// with it. A failure right after a deletion names the recovery that keeps the work.

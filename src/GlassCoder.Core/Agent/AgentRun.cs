@@ -35,6 +35,17 @@ public enum AgentStopReason
     /// </summary>
     RepeatedToolFailure,
 
+    /// <summary>
+    /// The same call kept succeeding with the same answer while nothing changed.
+    /// <para>
+    /// The mirror image of <see cref="RepeatedToolFailure"/>: run 21f25fea cycled three
+    /// read-only calls for twenty-five steps, every one succeeding with a byte-identical
+    /// result, and tool-call validity read 100% all the way to the step limit. A repeated
+    /// identical question with a repeated identical answer is not progress either.
+    /// </para>
+    /// </summary>
+    Stalled,
+
     /// <summary>The caller cancelled the run.</summary>
     Cancelled,
 

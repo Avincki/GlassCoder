@@ -47,6 +47,20 @@ public sealed class AgentOptions
     public int MaxIdenticalToolFailures { get; set; } = 8;
 
     /// <summary>
+    /// How many times the same call may <em>succeed</em> with the same answer, with no change
+    /// applied in between, before the run stops as stalled.
+    /// <para>
+    /// The failure limit above has a blind spot: a run cycling read-only calls never fails
+    /// anything. Run 21f25fea repeated list_changes, list_projects and glob for twenty-five
+    /// steps of byte-identical answers, 100% valid, all the way to the step limit. An
+    /// identical question with an identical answer adds nothing however often it is asked.
+    /// The count resets whenever a change is applied, because a changed workspace can
+    /// legitimately be re-inspected. Zero switches the limit off.
+    /// </para>
+    /// </summary>
+    public int MaxIdenticalCallRepeats { get; set; } = 5;
+
+    /// <summary>
     /// System prompt used when a run does not supply one. Context assembly (task 12) will take
     /// this over; until then it is the whole of the always-loaded context.
     /// </summary>

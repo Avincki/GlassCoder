@@ -166,14 +166,16 @@ public sealed class StepBudgetVisibilityTests
         RecordingStepLogger transcript = new();
 
         // Never stops calling tools, so the run can only end at the step limit - the shape of
-        // the run this came from.
+        // the run this came from. The stall limit is off here on purpose: an identical call
+        // repeated eight times is exactly what it exists to cut short, and this test needs the
+        // run to actually reach its ceiling to see the warning fire.
         AgentLoop loop = new(
             new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("noop"))),
             new ToolRegistry([new NoopTools()]),
             transcript,
             TestContextAssembler.Create(),
             new RecordingMetricsRecorder(),
-            Options.Create(new AgentOptions { MaxSteps = 8 }));
+            Options.Create(new AgentOptions { MaxSteps = 8, MaxIdenticalCallRepeats = 0 }));
 
         AgentRunResult result = await loop.RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep going" });
 

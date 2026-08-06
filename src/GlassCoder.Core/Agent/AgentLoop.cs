@@ -129,6 +129,14 @@ public sealed class AgentLoop : IAgentLoop
         string? lastFailure = null;
         int identicalFailures = 0;
 
+        // Successful calls repeated verbatim - same tool, same arguments, same answer - with no
+        // change applied in between. The failure counter above cannot see these: run 21f25fea
+        // cycled three read-only calls for twenty-five steps at 100% validity. Cleared whenever
+        // a change lands, because a changed workspace can legitimately be re-inspected.
+        Dictionary<string, int> repeatedCalls = new(StringComparer.Ordinal);
+        int appliedChangesSeen = 0;
+        bool nudgedAboutRepeats = false;
+
         // Where the ladder last left the tree. A run that stops talking while this is red is
         // declaring victory over work that does not verify - run d18c0e57 "Completed" with
         // eleven failed builds, and the next run inherited the wreckage. The first such stop
@@ -229,6 +237,37 @@ public sealed class AgentLoop : IAgentLoop
             string? failure = IdenticalFailure(invocations);
             identicalFailures = failure is not null && failure == lastFailure ? identicalFailures + 1 : (failure is null ? 0 : 1);
             lastFailure = failure;
+
+            // The success-side twin: count verbatim repeats of calls that keep returning the
+            // same answer, resetting whenever this run applies a change.
+            int appliedChangesNow = _changes is null
+                ? 0
+                : _changes.All().Count(c =>
+                    string.Equals(c.RunId, request.RunId, StringComparison.Ordinal) &&
+                    c.Status == ChangeStatus.Applied);
+            if (appliedChangesNow > appliedChangesSeen)
+            {
+                appliedChangesSeen = appliedChangesNow;
+                repeatedCalls.Clear();
+                nudgedAboutRepeats = false;
+            }
+
+            (string Description, int Count) mostRepeated = (string.Empty, 0);
+            foreach (ToolInvocation invocation in invocations)
+            {
+                if (invocation.Status != ToolCallStatus.Succeeded)
+                {
+                    continue;
+                }
+
+                string fingerprint = DescribeCall(invocation);
+                int count = repeatedCalls.GetValueOrDefault(fingerprint) + 1;
+                repeatedCalls[fingerprint] = count;
+                if (count > mostRepeated.Count)
+                {
+                    mostRepeated = (fingerprint, count);
+                }
+            }
             messages.Add(new ChatMessage(
                 ChatRole.Tool,
                 [.. invocations.Select(i => (AIContent)new FunctionResultContent(i.CallId, i.Result))]));
@@ -283,6 +322,19 @@ public sealed class AgentLoop : IAgentLoop
                     "create_file with overwrite: true to replace the whole file, or work on something else."));
             }
 
+            // Same nudge for the success-side loop, once per stretch of no-progress: the answer
+            // will not change until the workspace does, and the model is told to act instead.
+            if (!nudgedAboutRepeats && mostRepeated.Count >= NudgeAfterIdenticalCalls)
+            {
+                nudgedAboutRepeats = true;
+                messages.Add(new ChatMessage(
+                    ChatRole.User,
+                    $"You have now made this exact call {mostRepeated.Count} times and received the identical " +
+                    $"answer each time: {mostRepeated.Description}. Asking again cannot add information - the " +
+                    "answer will not change until you change the workspace. Act on what you already know and " +
+                    "take a concrete step toward the goal, inside a writable root."));
+            }
+
             // Told once, when it starts to matter. A run that spends its last steps re-checking
             // finished work rather than finishing it is the common way a step limit is reached,
             // and the agent cannot pace itself against a ceiling it cannot see.
@@ -315,6 +367,17 @@ public sealed class AgentLoop : IAgentLoop
                 _logger.LogWarning(
                     "Run {RunId} stopped after {Count} identical tool failures: {Failure}",
                     request.RunId, identicalFailures, failure);
+                break;
+            }
+
+            if (limits.MaxIdenticalCallRepeats > 0 && mostRepeated.Count >= limits.MaxIdenticalCallRepeats)
+            {
+                stopReason = AgentStopReason.Stalled;
+                error = $"The run stalled: this call succeeded with the identical answer {mostRepeated.Count} " +
+                    $"times while nothing changed: {mostRepeated.Description}";
+                _logger.LogWarning(
+                    "Run {RunId} stalled after {Count} identical successful calls: {Call}",
+                    request.RunId, mostRepeated.Count, mostRepeated.Description);
                 break;
             }
         }
@@ -585,6 +648,25 @@ public sealed class AgentLoop : IAgentLoop
 
     /// <summary>How many identical failures pass before the model is told it is repeating itself.</summary>
     private const int NudgeAfterIdenticalFailures = 3;
+
+    /// <summary>How many identical successful repeats pass before the same telling-off.</summary>
+    private const int NudgeAfterIdenticalCalls = 3;
+
+    /// <summary>
+    /// A call as the repeat counter sees it: tool, arguments and answer, all of it. The answer
+    /// is part of the identity on purpose - the same question against a changed workspace gets
+    /// a different summary and starts a fresh count.
+    /// </summary>
+    private static string DescribeCall(ToolInvocation invocation)
+    {
+        string arguments = invocation.Arguments is null
+            ? string.Empty
+            : string.Join(", ", invocation.Arguments
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => $"{pair.Key}={pair.Value}"));
+
+        return $"{invocation.ToolName}({arguments}) => {invocation.Summary ?? invocation.ErrorMessage ?? "(no summary)"}";
+    }
 
     /// <summary>
     /// The way this step failed, when it failed one way and made no progress at all.

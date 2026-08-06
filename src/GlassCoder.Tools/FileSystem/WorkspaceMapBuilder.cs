@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using GlassCoder.Tools.Guardrails;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.FileSystem;
 
@@ -30,11 +31,13 @@ public sealed class WorkspaceMapBuilder
     private const int MaxInlineFileBytes = 16_384;
 
     private readonly IPathGuard _guard;
+    private readonly WorkspaceOptions? _options;
 
-    /// <summary>Creates the builder.</summary>
-    public WorkspaceMapBuilder(IPathGuard guard)
+    /// <summary>Creates the builder. The options carry the writable roots the map announces.</summary>
+    public WorkspaceMapBuilder(IPathGuard guard, IOptions<WorkspaceOptions>? options = null)
     {
         _guard = guard;
+        _options = options?.Value;
     }
 
     /// <summary>
@@ -81,12 +84,20 @@ public sealed class WorkspaceMapBuilder
 
         if (files.Count == 0)
         {
-            return string.Empty;
+            // An empty workspace is exactly when orientation matters most: run 21f25fea aimed
+            // its first scaffold at the unwritable root, was refused, and never recovered. The
+            // one fact that prevents that has to be on the table before the first call.
+            return ("The workspace is empty - there are no files yet. " + WritableRoots()).TrimEnd();
         }
 
         CultureInfo culture = CultureInfo.InvariantCulture;
         StringBuilder map = new();
         map.AppendLine("Workspace map, generated at run start. Inlined contents are a snapshot; your edits change them.");
+        string writable = WritableRoots();
+        if (writable.Length > 0)
+        {
+            map.AppendLine(writable);
+        }
 
         foreach ((string relative, _, long bytes) in files.OrderBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase))
         {
@@ -145,5 +156,22 @@ public sealed class WorkspaceMapBuilder
         }
 
         return map.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// The writable roots, said plainly: everything outside them is refused, and a model that
+    /// learns this from a refusal has already spent the step the sentence would have saved.
+    /// </summary>
+    private string WritableRoots()
+    {
+        if (_options is null)
+        {
+            return string.Empty;
+        }
+
+        return _options.WritablePaths.Count == 0
+            ? "No paths are writable: this run cannot create or change files."
+            : $"Writable roots: {string.Join(", ", _options.WritablePaths)}. Create files and projects inside these; " +
+              "everything else is read-only.";
     }
 }
