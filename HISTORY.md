@@ -9,6 +9,47 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (later) — The gate learns WPF, and learns to concede
+
+**Shipped.** From runs `d2b7372e` and `5c071f37` (the WPF multiply task, both dead at TokenLimit):
+the pre-write compile now reads XAML-generated partials, stands aside when it cannot, and concedes
+an argument it keeps losing the same way. 624 tests green, +13.
+
+**What the runs said.** The markup compiler declares `InitializeComponent` and every `x:Name`
+field in `obj/`, which the deny list excludes — so a *correct* WPF code-behind drew CS0103 from
+the pre-write gate every time, ten refusals in one run, while `build` kept answering green in
+between. The agent tried every reasonable variation, then shipped a window with no handler. Third
+instance of the class the analyzer already documents twice (unbuilt references, stale
+references): the approximate compile missing compiler-generated context and gating on it.
+
+**Decided**
+
+- **The gate reads the build's leavings rather than re-deriving them.** For a `UseWPF` project the
+  compile includes the newest `*.g.cs`/`*.g.i.cs` per page from `obj/` — the one narrow, read-only
+  crossing of the obj deny list, because that is where the missing declarations already sit.
+- **Missing or stale generated markup makes the whole compile inconclusive**, exactly like an
+  unbuilt reference: a page never built, or a `.xaml` newer than its partial, and the answer would
+  be about the reference set, not the code. A resource dictionary (no `x:Class`) demands nothing.
+- **After N identical refusals of one file, the gate stands aside** (`MaxIdenticalRefusals`,
+  default 3): the write lands with a warning and the build adjudicates. The WPF blind spot is
+  fixed where it lived, but the next blind spot will present identically, and its cost should be
+  capped at N steps, not at the token budget. The countdown is said in the refusal itself, so the
+  model can choose to run the build instead of trying an eleventh variation.
+- **One tracker for create_file and edit_file together, keyed per run and per file** — the failed
+  run alternated the two verbs against the same code-behind, and a per-tool count would never
+  trip. A different error set restarts the count (the model exploring is information, not a loop);
+  a landed write wipes the slate; rung 1 syntax refusals are never conceded, because a file that
+  cannot parse has no blind-spot excuse.
+
+**Open**
+
+- The concession warning tells the model to run `build` next; nothing yet *makes* the next build
+  report land with priority if it disagrees with the conceded write. Watch a live run.
+- `Directory.Build.props` inheritance is invisible to both `UseWPF` and `ImplicitUsings`
+  detection, in the same deliberately-conservative way.
+
+---
+
 ## 2026-08-06 — The day the observations learned to tell the truth
 
 **Shipped.** Seven commits (`5db383e`…`b7aa360`) from analyzing four live runs, each run exposing

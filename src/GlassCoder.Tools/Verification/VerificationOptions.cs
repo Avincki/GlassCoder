@@ -32,4 +32,17 @@ public sealed class VerificationOptions
     /// precisely because the project is broken.
     /// </summary>
     public bool RejectEditsThatBreakTheBuild { get; set; } = true;
+
+    /// <summary>
+    /// Identical compile refusals one file may draw before the gate stands aside and lets the
+    /// build tool adjudicate. Zero or less keeps refusing without limit.
+    /// <para>
+    /// Run 5c071f37 refused the same WPF code-behind ten times with the same five errors while
+    /// every build in between stayed green, and the run spent itself to the token limit. The
+    /// analyzer's blind spot that day is fixed, but the next blind spot will present the same
+    /// way - so when the same file draws the same refusal this many times, the write goes
+    /// through with a warning instead, and the authoritative gate gets the last word.
+    /// </para>
+    /// </summary>
+    public int MaxIdenticalRefusals { get; set; } = 3;
 }

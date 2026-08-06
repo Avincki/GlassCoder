@@ -220,6 +220,18 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
                 cancellationToken: cancellationToken));
         }
 
+        // WPF is the other place the SDK hides code this compilation needs: the markup compiler
+        // declares InitializeComponent and every x:Name field in obj/, which the deny list
+        // excludes. Run 5c071f37 refused one correct code-behind ten times over exactly that.
+        if (UseWpfEnabled(projectDirectory))
+        {
+            string? xamlGap = AddXamlGeneratedPartials(projectDirectory, trees, cancellationToken);
+            if (xamlGap is not null)
+            {
+                return DiagnosticReport.Inconclusive(xamlGap, Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            }
+        }
+
         (List<MetadataReference> metadata, Dictionary<string, DateTime> resolved) = References(projectDirectory);
 
         // Before trusting any diagnostic, ask whether this compilation could possibly be right.
@@ -352,6 +364,170 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Whether the project in this directory sets <c>UseWPF</c>. Read the way
+    /// <see cref="ImplicitUsingsEnabled"/> reads its flag: from the project file directly, no
+    /// MSBuild, and a value inherited from <c>Directory.Build.props</c> is not seen - which for
+    /// this flag errs toward today's behaviour, exactly like the usings.
+    /// </summary>
+    private static bool UseWpfEnabled(string projectDirectory)
+    {
+        try
+        {
+            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            {
+                string? value = XDocument.Load(project)
+                    .Descendants()
+                    .FirstOrDefault(e => e.Name.LocalName.Equals("UseWPF", StringComparison.OrdinalIgnoreCase))
+                    ?.Value
+                    .Trim();
+
+                if (value is not null)
+                {
+                    return value.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                           value.Equals("enable", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            // A missing or malformed project file is not worth failing a compile over.
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Adds the newest XAML-generated partial for every page under the project, or says why the
+    /// compile cannot be trusted without them.
+    /// <para>
+    /// The markup compiler declares <c>InitializeComponent</c> and every <c>x:Name</c> field at
+    /// build time - generated code this compilation cannot produce itself and, until a build has
+    /// run, cannot find. From run 5c071f37: a correct WPF code-behind was refused ten times over
+    /// CS0103 for exactly those names, while the build tool kept answering green in between, and
+    /// the run spent itself to the token limit and shipped a window with no handler. So a page
+    /// whose generated partial is missing or older than its markup makes the whole compile
+    /// inconclusive - the same answer an unbuilt project reference gets, for the same reason:
+    /// a gate that cannot know must not gate.
+    /// </para>
+    /// </summary>
+    private string? AddXamlGeneratedPartials(
+        string projectDirectory,
+        List<SyntaxTree> trees,
+        CancellationToken cancellationToken)
+    {
+        string objDirectory = Path.Combine(projectDirectory, "obj");
+        HashSet<string> added = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string xaml in EnumerateXamlPages(projectDirectory))
+        {
+            string? generated = NewestGeneratedPartial(objDirectory, Path.GetFileNameWithoutExtension(xaml));
+            if (generated is null)
+            {
+                return $"'{_guard.ToRelativePath(xaml)}' has no XAML-generated partial class yet - the markup " +
+                    "compiler declares InitializeComponent and the x:Name fields during build - so an " +
+                    "in-memory compile cannot see those names. Use the build tool for an authoritative answer.";
+            }
+
+            if (File.GetLastWriteTimeUtc(generated) < File.GetLastWriteTimeUtc(xaml))
+            {
+                return $"'{_guard.ToRelativePath(xaml)}' changed after its generated partial was last built, " +
+                    "so this compile would judge the edit against the old markup. Use the build tool for " +
+                    "an authoritative answer.";
+            }
+
+            if (added.Add(generated) && ParseCached(generated, cancellationToken) is { } tree)
+            {
+                trees.Add(tree);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The project's XAML pages - the .xaml files that name a code-behind class.</summary>
+    private IEnumerable<string> EnumerateXamlPages(string projectDirectory)
+    {
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(projectDirectory, "*.xaml", SearchOption.AllDirectories);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            yield break;
+        }
+
+        foreach (string file in files)
+        {
+            // The guard skips obj and bin, where the markup compiler leaves copies of the pages.
+            if (_guard.Resolve(file, PathAccess.Read).Allowed && DeclaresXamlClass(file))
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a .xaml file names a code-behind class. A resource dictionary does not, and no
+    /// partial is ever generated for it. Matched on the attribute's local name alone: a Class
+    /// attribute in a slightly wrong namespace still means the author expects a partial, and the
+    /// lenient reading errs toward standing aside rather than refusing.
+    /// </summary>
+    private static bool DeclaresXamlClass(string xamlPath)
+    {
+        try
+        {
+            return XDocument.Load(xamlPath).Root?
+                .Attributes()
+                .Any(a => a.Name.LocalName.Equals("Class", StringComparison.Ordinal)) == true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            // Malformed markup is the real build's error to report, not this rung's.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The newest generated partial for one page, wherever a configuration and target framework
+    /// put it. Newest, because obj can hold a .g.cs from the last real build and a .g.i.cs from
+    /// a design-time one, and they declare the same class.
+    /// </summary>
+    private static string? NewestGeneratedPartial(string objDirectory, string pageName)
+    {
+        if (!Directory.Exists(objDirectory))
+        {
+            return null;
+        }
+
+        string? newest = null;
+        DateTime newestWrite = DateTime.MinValue;
+        string[] patterns = [$"{pageName}.g.cs", $"{pageName}.g.i.cs"];
+
+        try
+        {
+            foreach (string pattern in patterns)
+            {
+                foreach (string file in Directory.EnumerateFiles(objDirectory, pattern, SearchOption.AllDirectories))
+                {
+                    DateTime written = File.GetLastWriteTimeUtc(file);
+                    if (written > newestWrite)
+                    {
+                        newest = file;
+                        newestWrite = written;
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return newest;
     }
 
     /// <summary>

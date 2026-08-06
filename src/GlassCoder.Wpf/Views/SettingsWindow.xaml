@@ -567,6 +567,12 @@
                 <TextBlock Style="{StaticResource Hint}"
                            Text="Pre-existing errors never block an edit - the agent is usually editing precisely because the project is broken." />
                 <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Identical refusal limit" />
+                  <TextBox Text="{Binding Settings.Verification.MaxIdenticalRefusals}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="After this many identical refusals of one file, the write goes through with a warning and the build adjudicates - the in-memory check can be blind to generated code. Zero keeps refusing without limit." />
+                <DockPanel Style="{StaticResource Field}">
                   <TextBlock Style="{StaticResource Label}" Text="Max summarised diagnostics" />
                   <TextBox Text="{Binding Settings.Verification.MaxSummarisedDiagnostics}" />
                 </DockPanel>

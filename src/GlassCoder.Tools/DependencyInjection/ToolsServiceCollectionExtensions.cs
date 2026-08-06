@@ -71,6 +71,10 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<ICodeAnalyzer>(sp => sp.GetRequiredService<RoslynCodeAnalyzer>());
         services.TryAddSingleton<DiagnosticSummarizer>();
 
+        // One tracker for create_file and edit_file together: run 5c071f37 alternated between
+        // the two against the same file, and a per-tool count would never reach its limit.
+        services.TryAddSingleton<VerificationRefusalTracker>();
+
         // Execution: a build is arbitrary code execution, so it goes through the sandbox seam.
         // The Dropbox marker rides that seam - a workspace inside Dropbox gets its build
         // output excluded from sync around every command, including folders born mid-run.

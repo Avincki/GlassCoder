@@ -124,6 +124,7 @@ public sealed class EditFileTool : IToolSet
     private readonly IChangeLog _changes;
     private readonly IApprovalGate _approval;
     private readonly VerificationOptions _options;
+    private readonly VerificationRefusalTracker _refusals;
     private readonly ILogger<EditFileTool> _logger;
 
     /// <summary>Creates the tool.</summary>
@@ -134,7 +135,8 @@ public sealed class EditFileTool : IToolSet
         IOptions<VerificationOptions> options,
         IChangeLog? changes = null,
         IApprovalGate? approval = null,
-        ILogger<EditFileTool>? logger = null)
+        ILogger<EditFileTool>? logger = null,
+        VerificationRefusalTracker? refusals = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -144,6 +146,7 @@ public sealed class EditFileTool : IToolSet
         _changes = changes ?? new ChangeLog();
         _approval = approval ?? new AutoApprovalGate(Options.Create(new ApprovalOptions()));
         _options = options.Value;
+        _refusals = refusals ?? new VerificationRefusalTracker();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EditFileTool>.Instance;
     }
 
@@ -561,12 +564,14 @@ public sealed class EditFileTool : IToolSet
         {
             // An inconclusive compile is not a failed compile. Say so and let the edit through;
             // the build tool is the authoritative gate anyway.
+            _refusals.Forget(fullPath);
             return (false, after.FailureReason ?? before.FailureReason, false);
         }
 
         IReadOnlyList<CodeDiagnostic> introduced = Introduced(before, after);
         if (introduced.Count == 0)
         {
+            _refusals.Forget(fullPath);
             return (false, null, true);
         }
 
@@ -578,7 +583,33 @@ public sealed class EditFileTool : IToolSet
         // lives, and the reference or using that reaches it (run 05e1bedb).
         string hints = SymbolHints.Describe(introduced, fullPath, _guard.RepoRoot);
 
-        return (_options.RejectEditsThatBreakTheBuild, introducedSummary.Text + hints, true);
+        if (!_options.RejectEditsThatBreakTheBuild)
+        {
+            return (false, introducedSummary.Text + hints, true);
+        }
+
+        // The loop-breaker (run 5c071f37): an in-memory check that keeps refusing the same file
+        // with the same errors may be blind to something - generated code, most likely - and it
+        // has no way to learn. Only this rung stands aside; a syntax error above is in the file
+        // itself and never a blind spot.
+        int strikes = _refusals.RecordRefusal(fullPath, VerificationRefusalTracker.FingerprintOf(introduced));
+        if (_options.MaxIdenticalRefusals > 0 && strikes > _options.MaxIdenticalRefusals)
+        {
+            _refusals.Forget(fullPath);
+            return (false,
+                $"Written despite {_options.MaxIdenticalRefusals} identical refusals: the in-memory check " +
+                "keeps reporting the same errors, which can mean it is blind to generated code rather than " +
+                "that the edit is wrong. The build tool is the authoritative gate - run it next.\n" +
+                introducedSummary.Text + hints,
+                true);
+        }
+
+        string strikeNote = _options.MaxIdenticalRefusals > 0 && strikes > 1
+            ? $"\nThis exact refusal has now happened {strikes} times. After {_options.MaxIdenticalRefusals} " +
+              "the write will be allowed and the build tool will judge it."
+            : string.Empty;
+
+        return (true, introducedSummary.Text + hints + strikeNote, true);
     }
 
     private static IReadOnlyList<CodeDiagnostic> Introduced(DiagnosticReport before, DiagnosticReport after)
