@@ -7,8 +7,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using System.Xml;
+using System.Xml.Linq;
 using GlassCoder.Core.Configuration;
 using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
@@ -145,6 +148,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly Matcher? _denied;
     private readonly IReadOnlyList<string> _writableRoots;
+    private readonly DropboxIgnoreMarker? _dropboxMarker;
     private readonly string _rootPrefix;
     private bool _isAgentRunning;
     private readonly Lock _pendingGate = new();
@@ -167,7 +171,8 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         IConfiguration configuration,
         IUserSettingsStore store,
         IDesktopShell shell,
-        Dispatcher? dispatcher = null)
+        Dispatcher? dispatcher = null,
+        DropboxIgnoreMarker? dropboxMarker = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -177,6 +182,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         _store = store;
         _shell = shell;
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
+        _dropboxMarker = dropboxMarker;
 
         RootPath = guard.RepoRoot;
         _rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath)) + Path.DirectorySeparatorChar;
@@ -197,6 +203,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         RestartCommand = new RelayCommand(_shell.Restart, () => HasPendingRoot);
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !_isLoading);
         CleanCommand = new RelayCommand(Clean, () => !_isLoading && !IsAgentRunning);
+        RunAppCommand = new RelayCommand(RunApp, () => !_isLoading && !IsAgentRunning);
         OpenFileCommand = new RelayCommand(OpenFile, CanOpenFile);
 
         (_watcher, _watchFailure) = StartWatching();
@@ -249,6 +256,9 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 
     /// <summary>Empties the writable roots, after asking, so the next run starts blank.</summary>
     public RelayCommand CleanCommand { get; }
+
+    /// <summary>Launches the workspace's application on the desktop, live and interactive.</summary>
+    public RelayCommand RunAppCommand { get; }
 
     /// <summary>Opens the double-clicked file in a read-only viewer window.</summary>
     public RelayCommand OpenFileCommand { get; }
@@ -446,6 +456,101 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
                 $"Cleaned {names}: {removed} item(s) removed, {failures.Count} could not be. {failures[0]}");
 
         _ = RefreshAsync();
+    }
+
+    /// <summary>
+    /// Launches the workspace's application on the desktop - the live check the ladder cannot
+    /// do. The rungs prove the tree compiles and its tests pass; whether the window opens and
+    /// its dialogues behave is only answerable by running it where windows exist, which is the
+    /// host desktop and never the sandbox. Detached through the shell: the app is the
+    /// operator's to drive and to close.
+    /// </summary>
+    private void RunApp()
+    {
+        List<string> applications = FindApplicationProjects();
+        if (applications.Count == 0)
+        {
+            Status = "No application to run: no project under the workspace sets OutputType Exe or WinExe.";
+            return;
+        }
+
+        // dotnet run is about to build on the host, creating bin and obj outside the sandbox
+        // seam that normally marks them - so the sweep runs here first, and the first build
+        // cannot race the sync client.
+        _dropboxMarker?.EnsureWorkspaceMarked();
+
+        string project = applications[0];
+        string name = ToRelative(project) ?? Path.GetFileName(project);
+        string? failure = _shell.LaunchApp(project);
+
+        if (failure is not null)
+        {
+            Status = $"Could not launch '{name}': {failure}";
+            return;
+        }
+
+        Status = applications.Count == 1
+            ? $"Launched {name}. dotnet run builds first, so give it a moment."
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"Launched {name}. {applications.Count - 1} other application project(s) found; the first alphabetically is the one running.");
+    }
+
+    /// <summary>
+    /// Every project under the workspace that builds an application, sorted so the choice of
+    /// which to run is deterministic. Judged by the project file's own OutputType - Exe or
+    /// WinExe - read directly, no MSBuild; a library, a test project or an unreadable file is
+    /// simply not an application. The deny globs are honoured because publish output under
+    /// bin holds copies of project files, and running a copy runs yesterday's app.
+    /// </summary>
+    private List<string> FindApplicationProjects()
+    {
+        List<string> found = [];
+
+        try
+        {
+            foreach (string project in Directory.EnumerateFiles(RootPath, "*.csproj", SearchOption.AllDirectories))
+            {
+                string full = Path.GetFullPath(project);
+                if (ToRelative(full) is not { } relative || IsDenied(relative))
+                {
+                    continue;
+                }
+
+                if (IsApplication(full))
+                {
+                    found.Add(full);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
+        {
+            // An unreadable workspace has no applications to offer; Status already reports
+            // read failures at refresh time.
+        }
+
+        found.Sort(StringComparer.OrdinalIgnoreCase);
+        return found;
+    }
+
+    private static bool IsApplication(string projectFile)
+    {
+        try
+        {
+            string? outputType = XDocument.Load(projectFile)
+                .Descendants()
+                .FirstOrDefault(e => e.Name.LocalName.Equals("OutputType", StringComparison.OrdinalIgnoreCase))
+                ?.Value
+                .Trim();
+
+            return outputType is not null &&
+                (outputType.Equals("Exe", StringComparison.OrdinalIgnoreCase) ||
+                 outputType.Equals("WinExe", StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

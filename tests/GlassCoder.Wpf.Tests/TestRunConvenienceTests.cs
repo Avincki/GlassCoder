@@ -104,6 +104,102 @@ public sealed class TestRunConvenienceTests
         testsExists.ShouldBeTrue();
     }
 
+    // ── Run app ──
+
+    [Fact]
+    public void Run_app_launches_the_application_project()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType>" +
+            "<UseWPF>true</UseWPF></PropertyGroup></Project>");
+        FakeShell shell = new();
+
+        string status = OverPane(workspace, shell, pane =>
+        {
+            pane.RunAppCommand.Execute(null);
+            return pane.Status;
+        });
+
+        shell.LaunchedProject.ShouldNotBeNull();
+        shell.LaunchedProject.ShouldEndWith("App.csproj");
+        status.ShouldContain("Launched");
+    }
+
+    [Fact]
+    public void A_workspace_of_libraries_has_nothing_to_run()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/Lib/Lib.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        FakeShell shell = new();
+
+        string status = OverPane(workspace, shell, pane =>
+        {
+            pane.RunAppCommand.Execute(null);
+            return pane.Status;
+        });
+
+        shell.LaunchedProject.ShouldBeNull("a library is not an application");
+        status.ShouldContain("No application");
+    }
+
+    [Fact]
+    public void A_project_copy_under_build_output_is_never_the_one_that_runs()
+    {
+        // Publish output under bin holds copies of project files, and running a copy runs
+        // yesterday's app.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "src/App/bin/Release/publish/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup></Project>");
+        FakeShell shell = new();
+
+        string status = OverPane(workspace, shell, pane =>
+        {
+            pane.RunAppCommand.Execute(null);
+            return pane.Status;
+        });
+
+        shell.LaunchedProject.ShouldBeNull();
+        status.ShouldContain("No application");
+    }
+
+    [Fact]
+    public void With_several_applications_the_first_alphabetically_runs_and_the_rest_are_counted()
+    {
+        using TempWorkspace workspace = new();
+        const string application =
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>";
+        workspace.WriteFile("src/Beta/Beta.csproj", application);
+        workspace.WriteFile("src/Alpha/Alpha.csproj", application);
+        FakeShell shell = new();
+
+        string status = OverPane(workspace, shell, pane =>
+        {
+            pane.RunAppCommand.Execute(null);
+            return pane.Status;
+        });
+
+        shell.LaunchedProject.ShouldNotBeNull();
+        shell.LaunchedProject.ShouldEndWith("Alpha.csproj");
+        status.ShouldContain("1 other application");
+    }
+
+    [Fact]
+    public void Run_app_stands_down_while_a_run_is_in_flight()
+    {
+        using TempWorkspace workspace = new();
+
+        bool executable = OverPane(workspace, new FakeShell(), pane =>
+        {
+            pane.IsAgentRunning = true;
+            return pane.RunAppCommand.CanExecute(null);
+        });
+
+        executable.ShouldBeFalse("a build racing the agent's own builds helps neither");
+    }
+
     // ── The last goal ──
 
     [Fact]
@@ -213,10 +309,18 @@ public sealed class TestRunConvenienceTests
 
         public string? LastQuestion { get; private set; }
 
+        public string? LaunchedProject { get; private set; }
+
         public bool Confirm(string title, string message)
         {
             LastQuestion = message;
             return Answer;
+        }
+
+        public string? LaunchApp(string projectFile)
+        {
+            LaunchedProject = projectFile;
+            return null;
         }
 
         public void OpenFolder(string path)

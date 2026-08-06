@@ -73,6 +73,19 @@ public interface IDesktopShell
     /// <param name="title">Dialog title.</param>
     /// <param name="message">What is about to be destroyed, in the operator's terms.</param>
     bool Confirm(string title, string message);
+
+    /// <summary>
+    /// Launches an application project on the desktop, detached, via <c>dotnet run</c>.
+    /// <para>
+    /// Detached and on the host on purpose: this is the live check the sandbox cannot do. A
+    /// windowed app needs a desktop for its window and a user for its dialogues, so the process
+    /// is the operator's from the moment it starts - it gets its own console for the build
+    /// output, and closing it is theirs to do, not the harness's.
+    /// </para>
+    /// </summary>
+    /// <param name="projectFile">Absolute path of the .csproj to run.</param>
+    /// <returns>Null when the launch started, else why it could not.</returns>
+    string? LaunchApp(string projectFile);
 }
 
 /// <summary>The Windows implementation of <see cref="IDesktopShell"/>.</summary>
@@ -193,6 +206,27 @@ public sealed class DesktopShell : IDesktopShell
         };
 
         return window.ShowDialog() == true ? window.Passphrase : null;
+    }
+
+    /// <inheritdoc />
+    public string? LaunchApp(string projectFile)
+    {
+        try
+        {
+            ProcessStartInfo info = new("dotnet", $"run --project \"{projectFile}\"")
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(projectFile) ?? ".",
+            };
+
+            using Process? _ = Process.Start(info);
+            return null;
+        }
+        catch (Exception ex) when (
+            ex is Win32Exception or IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return ex.Message;
+        }
     }
 
     /// <inheritdoc />

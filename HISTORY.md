@@ -9,6 +9,31 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (night, later) — The pane learns to press F5
+
+**Shipped.** A Run app button under the workspace tree: launches the workspace's application on
+the desktop via `dotnet run`, detached, live and interactive. 640 tests green, +5.
+
+**Decided**
+
+- **On the host, never the sandbox — that is the point, not a compromise.** The verification
+  ladder proves the tree compiles and its tests pass; whether the window opens and its dialogues
+  behave is only answerable where windows exist. The process is the operator's from the moment
+  it starts: its own console for build output, its windows on the real desktop, closed by the
+  human, launched through the `IDesktopShell` seam like every other `Process.Start`.
+- **An application is a csproj that says `OutputType` Exe or WinExe**, read directly like every
+  other project-file question the harness asks — no MSBuild. Libraries and test projects are
+  simply not applications; copies under `bin` (publish output) are excluded via the deny globs,
+  because running a copy runs yesterday's app. Several applications → the first alphabetically
+  runs and the status names how many others exist.
+- **The Dropbox sweep runs before the launch.** A host `dotnet run` creates bin/obj outside the
+  sandbox seam that normally pre-marks them — the exact gap the GlassCoderTest lock flakes came
+  from — so `EnsureWorkspaceMarked` fires first and the first build cannot race the sync client.
+- Disabled mid-run, like Clean and the git buttons: a host build racing the agent's own builds
+  over the same obj helps neither.
+
+---
+
 ## 2026-08-06 (night) — Two conveniences for test runs
 
 **Shipped.** The goal box remembers the last run's prompt across a restart, and the workspace

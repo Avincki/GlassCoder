@@ -49,6 +49,12 @@
       <Button DockPanel.Dock="Right" Content="Clean" Padding="10,2" Margin="6,0,0,0"
               Command="{Binding CleanCommand}"
               ToolTip="Empty the writable roots so the next run starts from a blank workspace. Asks first; there is no undo." />
+      <!-- The live check the verification ladder cannot do: a real window on the real desktop,
+           dialogues and all. Runs detached on the host - the sandbox has no desktop to show a
+           window on - and is the operator's to drive and to close. -->
+      <Button DockPanel.Dock="Right" Content="Run app" Padding="10,2" Margin="6,0,0,0"
+              Command="{Binding RunAppCommand}"
+              ToolTip="Launch the workspace's application with dotnet run - a live, interactive window on your desktop. Builds first, so give it a moment." />
       <TextBlock Foreground="{StaticResource PaneMutedForeground}" TextWrapping="Wrap"
                  VerticalAlignment="Center" Text="{Binding Status}" />
     </DockPanel>
