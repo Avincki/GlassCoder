@@ -167,6 +167,35 @@ public sealed class CriticPanelTests
         result.EstimatedCostUsd.ShouldBeGreaterThan(0m);
     }
 
+    [Fact]
+    public async Task Every_verdict_carries_the_lens_it_was_asked_to_judge_through()
+    {
+        // The lens is stamped by the panel after parsing, so a critic that writes a "lens"
+        // field into its own JSON is labelling nothing - a reviewer trusted to grade itself
+        // would be the one thing on the panel with no oracle behind it.
+        CriticPanel panel = Panel(_ => new ChatResponse(new ChatMessage(
+            ChatRole.Assistant,
+            "{\"refuted\": false, \"confidence\": 0.8, \"reason\": \"fine\", \"lens\": \"spoofed\"}")));
+
+        CritiqueResult result = await panel.CritiqueAsync("goal", "change", "evidence");
+
+        result.Votes.Select(v => v.Lens)
+            .ShouldBe(["correctness", "regression", "evidence"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task An_unreachable_critic_still_carries_its_lens()
+    {
+        // "The evidence critic could not be reached" is readable; an unlabelled non-vote is not.
+        CriticPanel panel = Panel(lens => lens.Contains(Evidence, StringComparison.Ordinal)
+            ? throw new HttpRequestException("429 Too Many Requests")
+            : Verdict(refuted: false, "fine"));
+
+        CritiqueResult result = await panel.CritiqueAsync("goal", "change", "evidence");
+
+        result.Votes.Single(v => !v.Available).Lens.ShouldBe("evidence");
+    }
+
     private static ChatResponse Verdict(bool refuted, string reason) =>
         new(new ChatMessage(
             ChatRole.Assistant,

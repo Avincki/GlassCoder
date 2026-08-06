@@ -14,6 +14,9 @@ public interface ITranscriptBus
     /// <summary>Steps recorded so far this session.</summary>
     IReadOnlyList<StepRecord> Steps { get; }
 
+    /// <summary>Reviews recorded so far this session, so a view built mid-session can replay them.</summary>
+    IReadOnlyList<ReviewRecord> Reviews { get; }
+
     /// <summary>Raised as each step is recorded.</summary>
     event EventHandler<StepRecord>? StepRecorded;
 
@@ -36,6 +39,7 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     private readonly IStepLogger _inner;
     private readonly Lock _gate = new();
     private readonly List<StepRecord> _steps = [];
+    private readonly List<ReviewRecord> _reviews = [];
     private readonly int _maxSteps;
 
     /// <summary>Wraps a durable step logger.</summary>
@@ -55,6 +59,18 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
             lock (_gate)
             {
                 return [.. _steps];
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ReviewRecord> Reviews
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _reviews];
             }
         }
     }
@@ -96,6 +112,12 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     public void LogReview(ReviewRecord record)
     {
         _inner.LogReview(record);
+
+        lock (_gate)
+        {
+            _reviews.Add(record);
+        }
+
         ReviewRecorded?.Invoke(this, record);
     }
 
@@ -105,6 +127,7 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
         lock (_gate)
         {
             _steps.Clear();
+            _reviews.Clear();
         }
     }
 }

@@ -5,11 +5,17 @@ namespace GlassCoder.Core.Diagnostics;
 /// <param name="Confidence">How sure it was, 0 to 1.</param>
 /// <param name="Reason">Why, in the critic's own words.</param>
 /// <param name="Available">Whether the critic actually judged. False is a failure to judge, not an acceptance.</param>
+/// <param name="Lens">
+/// The lens this critic was asked to judge through - correctness, regression, evidence. Stamped
+/// by the panel, never parsed from the critic's own output; three unlabelled paragraphs is not a
+/// panel anyone can read. Null on records written before the lens was carried.
+/// </param>
 public sealed record ReviewVoteRecord(
     bool Refuted,
     double Confidence,
     string Reason,
-    bool Available);
+    bool Available,
+    string? Lens = null);
 
 /// <summary>
 /// The post-run review as a transcript record (workplan task 37).

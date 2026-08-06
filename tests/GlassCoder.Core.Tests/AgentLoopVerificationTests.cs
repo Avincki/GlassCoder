@@ -490,10 +490,16 @@ public sealed class AgentLoopVerificationTests
         evidence.ShouldContain("done", customMessage: "the claim under judgment is the agent's own summary");
         role.ShouldBe("critic-remote");
 
-        // Accepted: no extra message, no extra step - but the verdict lands in the step record.
+        // Accepted: no extra message, no extra step - but the verdict lands in the step record,
+        // vote by vote, with the lens each critic judged through.
         harness.Client.Requests.Count.ShouldBe(2);
-        harness.StepLogger.Steps[1].Verification.ShouldNotBeNull()
-            .Summary.ShouldContain("accepted");
+        StepVerificationRecord record = harness.StepLogger.Steps[1].Verification.ShouldNotBeNull();
+        record.Summary.ShouldContain("accepted");
+        StepCritiqueRecord votes = record.Critique.ShouldNotBeNull();
+        votes.CriticRole.ShouldBe("critic-remote");
+        ReviewVoteRecord vote = votes.Votes.ShouldHaveSingleItem();
+        vote.Lens.ShouldBe("evidence");
+        vote.Reason.ShouldBe("The tests prove the claim.");
     }
 
     [Fact]
@@ -622,7 +628,14 @@ public sealed class AgentLoopVerificationTests
         public List<(string Goal, string Change, string Evidence, string? Role)> Requests { get; } = [];
 
         public CritiqueResult Next { get; set; } =
-            new(false, [], 0, "3/3 critics accepted the change.") { RespondingVotes = 3 };
+            new(
+                false,
+                [new CritiqueVerdict(false, 0.9, "The tests prove the claim.") { Lens = "evidence" }],
+                0,
+                "3/3 critics accepted the change.")
+            {
+                RespondingVotes = 3,
+            };
 
         public bool Enabled => true;
 
@@ -638,7 +651,9 @@ public sealed class AgentLoopVerificationTests
             CancellationToken cancellationToken = default)
         {
             Requests.Add((goal, change, evidence, role));
-            return Task.FromResult(Next);
+
+            // The real panel stamps the role it ran on; the record downstream carries it.
+            return Task.FromResult(Next with { Role = ResolveRole(role) });
         }
     }
 

@@ -40,6 +40,32 @@ public sealed record ToolCallRecord(
     string? Error,
     string? Summary = null);
 
+/// <summary>
+/// The critique panel's verdict on a step, vote by vote.
+/// <para>
+/// The tally alone hid the interesting half: run 05e1bedb's completion was accepted 2/3, and
+/// the dissenting critic's reason - the one sentence a human would actually want to read - was
+/// discarded with the votes. The panel's opinion is only reconstructable if every verdict is
+/// carried, the minority and the unreachable included, exactly as the post-run
+/// <see cref="ReviewRecord"/> already does.
+/// </para>
+/// </summary>
+/// <param name="CriticRole">The role that judged, so the transcript records which oracle spoke.</param>
+/// <param name="Refuted">Whether the panel refuted the work.</param>
+/// <param name="Inconclusive">Whether too little of the panel voted to conclude anything.</param>
+/// <param name="RefutingVotes">How many critics refuted.</param>
+/// <param name="RespondingVotes">How many critics actually judged.</param>
+/// <param name="UnavailableVotes">How many critics could not be reached.</param>
+/// <param name="Votes">Every verdict, including the minority and the critics that never arrived.</param>
+public sealed record StepCritiqueRecord(
+    string CriticRole,
+    bool Refuted,
+    bool Inconclusive,
+    int RefutingVotes,
+    int RespondingVotes,
+    int UnavailableVotes,
+    IReadOnlyList<ReviewVoteRecord> Votes);
+
 /// <summary>What one automatic verification climb concluded (workplan task 36).</summary>
 /// <param name="Passed">Whether every gating rung that ran passed.</param>
 /// <param name="HighestRungReached">The last rung that ran.</param>
@@ -53,7 +79,11 @@ public sealed record StepVerificationRecord(
     string? FailedRung,
     double DurationMs,
     string Summary,
-    decimal CritiqueCostUsd);
+    decimal CritiqueCostUsd)
+{
+    /// <summary>The panel's full verdict, when the critique spoke on this step. Null otherwise.</summary>
+    public StepCritiqueRecord? Critique { get; init; }
+}
 
 /// <summary>
 /// The per-step log schema (CLAUDE.md §9, workplan task 5).

@@ -526,7 +526,10 @@ public sealed class AgentLoop : IAgentLoop
                 report.FailedRung?.ToString(),
                 report.DurationMs,
                 report.Summary,
-                report.Critique?.EstimatedCostUsd ?? 0m),
+                report.Critique?.EstimatedCostUsd ?? 0m)
+            {
+                Critique = report.Critique is { } rungCritique ? Record(rungCritique) : null,
+            },
             message);
     }
 
@@ -616,9 +619,26 @@ public sealed class AgentLoop : IAgentLoop
                 critique.Refuted && _verification.CritiqueGates ? nameof(VerificationRung.Critique) : null,
                 Stopwatch.GetElapsedTime(start).TotalMilliseconds,
                 critique.Summary,
-                critique.EstimatedCostUsd),
+                critique.EstimatedCostUsd)
+            {
+                Critique = Record(critique),
+            },
             message);
     }
+
+    /// <summary>
+    /// The panel's verdict vote by vote, for the transcript. The tally alone hid the dissent:
+    /// run 05e1bedb was accepted 2/3 and the one refuting reason - the line a human would
+    /// actually read - was discarded with the votes.
+    /// </summary>
+    private static StepCritiqueRecord Record(CritiqueResult critique) => new(
+        critique.Role,
+        critique.Refuted,
+        critique.Inconclusive,
+        critique.RefutingVotes,
+        critique.RespondingVotes,
+        critique.UnavailableVotes,
+        [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available, v.Lens))]);
 
     private static string Cap(string text, int limit) =>
         text.Length <= limit ? text : text[..limit] + " [...]";

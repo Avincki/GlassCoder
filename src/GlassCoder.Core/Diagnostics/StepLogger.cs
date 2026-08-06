@@ -145,6 +145,37 @@ public sealed class StepLogger : IStepLogger
                     Arguments = content ? c.Arguments : null,
                 }),
             ],
+            Verification = Sanitise(record.Verification, content, max),
+        };
+    }
+
+    /// <summary>
+    /// A verification summary quotes compiler output over the agent's code, and a critique vote
+    /// quotes the diff it judged - the same redaction switch as everything else that carries
+    /// source content, exactly as <see cref="LogReview"/> already applies to its votes.
+    /// </summary>
+    private static StepVerificationRecord? Sanitise(StepVerificationRecord? verification, bool content, int max)
+    {
+        if (verification is null)
+        {
+            return null;
+        }
+
+        return verification with
+        {
+            Summary = SecretRedactor.Sanitise(verification.Summary, content, max) ?? string.Empty,
+            Critique = verification.Critique is { } critique
+                ? critique with
+                {
+                    Votes =
+                    [
+                        .. critique.Votes.Select(v => v with
+                        {
+                            Reason = SecretRedactor.Sanitise(v.Reason, content, max) ?? string.Empty,
+                        }),
+                    ],
+                }
+                : null,
         };
     }
 }

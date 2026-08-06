@@ -250,8 +250,39 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
-    /// <summary>What the critic said.</summary>
-    public string ReviewSummary => Review?.Summary ?? string.Empty;
+    /// <summary>
+    /// What the panel said - the tally line, then one line per critic. The votes were recorded
+    /// from the start (workplan task 37) and never shown; the dissenting reason in a 2/3 verdict
+    /// is precisely the line a human wants from a second opinion.
+    /// </summary>
+    public string ReviewSummary
+    {
+        get
+        {
+            if (Review is not { } review)
+            {
+                return string.Empty;
+            }
+
+            if (review.Critique is not { } critique || critique.Votes.Count == 0)
+            {
+                return review.Summary;
+            }
+
+            System.Text.StringBuilder text = new(review.Summary);
+            foreach (CritiqueVerdict vote in critique.Votes)
+            {
+                string verdict = !vote.Available ? "unreachable"
+                    : vote.Refuted ? $"REFUTED {vote.Confidence:F2}"
+                    : $"accepted {vote.Confidence:F2}";
+
+                text.AppendLine();
+                text.Append(CultureInfo.InvariantCulture, $"[{vote.Lens ?? "critic"} · {verdict}] {vote.Reason}");
+            }
+
+            return text.ToString();
+        }
+    }
 
     /// <summary>
     /// Whether there is a refutation worth acting on. The button is the only thing that starts a

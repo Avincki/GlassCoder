@@ -21,7 +21,15 @@ public sealed record CritiqueVerdict(
     [property: JsonPropertyName("refuted")] bool Refuted,
     [property: JsonPropertyName("confidence")] double Confidence,
     [property: JsonPropertyName("reason")] string Reason,
-    [property: JsonIgnore] bool Available = true);
+    [property: JsonIgnore] bool Available = true)
+{
+    /// <summary>
+    /// The lens this critic was asked to judge through. Stamped by the panel after parsing -
+    /// <see cref="JsonIgnoreAttribute"/> is what keeps a critic from labelling itself.
+    /// </summary>
+    [JsonIgnore]
+    public string? Lens { get; init; }
+}
 
 /// <summary>What a panel of critics concluded.</summary>
 /// <param name="Refuted">Whether the panel refuted the change. Always false when inconclusive.</param>
@@ -341,6 +349,10 @@ public sealed class CriticPanel : ICriticPanel
     {
         string lens = Lenses[index % Lenses.Length];
 
+        // The word before the colon - "correctness", "regression", "evidence" - is the label a
+        // verdict carries outward, so a reader knows which question each paragraph answers.
+        string lensName = lens[..lens.IndexOf(':', StringComparison.Ordinal)];
+
         // The object of refutation is the CLAIM that finished work meets its goal - a statement
         // evidence can actually establish. The earlier wording asked whether "the change is
         // correct", and against one intermediate step no evidence can establish that, so a
@@ -366,7 +378,7 @@ public sealed class CriticPanel : ICriticPanel
                 .ConfigureAwait(false);
 
             return new CriticAnswer(
-                Parse(response.Text),
+                Parse(response.Text) with { Lens = lensName },
                 response.Usage?.InputTokenCount ?? 0,
                 response.Usage?.OutputTokenCount ?? 0);
         }
@@ -376,7 +388,7 @@ public sealed class CriticPanel : ICriticPanel
             // recorded as having failed to judge, and the tally excludes it.
             _logger.LogWarning(ex, "Critic {Index} on role {Role} failed; recording it as a non-vote", index, role);
             return new CriticAnswer(
-                new CritiqueVerdict(false, 0d, $"Critic unavailable: {ex.Message}", Available: false),
+                new CritiqueVerdict(false, 0d, $"Critic unavailable: {ex.Message}", Available: false) { Lens = lensName },
                 0,
                 0);
         }

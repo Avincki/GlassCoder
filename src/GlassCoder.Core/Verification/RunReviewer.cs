@@ -224,7 +224,7 @@ public sealed class RunReviewer : IRunReviewer
             Refuted = critique.Refuted,
             Inconclusive = critique.Inconclusive,
             Summary = critique.Summary,
-            Votes = [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available))],
+            Votes = [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available, v.Lens))],
             RespondingVotes = critique.RespondingVotes,
             UnavailableVotes = critique.UnavailableVotes,
             InputTokens = critique.InputTokens,
