@@ -47,18 +47,20 @@ public sealed class AgentOptions
     public int MaxIdenticalToolFailures { get; set; } = 8;
 
     /// <summary>
-    /// How many times the same call may <em>succeed</em> with the same answer, with no change
-    /// applied in between, before the run stops as stalled.
+    /// How many consecutive stalled steps end the run - a stalled step being one where every
+    /// successful call repeats an earlier call verbatim and receives the identical answer,
+    /// with no change applied.
     /// <para>
     /// The failure limit above has a blind spot: a run cycling read-only calls never fails
     /// anything. Run 21f25fea repeated list_changes, list_projects and glob for twenty-five
-    /// steps of byte-identical answers, 100% valid, all the way to the step limit. An
-    /// identical question with an identical answer adds nothing however often it is asked.
-    /// The count resets whenever a change is applied, because a changed workspace can
-    /// legitimately be re-inspected. Zero switches the limit off.
+    /// steps of byte-identical answers, 100% valid, all the way to the step limit. The unit is
+    /// deliberately the step, not the call: a habitual status check beside a novel read is not
+    /// a stall, and neither is re-reading an unchanged file after compaction dropped it. The
+    /// count resets whenever a change is applied or anything novel is learned. Zero switches
+    /// the limit off.
     /// </para>
     /// </summary>
-    public int MaxIdenticalCallRepeats { get; set; } = 5;
+    public int MaxStalledSteps { get; set; } = 5;
 
     /// <summary>
     /// System prompt used when a run does not supply one. Context assembly (task 12) will take

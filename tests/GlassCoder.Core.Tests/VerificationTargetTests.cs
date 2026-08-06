@@ -175,7 +175,7 @@ public sealed class StepBudgetVisibilityTests
             transcript,
             TestContextAssembler.Create(),
             new RecordingMetricsRecorder(),
-            Options.Create(new AgentOptions { MaxSteps = 8, MaxIdenticalCallRepeats = 0 }));
+            Options.Create(new AgentOptions { MaxSteps = 8, MaxStalledSteps = 0 }));
 
         AgentRunResult result = await loop.RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep going" });
 

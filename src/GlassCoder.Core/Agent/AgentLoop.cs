@@ -125,25 +125,9 @@ public sealed class AgentLoop : IAgentLoop
         // budget it is warning about.
         bool warnedAboutSteps = false;
 
-        // How the last step failed, and how many steps running it has failed that same way.
-        string? lastFailure = null;
-        int identicalFailures = 0;
-
-        // Successful calls repeated verbatim - same tool, same arguments, same answer - with no
-        // change applied in between. The failure counter above cannot see these: run 21f25fea
-        // cycled three read-only calls for twenty-five steps at 100% validity. Cleared whenever
-        // a change lands, because a changed workspace can legitimately be re-inspected.
-        Dictionary<string, int> repeatedCalls = new(StringComparer.Ordinal);
-        int appliedChangesSeen = 0;
-        bool nudgedAboutRepeats = false;
-
-        // Where the ladder last left the tree. A run that stops talking while this is red is
-        // declaring victory over work that does not verify - run d18c0e57 "Completed" with
-        // eleven failed builds, and the next run inherited the wreckage. The first such stop
-        // is challenged; a second is allowed through but recorded as what it is.
-        bool lastVerificationFailed = false;
-        string? lastFailedRung = null;
-        bool completionChallenged = false;
+        // Everything about not-making-progress - repeated failures, stalled read loops, and
+        // stopping over a red tree - lives in the sentry, so the loop body stays the cycle.
+        RunProgressSentry sentry = new();
 
         while (true)
         {
@@ -197,30 +181,23 @@ public sealed class AgentLoop : IAgentLoop
 
             if (calls.Count == 0)
             {
-                if (lastVerificationFailed && !completionChallenged)
+                // Once, not every time: a model that maintains "done" over a red tree after
+                // being told is stuck, and looping the challenge would spend the rest of the
+                // budget restating it.
+                if (sentry.ChallengeCompletion() is { } challenge)
                 {
-                    // Once, not every time: a model that maintains "done" over a red tree after
-                    // being told is stuck, and looping the challenge would spend the rest of
-                    // the budget restating it.
-                    completionChallenged = true;
                     budget.CountStep();
-                    messages.Add(new ChatMessage(
-                        ChatRole.User,
-                        $"Do not stop yet: the last automatic verification FAILED at {lastFailedRung ?? "an early rung"}, " +
-                        "so the tree does not verify. Fix the reported problems and confirm with a build, or state " +
-                        "explicitly what is still broken and why it cannot be fixed in this run."));
+                    messages.Add(new ChatMessage(ChatRole.User, challenge));
                     LogStep(step with { Prompt = prompt }, messages, response, [], modelLatency, "continued", null);
                     continue;
                 }
 
                 stopReason = AgentStopReason.Completed;
                 finalText = response.Text;
-                if (lastVerificationFailed)
+                if (sentry.CompletionCaveat() is { } caveat)
                 {
-                    error = $"Completed while the last verification was still failing at {lastFailedRung ?? "an early rung"}.";
-                    _logger.LogWarning(
-                        "Run {RunId} completed with the last verification failing at {Rung}",
-                        request.RunId, lastFailedRung ?? "an early rung");
+                    error = caveat;
+                    _logger.LogWarning("Run {RunId}: {Caveat}", request.RunId, caveat);
                 }
 
                 budget.CountStep();
@@ -232,42 +209,21 @@ public sealed class AgentLoop : IAgentLoop
             List<ToolInvocation> invocations =
                 await ExecuteAsync(calls, budget, metrics, cancellationToken).ConfigureAwait(false);
 
-            // Repeating a call that cannot succeed is the one failure mode the budgets miss: the
-            // calls are valid, so tool-call validity stays at 100% while nothing moves.
-            string? failure = IdenticalFailure(invocations);
-            identicalFailures = failure is not null && failure == lastFailure ? identicalFailures + 1 : (failure is null ? 0 : 1);
-            lastFailure = failure;
+            // One snapshot of what this step changed, shared by everyone who cares: the sentry
+            // (progress is measured against it) and the verifier (it climbs over exactly this
+            // slice). Two mechanisms once kept two cursors over the same log; this is the one
+            // read per step that both derive from.
+            IReadOnlyList<CodeChange> runChanges = _changes is null
+                ? []
+                : [.. _changes.All().Where(c => string.Equals(c.RunId, request.RunId, StringComparison.Ordinal))];
+            IReadOnlyList<CodeChange> newlyApplied =
+                [.. runChanges.Skip(changesSeen).Where(c => c.Status == ChangeStatus.Applied)];
+            changesSeen = runChanges.Count;
 
-            // The success-side twin: count verbatim repeats of calls that keep returning the
-            // same answer, resetting whenever this run applies a change.
-            int appliedChangesNow = _changes is null
-                ? 0
-                : _changes.All().Count(c =>
-                    string.Equals(c.RunId, request.RunId, StringComparison.Ordinal) &&
-                    c.Status == ChangeStatus.Applied);
-            if (appliedChangesNow > appliedChangesSeen)
-            {
-                appliedChangesSeen = appliedChangesNow;
-                repeatedCalls.Clear();
-                nudgedAboutRepeats = false;
-            }
+            // Not-making-progress is the sentry's department: repeated identical failures,
+            // whole steps of verbatim repeats, and completions over a red tree.
+            sentry.ObserveStep(invocations, newlyApplied.Count > 0);
 
-            (string Description, int Count) mostRepeated = (string.Empty, 0);
-            foreach (ToolInvocation invocation in invocations)
-            {
-                if (invocation.Status != ToolCallStatus.Succeeded)
-                {
-                    continue;
-                }
-
-                string fingerprint = DescribeCall(invocation);
-                int count = repeatedCalls.GetValueOrDefault(fingerprint) + 1;
-                repeatedCalls[fingerprint] = count;
-                if (count > mostRepeated.Count)
-                {
-                    mostRepeated = (fingerprint, count);
-                }
-            }
             messages.Add(new ChatMessage(
                 ChatRole.Tool,
                 [.. invocations.Select(i => (AIContent)new FunctionResultContent(i.CallId, i.Result))]));
@@ -276,19 +232,10 @@ public sealed class AgentLoop : IAgentLoop
             // so the model learns immediately whether its change survives the cheap oracles
             // (CLAUDE.md §8, workplan task 36).
             StepVerification? verification = null;
-            if (_verifier is not null && _changes is not null && _verification.VerifyAppliedChanges)
+            if (_verifier is not null && _verification.VerifyAppliedChanges && newlyApplied.Count > 0)
             {
-                IReadOnlyList<CodeChange> runChanges =
-                    [.. _changes.All().Where(c => string.Equals(c.RunId, request.RunId, StringComparison.Ordinal))];
-                IReadOnlyList<CodeChange> applied =
-                    [.. runChanges.Skip(changesSeen).Where(c => c.Status == ChangeStatus.Applied)];
-                changesSeen = runChanges.Count;
-
-                if (applied.Count > 0)
-                {
-                    verification = await VerifyChangesAsync(request, applied, budget, metrics, cancellationToken)
-                        .ConfigureAwait(false);
-                }
+                verification = await VerifyChangesAsync(request, newlyApplied, budget, metrics, cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             if (verification is not null)
@@ -298,41 +245,21 @@ public sealed class AgentLoop : IAgentLoop
                 // corrects after a failing tool call. Rejected-at-the-gate is the write
                 // tools' job; reverting applied work is a human's.
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
-
-                lastVerificationFailed = !verification.Record.Passed;
-                lastFailedRung = verification.Record.FailedRung;
-                if (verification.Record.Passed)
-                {
-                    // A tree that went green earns back the right to be challenged if it goes
-                    // red again later.
-                    completionChallenged = false;
-                }
+                sentry.ObserveVerification(verification.Record.Passed, verification.Record.FailedRung);
             }
 
             budget.CountStep();
 
-            // Nudged well before the limit, and told what the tools can do that it has not tried.
-            // A model repeating an unsatisfiable call is usually missing an option, not stuck.
-            if (identicalFailures == NudgeAfterIdenticalFailures)
+            // Nudged well before the limits, and told what to do differently. A model repeating
+            // an unsatisfiable call is usually missing an option, not stuck.
+            if (sentry.FailureNudge() is { } failureNudge)
             {
-                messages.Add(new ChatMessage(
-                    ChatRole.User,
-                    $"That call has now failed the same way {identicalFailures} times: {failure}. Repeating it " +
-                    "will not work. Change approach - read the file again and quote from what it returns, use " +
-                    "create_file with overwrite: true to replace the whole file, or work on something else."));
+                messages.Add(new ChatMessage(ChatRole.User, failureNudge));
             }
 
-            // Same nudge for the success-side loop, once per stretch of no-progress: the answer
-            // will not change until the workspace does, and the model is told to act instead.
-            if (!nudgedAboutRepeats && mostRepeated.Count >= NudgeAfterIdenticalCalls)
+            if (sentry.StallNudge() is { } stallNudge)
             {
-                nudgedAboutRepeats = true;
-                messages.Add(new ChatMessage(
-                    ChatRole.User,
-                    $"You have now made this exact call {mostRepeated.Count} times and received the identical " +
-                    $"answer each time: {mostRepeated.Description}. Asking again cannot add information - the " +
-                    "answer will not change until you change the workspace. Act on what you already know and " +
-                    "take a concrete step toward the goal, inside a writable root."));
+                messages.Add(new ChatMessage(ChatRole.User, stallNudge));
             }
 
             // Told once, when it starts to matter. A run that spends its last steps re-checking
@@ -358,26 +285,13 @@ public sealed class AgentLoop : IAgentLoop
                 null,
                 verification?.Record);
 
-            if (limits.MaxIdenticalToolFailures > 0 && identicalFailures >= limits.MaxIdenticalToolFailures)
+            // Stopping is kinder than the alternative, which is spending the rest of a finite
+            // budget on calls whose answers will not change.
+            if (sentry.StopVerdict(limits) is { } verdict)
             {
-                // Stopping is kinder than the alternative, which is spending the rest of a
-                // finite budget on a call whose answer will not change.
-                stopReason = AgentStopReason.RepeatedToolFailure;
-                error = $"The same call failed {identicalFailures} times running: {failure}";
-                _logger.LogWarning(
-                    "Run {RunId} stopped after {Count} identical tool failures: {Failure}",
-                    request.RunId, identicalFailures, failure);
-                break;
-            }
-
-            if (limits.MaxIdenticalCallRepeats > 0 && mostRepeated.Count >= limits.MaxIdenticalCallRepeats)
-            {
-                stopReason = AgentStopReason.Stalled;
-                error = $"The run stalled: this call succeeded with the identical answer {mostRepeated.Count} " +
-                    $"times while nothing changed: {mostRepeated.Description}";
-                _logger.LogWarning(
-                    "Run {RunId} stalled after {Count} identical successful calls: {Call}",
-                    request.RunId, mostRepeated.Count, mostRepeated.Description);
+                stopReason = verdict.Reason;
+                error = verdict.Error;
+                _logger.LogWarning("Run {RunId} stopped by the progress sentry: {Error}", request.RunId, verdict.Error);
                 break;
             }
         }
@@ -645,49 +559,6 @@ public sealed class AgentLoop : IAgentLoop
             Verification = verification,
             Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
-
-    /// <summary>How many identical failures pass before the model is told it is repeating itself.</summary>
-    private const int NudgeAfterIdenticalFailures = 3;
-
-    /// <summary>How many identical successful repeats pass before the same telling-off.</summary>
-    private const int NudgeAfterIdenticalCalls = 3;
-
-    /// <summary>
-    /// A call as the repeat counter sees it: tool, arguments and answer, all of it. The answer
-    /// is part of the identity on purpose - the same question against a changed workspace gets
-    /// a different summary and starts a fresh count.
-    /// </summary>
-    private static string DescribeCall(ToolInvocation invocation)
-    {
-        string arguments = invocation.Arguments is null
-            ? string.Empty
-            : string.Join(", ", invocation.Arguments
-                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => $"{pair.Key}={pair.Value}"));
-
-        return $"{invocation.ToolName}({arguments}) => {invocation.Summary ?? invocation.ErrorMessage ?? "(no summary)"}";
-    }
-
-    /// <summary>
-    /// The way this step failed, when it failed one way and made no progress at all.
-    /// <para>
-    /// Null the moment anything succeeds, because a step that achieved something is not a step
-    /// stuck in a loop - even if one of its other calls failed.
-    /// </para>
-    /// </summary>
-    private static string? IdenticalFailure(IReadOnlyList<ToolInvocation> invocations)
-    {
-        if (invocations.Count == 0 || invocations.Any(i => i.Status == ToolCallStatus.Succeeded))
-        {
-            return null;
-        }
-
-        string? first = Key(invocations[0]);
-        return first is not null && invocations.All(i => Key(i) == first) ? first : null;
-
-        static string? Key(ToolInvocation invocation) =>
-            invocation.ErrorMessage is { } message ? $"{invocation.ToolName}: {message}" : null;
-    }
 
     private static TranscriptMessage Describe(ChatMessage message)
     {

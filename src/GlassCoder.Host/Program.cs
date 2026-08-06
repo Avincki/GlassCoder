@@ -255,8 +255,13 @@ static int ExitCodeFor(AgentStopReason reason) => reason switch
     AgentStopReason.Completed => HostExitCode.Success,
     AgentStopReason.Cancelled => HostExitCode.Cancelled,
     AgentStopReason.ModelError => HostExitCode.ModelError,
+
+    // The progress sentry's stops are limits too: the run was healthy, the harness was
+    // healthy, and a ceiling on going-nowhere was reached. Mapping them to "internal error"
+    // would send CI hunting for a harness bug that is not there.
     AgentStopReason.StepLimit or AgentStopReason.TokenLimit or AgentStopReason.TimeLimit
-        or AgentStopReason.CostLimit or AgentStopReason.ToolFailureLimit => HostExitCode.LimitExceeded,
+        or AgentStopReason.CostLimit or AgentStopReason.ToolFailureLimit
+        or AgentStopReason.RepeatedToolFailure or AgentStopReason.Stalled => HostExitCode.LimitExceeded,
     _ => HostExitCode.InternalError,
 };
 

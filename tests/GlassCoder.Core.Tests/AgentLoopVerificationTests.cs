@@ -120,7 +120,8 @@ public sealed class AgentLoopVerificationTests
     /// <summary>
     /// Run 21f25fea cycled read-only calls for twenty-five steps of byte-identical answers at
     /// 100% validity - the failure loop-breaker never armed because nothing failed. The
-    /// success-side twin: nudge at three verbatim repeats, stop as stalled at the limit.
+    /// success-side twin: a step counts as stalled only when every successful call in it
+    /// repeats an earlier one; three such steps earn a nudge, five end the run.
     /// </summary>
     [Fact]
     public async Task A_run_spinning_on_identical_successful_calls_is_nudged_then_stopped()
@@ -131,18 +132,48 @@ public sealed class AgentLoopVerificationTests
             FakeChatClient.ToolCall("echo", callId: "c3"),
             FakeChatClient.ToolCall("echo", callId: "c4"),
             FakeChatClient.ToolCall("echo", callId: "c5"),
-            FakeChatClient.ToolCall("echo", callId: "c6"));
+            FakeChatClient.ToolCall("echo", callId: "c6"),
+            FakeChatClient.ToolCall("echo", callId: "c7"));
 
         AgentRunResult result = await harness.RunAsync();
 
         result.StopReason.ShouldBe(AgentStopReason.Stalled);
         result.Error.ShouldNotBeNull();
         result.Error.ShouldContain("identical answer");
-        result.Steps.ShouldBe(5, "the default limit is five verbatim repeats");
+        result.Steps.ShouldBe(6, "the first call is novel; the five verbatim repeats after it hit the default limit");
 
-        // The nudge landed after the third repeat, in the window the model saw next.
-        harness.Client.Requests[3].Messages
+        // The nudge landed after the third stalled step, in the window the model saw next.
+        harness.Client.Requests[4].Messages
             .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("cannot add information"));
+    }
+
+    /// <summary>
+    /// The false positive the per-step rule exists to avoid: re-reading after compaction and
+    /// check-then-act rhythms interleave verbatim repeats with novel work. The bare echo here
+    /// repeats six times - a cumulative per-call count would have stopped the run - but every
+    /// repeat is followed by a step that learns something new, so the stall count keeps
+    /// resetting and the run ends at its own pace.
+    /// </summary>
+    [Fact]
+    public async Task A_repeated_call_interleaved_with_novel_work_is_not_a_stall()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("echo"),
+            FakeChatClient.ToolCall("echo", callId: "c2"),
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = "b" }, "c3"),
+            FakeChatClient.ToolCall("echo", callId: "c4"),
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = "c" }, "c5"),
+            FakeChatClient.ToolCall("echo", callId: "c6"),
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = "d" }, "c7"),
+            FakeChatClient.ToolCall("echo", callId: "c8"),
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = "e" }, "c9"),
+            FakeChatClient.ToolCall("echo", callId: "c10"),
+            FakeChatClient.Text("done"));
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.Steps.ShouldBe(11);
     }
 
     [Fact]
