@@ -504,6 +504,46 @@ public sealed class ProjectScaffoldingTests
         observation.Data.Output.ShouldContain("NU1101");
     }
 
+    /// <summary>
+    /// The wpf template is offered, and its scaffold survives. Two runs asked for 'wpf'
+    /// unprompted, were refused, and spent ~7 steps hand-converting a console project - during
+    /// which the leftover Program.cs failed three ladder climbs (runs 5c071f37, e3993510). The
+    /// scaffolded window is the app's starting skeleton, so unlike Class1.cs it must be kept.
+    /// </summary>
+    [Fact]
+    public async Task A_wpf_template_is_offered_and_its_scaffold_is_kept()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor)
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        executor.Commands[0].Arguments[0].ShouldBe("new");
+        executor.Commands[0].Arguments[1].ShouldBe("wpf");
+        observation.Summary.ShouldContain("skeleton");
+        observation.Summary.ShouldNotContain("removed");
+    }
+
+    [Fact]
+    public async Task An_unknown_template_is_refused_and_the_refusal_lists_the_desktop_pair()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor)
+            .RunAsync(DotnetProjectOperation.New, "src/App", "maui");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Hint.ShouldNotBeNull();
+        observation.Error.Hint.ShouldContain("wpf");
+        executor.Commands.ShouldBeEmpty("a refused template must not reach the SDK");
+    }
+
     private static DotnetProjectTool Tool(TempWorkspace workspace, ICommandExecutor executor) =>
         new(executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()));
 

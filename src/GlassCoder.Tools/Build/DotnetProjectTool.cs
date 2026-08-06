@@ -72,9 +72,21 @@ public sealed class DotnetProjectTool : IToolSet
     /// <summary>How many sources a formatting pass will watch for rewrites.</summary>
     private const int MaxFormattedFiles = 500;
 
-    /// <summary>Templates worth offering. Anything else is a build system this cannot vouch for.</summary>
+    /// <summary>
+    /// Templates worth offering. Anything else is a build system this cannot vouch for.
+    /// <para>
+    /// The desktop pair earned its place from two runs: asked for a WPF app, the model requested
+    /// 'wpf' unprompted both times, was refused both times, and both times spent ~7 steps
+    /// converting a console project by hand - during which the leftover Program.cs failed three
+    /// ladder climbs before being deleted (runs 5c071f37, e3993510). The SDK's own template does
+    /// all of that in one call, with the SDK's own TargetFramework.
+    /// </para>
+    /// </summary>
     private static readonly string[] KnownTemplates =
-        ["xunit", "nunit", "mstest", "classlib", "console", "web", "webapi", "worker", "blazor"];
+        ["xunit", "nunit", "mstest", "classlib", "console", "wpf", "winforms", "web", "webapi", "worker", "blazor"];
+
+    /// <summary>Templates whose scaffold is the app's starting skeleton, never a stub to delete.</summary>
+    private static readonly string[] DesktopTemplates = ["wpf", "winforms"];
 
     /// <summary>Solution formats the SDK writes, newest first - the order they are looked for.</summary>
     private static readonly string[] SolutionExtensions = [".slnx", ".sln"];
@@ -104,19 +116,19 @@ public sealed class DotnetProjectTool : IToolSet
 
     /// <summary>Creates or wires up a project.</summary>
     [GlassCoderTool(ToolName, Order = 55)]
-    [Description("Create and wire up .NET projects with the dotnet CLI rather than hand-editing a .csproj. "
-        + "A test project is normally new, then add_reference, then build.")]
+    [Description("Create and wire up .NET projects; never hand-edit a .csproj. A test project is new, "
+        + "then add_reference, then build.")]
     public async Task<ToolObservation<DotnetProjectResult>> RunAsync(
         [Description("What to do.")]
         DotnetProjectOperation operation,
-        [Description("Repo-relative target: for new, the directory to create the project in, which names it; "
-            + "otherwise the project or solution to change.")]
+        [Description("Repo-relative target in a writable root (not '.'): for new, the directory to "
+            + "create the project in, which names it; otherwise the project or solution to change.")]
         string path,
-        [Description("Template for new (xunit, classlib, console...); the project for add_reference and "
-            + "add_to_solution; the package id for add_package; optional solution name for new_solution. "
-            + "Unused otherwise.")]
+        [Description("Template for new (xunit, classlib, console, wpf, winforms...); the project for "
+            + "add_reference and add_to_solution; the package id for add_package; solution name "
+            + "for new_solution.")]
         string? argument = null,
-        [Description("Package version for add_package. Omit for the latest.")]
+        [Description("Package version for add_package; omit for latest.")]
         string? version = null,
         CancellationToken cancellationToken = default)
     {
@@ -404,6 +416,16 @@ public sealed class DotnetProjectTool : IToolSet
     {
         string directory = verdict.FullPath!;
         string created = $"Created a {template} project in '{verdict.RelativePath}'.";
+
+        // A desktop template's scaffold is the starting skeleton, not a stub: the run's work IS
+        // editing that window. Deleting it would hand every WPF task back the blank-workspace
+        // problem the template exists to solve.
+        if (DesktopTemplates.Contains(template, StringComparer.OrdinalIgnoreCase))
+        {
+            return $"{created} The scaffolded window and application files are the starting skeleton - " +
+                "edit them in place rather than re-creating them. Build next.";
+        }
+
         const string next = "Add a reference to the code under test, then build.";
 
         string? stub = template.Equals("classlib", StringComparison.OrdinalIgnoreCase)

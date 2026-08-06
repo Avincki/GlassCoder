@@ -9,6 +9,33 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (last) — The template the model kept asking for
+
+**Shipped.** From reviewing run `e3993510` (the first healthy WPF run): `dotnet_project` now
+offers `wpf` and `winforms`, and the schema says so. 642 tests green, +2.
+
+**What the run said.** The morning's fixes verified live - MainWindow.xaml.cs landed first try
+via the missing-partial inconclusive path, the critics refuted a premature "done" and got a
+tested Calculator extraction out of it, and every gate refusal was true signal. The remaining
+waste was the scaffold detour: the model asked for 'wpf' unprompted in both WPF runs, was
+refused both times, and spent ~7 steps (~20% of the run) converting a console project by hand -
+during which the template's Program.cs failed three ladder climbs before being deleted.
+
+**Decided**
+
+- **`wpf` and `winforms` join the template list**, and the argument description names them -
+  the schema is the one place the model reliably reads before its first call. The desktop
+  scaffold is a starting skeleton, never a stub: unlike Class1.cs it is kept, and the summary
+  says to edit it in place. Using the SDK's template also pins the SDK's own TargetFramework,
+  ending the model's silent net8 habit.
+- **The path description now says "in a writable root (not '.')"** - the other per-run tax,
+  paid once in the schema instead of once per run in a refused call.
+- **The schema budget was honoured, not raised.** The additions were paid for by cutting
+  rationale from the same tool's descriptions ("with the dotnet CLI rather than hand-editing"
+  became "never hand-edit"), per the budget test's own standing instruction.
+
+---
+
 ## 2026-08-06 (night, later) — The pane learns to press F5
 
 **Shipped.** A Run app button under the workspace tree: launches the workspace's application on
