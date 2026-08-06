@@ -22,6 +22,15 @@ namespace GlassCoder.Core.Agent;
 /// Memory clears whenever a change is applied, because a changed workspace can legitimately be
 /// re-inspected.
 /// </para>
+/// <para>
+/// The failure rule is per-signature, not per-consecutive-step. Run 5c071f37 interleaved every
+/// refused write with a green build or a re-read - rational checking, not noise - so a
+/// consecutive counter never reached its threshold in ten refusals. Failures are keyed by tool
+/// and the <em>first line</em> of the error, because the later lines legitimately vary between
+/// identical failures (the refusal's own strike countdown, a wobbling diagnostics total):
+/// prose that synthesis writes must never be prose that detection keys on. Counts accumulate
+/// until a change is applied - the one event that honestly resets the argument.
+/// </para>
 /// </summary>
 internal sealed class RunProgressSentry
 {
@@ -33,8 +42,9 @@ internal sealed class RunProgressSentry
 
     private readonly HashSet<string> _seenCalls = new(StringComparer.Ordinal);
 
-    private string? _lastFailure;
-    private int _identicalFailures;
+    private readonly Dictionary<string, int> _failureCounts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _nudgedFailures = new(StringComparer.Ordinal);
+    private string? _failureToNudge;
 
     private int _stalledSteps;
     private string? _lastRepeatedCall;
@@ -47,18 +57,30 @@ internal sealed class RunProgressSentry
     /// <summary>Feeds one step's tool calls and whether the step applied any change.</summary>
     public void ObserveStep(IReadOnlyList<ToolInvocation> invocations, bool changesApplied)
     {
-        string? failure = IdenticalFailure(invocations);
-        _identicalFailures = failure is not null && failure == _lastFailure
-            ? _identicalFailures + 1
-            : failure is null ? 0 : 1;
-        _lastFailure = failure;
+        _failureToNudge = null;
 
         if (changesApplied)
         {
             _seenCalls.Clear();
             _stalledSteps = 0;
             _nudgedAboutStall = false;
+            _failureCounts.Clear();
+            _nudgedFailures.Clear();
             return;
+        }
+
+        foreach (ToolInvocation invocation in invocations)
+        {
+            if (invocation.Status == ToolCallStatus.Succeeded || FailureKey(invocation) is not { } key)
+            {
+                continue;
+            }
+
+            int count = _failureCounts[key] = _failureCounts.GetValueOrDefault(key) + 1;
+            if (count == NudgeAfterIdenticalFailures && _nudgedFailures.Add(key))
+            {
+                _failureToNudge = key;
+            }
         }
 
         bool anySucceeded = false;
@@ -102,12 +124,13 @@ internal sealed class RunProgressSentry
         }
     }
 
-    /// <summary>The identical-failure nudge, exactly once per threshold crossing.</summary>
+    /// <summary>The identical-failure nudge, exactly once per failure signature.</summary>
     public string? FailureNudge() =>
-        _identicalFailures == NudgeAfterIdenticalFailures
-            ? $"That call has now failed the same way {_identicalFailures} times: {_lastFailure}. Repeating it " +
-              "will not work. Change approach - read the file again and quote from what it returns, use " +
-              "create_file with overwrite: true to replace the whole file, or work on something else."
+        _failureToNudge is not null
+            ? $"That call has now failed the same way {NudgeAfterIdenticalFailures} times, counting attempts " +
+              $"on either side of other work: {_failureToNudge}. Repeating it will not work. Change approach - " +
+              "read the file again and quote from what it returns, use create_file with overwrite: true to " +
+              "replace the whole file, or work on something else."
             : null;
 
     /// <summary>The stall nudge, once per stretch of no-progress.</summary>
@@ -131,10 +154,14 @@ internal sealed class RunProgressSentry
     /// </summary>
     public (AgentStopReason Reason, string Error)? StopVerdict(AgentOptions limits)
     {
-        if (limits.MaxIdenticalToolFailures > 0 && _identicalFailures >= limits.MaxIdenticalToolFailures)
+        if (limits.MaxIdenticalToolFailures > 0 && _failureCounts.Count > 0)
         {
-            return (AgentStopReason.RepeatedToolFailure,
-                $"The same call failed {_identicalFailures} times running: {_lastFailure}");
+            KeyValuePair<string, int> worst = _failureCounts.MaxBy(pair => pair.Value);
+            if (worst.Value >= limits.MaxIdenticalToolFailures)
+            {
+                return (AgentStopReason.RepeatedToolFailure,
+                    $"The same call failed {worst.Value} times with no change applied in between: {worst.Key}");
+            }
         }
 
         if (limits.MaxStalledSteps > 0 && _stalledSteps >= limits.MaxStalledSteps)
@@ -171,22 +198,21 @@ internal sealed class RunProgressSentry
             : null;
 
     /// <summary>
-    /// The way this step failed, when it failed one way and made no progress at all. Null the
-    /// moment anything succeeds, because a step that achieved something is not a step stuck in
-    /// a loop - even if one of its other calls failed.
+    /// A failure as the counter sees it: the tool and the first line of its error. The first
+    /// line only, because that is the stable core - the later lines legitimately vary between
+    /// identical failures (the verification refusal appends its strike countdown, and a
+    /// diagnostics total can wobble while the refusal stays the same refusal), and keying on
+    /// them made every repeat look novel.
     /// </summary>
-    private static string? IdenticalFailure(IReadOnlyList<ToolInvocation> invocations)
+    private static string? FailureKey(ToolInvocation invocation)
     {
-        if (invocations.Count == 0 || invocations.Any(i => i.Status == ToolCallStatus.Succeeded))
+        if (invocation.ErrorMessage is not { } message)
         {
             return null;
         }
 
-        string? first = Key(invocations[0]);
-        return first is not null && invocations.All(i => Key(i) == first) ? first : null;
-
-        static string? Key(ToolInvocation invocation) =>
-            invocation.ErrorMessage is { } message ? $"{invocation.ToolName}: {message}" : null;
+        int end = message.IndexOf('\n');
+        return $"{invocation.ToolName}: {(end < 0 ? message : message[..end]).TrimEnd('\r')}";
     }
 
     /// <summary>

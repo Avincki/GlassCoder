@@ -2,6 +2,7 @@ using GlassCoder.Core.Agent;
 using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Build;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
@@ -270,10 +271,11 @@ public sealed class RepeatedFailureTests
     }
 
     [Fact]
-    public async Task A_step_that_achieves_something_resets_the_count()
+    public async Task A_read_only_success_between_failures_no_longer_resets_the_count()
     {
-        // Otherwise a run that fails, recovers, and fails differently later would be stopped for
-        // a pattern it is not in.
+        // Run 5c071f37 checked a build or re-read a file between every one of ten identical
+        // refusals - rational checking, not recovery - and a consecutive counter never armed.
+        // Only an applied change resets the count now; looking around does not.
         RecordingStepLogger transcript = new();
 
         AgentRunResult result = await new AgentLoop(
@@ -281,7 +283,6 @@ public sealed class RepeatedFailureTests
                 FakeChatClient.ToolCall("boom"),
                 FakeChatClient.ToolCall("boom"),
                 FakeChatClient.ToolCall("fine"),
-                FakeChatClient.ToolCall("boom"),
                 FakeChatClient.ToolCall("boom"),
                 FakeChatClient.Text("done"))),
             new ToolRegistry([new FlakyTools()]),
@@ -291,7 +292,57 @@ public sealed class RepeatedFailureTests
             Options.Create(new AgentOptions { MaxSteps = 30, MaxIdenticalToolFailures = 3 }))
             .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "mixed" });
 
+        result.StopReason.ShouldBe(AgentStopReason.RepeatedToolFailure);
+        result.Steps.ShouldBe(4, "the interleaved read did not launder the third identical failure");
+    }
+
+    [Fact]
+    public async Task An_applied_change_resets_the_count()
+    {
+        // The one event that honestly resets the argument: the workspace moved, so the same
+        // call is no longer the same question. A run that fails, lands a change, and fails the
+        // same way afresh is exploring, not looping.
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(
+                FakeChatClient.ToolCall("boom"),
+                FakeChatClient.ToolCall("boom"),
+                FakeChatClient.ToolCall("apply"),
+                FakeChatClient.ToolCall("boom"),
+                FakeChatClient.ToolCall("boom"),
+                FakeChatClient.Text("done"))),
+            new ToolRegistry([new ChangingTools(changes)]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30, MaxIdenticalToolFailures = 3 }),
+            changes: changes)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "mixed" });
+
         result.StopReason.ShouldBe(AgentStopReason.Completed);
+    }
+
+    [Fact]
+    public async Task A_failure_whose_details_wobble_is_still_the_same_failure()
+    {
+        // The refusal now appends its strike countdown, and a diagnostics total can change while
+        // the refusal stays the same refusal - so identity is the first line, which is stable.
+        // Keying on the whole message made every repeat look novel and disarmed this limit.
+        RecordingStepLogger transcript = new();
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("wobble"))),
+            new ToolRegistry([new WobblyTools()]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30, MaxIdenticalToolFailures = 3 }))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep trying" });
+
+        result.StopReason.ShouldBe(AgentStopReason.RepeatedToolFailure);
+        result.Steps.ShouldBe(3);
     }
 
     [Fact]
@@ -325,5 +376,36 @@ public sealed class RepeatedFailureTests
         [System.ComponentModel.Description("Always succeeds, for tests.")]
         public GlassCoder.Tools.ToolObservation<string> Fine() =>
             GlassCoder.Tools.Observation.Ok("fine", "ok");
+    }
+
+    private sealed class ChangingTools(IChangeLog changes) : IToolSet
+    {
+        [GlassCoderTool("boom")]
+        [System.ComponentModel.Description("Always fails the same way, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Boom() =>
+            GlassCoder.Tools.Observation.Fail<string>(
+                "boom", GlassCoder.Tools.ToolErrorCodes.NotFound, "The text to replace was not found.");
+
+        [GlassCoderTool("apply")]
+        [System.ComponentModel.Description("Applies one change, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Apply()
+        {
+            CodeChange change = changes.Propose("src/File.cs", "apply", "before", "after");
+            changes.Update(change.Id, ChangeStatus.Applied);
+            return GlassCoder.Tools.Observation.Ok("apply", "ok");
+        }
+    }
+
+    private sealed class WobblyTools : IToolSet
+    {
+        private int _attempt;
+
+        [GlassCoderTool("wobble")]
+        [System.ComponentModel.Description("Fails the same way with varying detail lines, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Wobble() =>
+            GlassCoder.Tools.Observation.Fail<string>(
+                "wobble",
+                GlassCoder.Tools.ToolErrorCodes.VerificationFailed,
+                $"'src/A.cs' was not written: it would not compile.\nAttempt {++_attempt} detail.");
     }
 }

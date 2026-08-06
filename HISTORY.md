@@ -9,6 +9,49 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-06 (evening) — What the digest keeps, and what the sentry hears
+
+**Shipped.** The two remaining layers of the anti-loop design: the compaction digest now keeps
+outcomes, and the failure sentry now hears repetition through interleaved work. 628 tests green,
++5 net.
+
+**What prompted it.** Two findings from re-reading run 5c071f37 against the morning's fix. First:
+`DigestCompactor` read only the calls, never the results - so at the compaction horizon every ok
+flag and every refusal reason vanished, ten refused writes compacted into what read as ten
+successful ones, and "Do not repeat a call above" told the model not to retry a write that never
+landed. Second: `RunProgressSentry`'s failure counter reset on any interleaved success and keyed
+on the full error text - the run checked a build between every refusal (rational, not noise), so
+ten identical refusals never counted three consecutive - and the morning's strike countdown,
+embedded in the error message, made every repeat look novel to a detector keyed on that message.
+
+**Decided**
+
+- **The digest states outcomes, not just calls.** Each folded call is marked ✓/✗ via a new
+  non-generic `IToolObservation` view; a failure carries its error code and the first line of its
+  reason. "Do not repeat" now scopes to calls that did not fail, and a second line states the
+  inverse: calls marked ✗ changed nothing.
+- **Identical rows aggregate: ✗ create_file(…) (×10).** The count is the synthesis - it says
+  "this exact attempt keeps happening" without asking the model to notice it across a list.
+  Aggregation keys on the stable first line, so varying detail lines (a strike countdown, a
+  diagnostics total) do not defeat it.
+- **Failure identity is the first line of the error, per signature, until a change is applied.**
+  Prose that synthesis writes must never be prose that detection keys on. The sentry's counts
+  now accumulate across interleaved reads and green builds; only an applied change - the one
+  event that honestly resets the argument - clears them. `MaxIdenticalToolFailures` changes
+  meaning accordingly: "same failure N times with no change applied in between", not
+  "N times consecutively". A read-only success between failures no longer launders the count.
+
+**Open**
+
+- The nudge latches never re-arm after compaction folds a nudge away; accepted for now because
+  the digest's aggregated ✗ rows carry the same fact across the horizon.
+- A fold that cuts between a call and its result leaves that call unmarked in the digest -
+  listed, not guessed at.
+- Both new mechanisms are deterministic and cheap; whether they change run outcomes is a live
+  question for the next batch of runs, same as the concession.
+
+---
+
 ## 2026-08-06 (later) — The gate learns WPF, and learns to concede
 
 **Shipped.** From runs `d2b7372e` and `5c071f37` (the WPF multiply task, both dead at TokenLimit):

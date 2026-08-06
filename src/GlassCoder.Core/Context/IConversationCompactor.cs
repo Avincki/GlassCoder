@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using GlassCoder.Tools;
 using Microsoft.Extensions.AI;
 
 namespace GlassCoder.Core.Context;
@@ -88,30 +89,61 @@ public sealed class DigestCompactor : IConversationCompactor
         StringBuilder digest = new();
         digest.AppendLine(culture, $"[Earlier in this run, {messages.Count} messages were summarised to save context.]");
 
-        List<string> calls = [];
+        Dictionary<string, IToolObservation> outcomes = Outcomes(messages);
+
+        // One row per distinct rendering, in order of first use, with a repeat count. Ten
+        // identical refusals are one fact, not ten lines - and the count is the fact: it says
+        // "this exact attempt keeps happening" without asking the model to notice it across a
+        // list (run 5c071f37).
+        List<string> rows = [];
+        Dictionary<string, int> repeats = new(StringComparer.Ordinal);
+        bool anyFailed = false;
+        bool anyOther = false;
+
         foreach (ChatMessage message in messages)
         {
             foreach (AIContent content in message.Contents)
             {
-                if (content is FunctionCallContent call)
+                if (content is not FunctionCallContent call)
                 {
-                    string arguments = call.Arguments is { Count: > 0 }
-                        ? string.Join(", ", call.Arguments.Select(a => $"{a.Key}={Shorten(a.Value?.ToString())}"))
-                        : string.Empty;
-                    calls.Add($"{call.Name}({arguments})");
+                    continue;
+                }
+
+                IToolObservation? outcome = call.CallId is { } id ? outcomes.GetValueOrDefault(id) : null;
+                anyFailed |= outcome is { Ok: false };
+                anyOther |= outcome is not { Ok: false };
+
+                string row = Row(call, outcome);
+                if (repeats.TryGetValue(row, out int seen))
+                {
+                    repeats[row] = seen + 1;
+                }
+                else
+                {
+                    repeats[row] = 1;
+                    rows.Add(row);
                 }
             }
         }
 
-        if (calls.Count > 0)
+        if (rows.Count > 0)
         {
-            digest.AppendLine("Tools already run, in order:");
-            foreach (string call in calls)
+            digest.AppendLine("Tools already run, in order of first use (✓ succeeded, ✗ failed):");
+            foreach (string row in rows)
             {
-                digest.AppendLine(culture, $"  - {call}");
+                int count = repeats[row];
+                digest.AppendLine(count > 1 ? string.Create(culture, $"  - {row} (×{count})") : $"  - {row}");
             }
 
-            digest.AppendLine("Do not repeat a call above unless the file has changed since.");
+            if (anyOther)
+            {
+                digest.AppendLine("Do not repeat a call above unless it failed or the file has changed since.");
+            }
+
+            if (anyFailed)
+            {
+                digest.AppendLine("Calls marked ✗ changed nothing: their targets are exactly as they were.");
+            }
         }
 
         string? lastAssistantText = messages
@@ -125,6 +157,67 @@ public sealed class DigestCompactor : IConversationCompactor
         }
 
         return digest.ToString();
+    }
+
+    /// <summary>
+    /// Each call's observation, found by its id. The digest previously read only the calls,
+    /// which meant every outcome - the ok flags, the refusal reasons, the run's whole record of
+    /// what worked - vanished at the compaction horizon, and "do not repeat a call above" was
+    /// actively wrong for a refused write. The observations are still sitting in the folded
+    /// messages; this is the pass that reads them.
+    /// </summary>
+    private static Dictionary<string, IToolObservation> Outcomes(IReadOnlyList<ChatMessage> messages)
+    {
+        Dictionary<string, IToolObservation> outcomes = new(StringComparer.Ordinal);
+        foreach (ChatMessage message in messages)
+        {
+            foreach (AIContent content in message.Contents)
+            {
+                if (content is FunctionResultContent { Result: IToolObservation observation } result)
+                {
+                    outcomes[result.CallId] = observation;
+                }
+            }
+        }
+
+        return outcomes;
+    }
+
+    /// <summary>
+    /// One call as the digest states it: outcome mark, the call, and for a failure the stable
+    /// first line of its reason. A call whose result was not found - the fold can cut between a
+    /// call and its answer - is listed unmarked rather than guessed at.
+    /// </summary>
+    private static string Row(FunctionCallContent call, IToolObservation? outcome)
+    {
+        string arguments = call.Arguments is { Count: > 0 }
+            ? string.Join(", ", call.Arguments.Select(a => $"{a.Key}={Shorten(a.Value?.ToString())}"))
+            : string.Empty;
+        string rendered = $"{call.Name}({arguments})";
+
+        return outcome switch
+        {
+            null => rendered,
+            { Ok: true } => $"✓ {rendered}",
+            _ => $"✗ {rendered} — {outcome.Error?.Code ?? "failed"}: " +
+                 Shorten(FirstLine(outcome.Error?.Message ?? outcome.Summary), 120),
+        };
+    }
+
+    /// <summary>
+    /// The first line only, because it is the stable core of an error: the lines after it
+    /// legitimately vary between identical failures - a refusal's strike countdown, a wobbling
+    /// diagnostics total - and a digest that quoted them would never aggregate anything.
+    /// </summary>
+    private static string FirstLine(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        int end = text.IndexOf('\n');
+        return (end < 0 ? text : text[..end]).TrimEnd('\r');
     }
 
     private static string Shorten(string? value, int maxLength = 80)

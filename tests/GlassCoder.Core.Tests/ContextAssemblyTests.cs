@@ -1,5 +1,6 @@
 using GlassCoder.Core.Context;
 using GlassCoder.TestSupport;
+using GlassCoder.Tools;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
@@ -223,6 +224,69 @@ public sealed class ContextAssemblyTests : IDisposable
         digest.ShouldContain("read_file(path=src/Pager.cs)");
         digest.ShouldContain("grep(pattern=index)");
         digest.ShouldContain("Do not repeat a call above");
+    }
+
+    [Fact]
+    public void The_digest_keeps_each_calls_outcome_and_why_it_failed()
+    {
+        // The digest used to read only the calls, so every ok flag and refusal reason vanished
+        // at the compaction horizon - and "do not repeat a call above" applied as readily to a
+        // write that was refused ten times as to one that landed (run 5c071f37).
+        DigestCompactor compactor = new(new HeuristicTokenEstimator(Options.Create(new ContextOptions())));
+        List<ChatMessage> history =
+        [
+            new(ChatRole.System, "system"),
+            new(ChatRole.User, "goal"),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "read_file", new Dictionary<string, object?> { ["path"] = "src/Pager.cs" })]),
+            new(ChatRole.Tool, [new FunctionResultContent("c1", Observation.Ok("read_file", "content", "Read src/Pager.cs."))]),
+            new(ChatRole.Assistant, [new FunctionCallContent("c2", "create_file", new Dictionary<string, object?> { ["path"] = "src/MainWindow.xaml.cs" })]),
+            new(ChatRole.Tool, [new FunctionResultContent("c2", Observation.Fail<string>(
+                "create_file",
+                ToolErrorCodes.VerificationFailed,
+                "'src/MainWindow.xaml.cs' was not written: it would not compile.\nThis file would introduce 5 new compile error(s)."))]),
+            new(ChatRole.Assistant, new string('a', 4000)),
+            new(ChatRole.Assistant, "Recent thinking."),
+        ];
+
+        CompactionResult result = compactor.Compact(history, tokenBudget: 100, keepRecentTurns: 1);
+
+        string digest = result.Messages[2].Text!;
+        digest.ShouldContain("✓ read_file(path=src/Pager.cs)");
+        digest.ShouldContain("✗ create_file(path=src/MainWindow.xaml.cs)");
+        digest.ShouldContain("verification_failed: 'src/MainWindow.xaml.cs' was not written: it would not compile.");
+        digest.ShouldNotContain("introduce 5");   // only the stable first line of a failure belongs here
+        digest.ShouldContain("Calls marked ✗ changed nothing");
+    }
+
+    [Fact]
+    public void Identical_failures_collapse_into_one_line_that_counts_them()
+    {
+        // Ten identical refusals are one fact, not ten lines - and the count is the fact. The
+        // detail lines vary between attempts (a strike countdown, a diagnostics total), so
+        // aggregation keys on the stable first line, like every other repeat detector.
+        DigestCompactor compactor = new(new HeuristicTokenEstimator(Options.Create(new ContextOptions())));
+        List<ChatMessage> history = [new(ChatRole.System, "system"), new(ChatRole.User, "goal")];
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            history.Add(new ChatMessage(
+                ChatRole.Assistant,
+                [new FunctionCallContent($"c{attempt}", "create_file", new Dictionary<string, object?> { ["path"] = "src/A.cs" })]));
+            history.Add(new ChatMessage(
+                ChatRole.Tool,
+                [new FunctionResultContent($"c{attempt}", Observation.Fail<string>(
+                    "create_file",
+                    ToolErrorCodes.VerificationFailed,
+                    $"'src/A.cs' was not written: it would not compile.\nAttempt {attempt} detail."))]));
+        }
+
+        history.Add(new ChatMessage(ChatRole.Assistant, new string('a', 4000)));
+        history.Add(new ChatMessage(ChatRole.Assistant, "Recent thinking."));
+
+        CompactionResult result = compactor.Compact(history, tokenBudget: 100, keepRecentTurns: 1);
+
+        string digest = result.Messages[2].Text!;
+        digest.ShouldContain("(×3)");
+        digest.Split("create_file(path=src/A.cs)").Length.ShouldBe(2, "three identical refusals are one row");
     }
 
     [Fact]

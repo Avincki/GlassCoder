@@ -3,6 +3,31 @@ using System.Text.Json.Serialization;
 namespace GlassCoder.Tools;
 
 /// <summary>
+/// An observation seen without its payload type - what the harness itself reads back from a
+/// finished call.
+/// <para>
+/// The compaction digest wants exactly the outcome and none of the data, and a generic type it
+/// cannot name is a fact it cannot keep: without this view, every ok flag and every refusal
+/// reason vanished at the compaction horizon, and the digest's "do not repeat" advice applied
+/// as readily to a write that was refused ten times as to one that landed.
+/// </para>
+/// </summary>
+public interface IToolObservation
+{
+    /// <summary>Whether the tool did what was asked.</summary>
+    bool Ok { get; }
+
+    /// <summary>Name of the tool that produced this observation.</summary>
+    string Tool { get; }
+
+    /// <summary>One line the model can read without parsing the payload.</summary>
+    string? Summary { get; }
+
+    /// <summary>What went wrong. Null when <see cref="Ok"/> is true.</summary>
+    ToolError? Error { get; }
+}
+
+/// <summary>
 /// The single object every tool returns (CLAUDE.md §7).
 /// <para>
 /// Errors are observations, not exceptions. A tool that cannot do its job reports that fact in
@@ -11,7 +36,7 @@ namespace GlassCoder.Tools;
 /// </para>
 /// </summary>
 /// <typeparam name="TData">Payload type on success. Its JSON schema is generated from the type.</typeparam>
-public sealed class ToolObservation<TData>
+public sealed class ToolObservation<TData> : IToolObservation
 {
     /// <summary>Whether the tool did what was asked.</summary>
     [JsonPropertyOrder(0)]
