@@ -55,6 +55,61 @@ public sealed class TestRunConvenienceTests
     }
 
     [Fact]
+    public void A_read_only_file_deep_in_a_subfolder_does_not_stop_the_clean()
+    {
+        // Build output copies the read-only attribute in from packages, and a plain recursive
+        // delete refuses such files - which used to leave the whole subfolder standing.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/obj/App.dll", "not really a dll");
+        File.SetAttributes(
+            Path.Combine(workspace.Root, "src", "App", "obj", "App.dll"), FileAttributes.ReadOnly);
+
+        bool srcEmpty = OverPane(workspace, new FakeShell(), pane =>
+        {
+            pane.CleanCommand.Execute(null);
+            return Directory.EnumerateFileSystemEntries(Path.Combine(workspace.Root, "src")).Any() == false;
+        });
+
+        srcEmpty.ShouldBeTrue("read-only is an attribute, not an occupant");
+    }
+
+    [Fact]
+    public void One_locked_file_costs_its_own_folder_chain_and_nothing_else()
+    {
+        // The sync client's failure mode: one held handle deep in obj. The sweep must not let
+        // it protect siblings or unrelated subfolders the way Delete(recursive: true) did.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/Program.cs", "class P { }");
+        workspace.WriteFile("src/App/obj/locked.tmp", "held");
+        workspace.WriteFile("src/Other/Lib.cs", "class L { }");
+
+        string lockedPath = Path.Combine(workspace.Root, "src", "App", "obj", "locked.tmp");
+        using FileStream hold = new(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        (bool siblingGone, bool otherGone, bool lockedKept, string status) =
+            OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
+            {
+                pane.CleanCommand.Execute(null);
+
+                // The refresh that follows a clean narrates into Status too; the summary - with
+                // its honest "could not be" - has to be what survives it.
+                UiThread.Pump(dispatcher, () => pane.Status.Contains("Cleaned"), TimeSpan.FromSeconds(15))
+                    .ShouldBeTrue("the clean's summary never came back after the refresh");
+
+                return (
+                    !File.Exists(Path.Combine(workspace.Root, "src", "App", "Program.cs")),
+                    !Directory.Exists(Path.Combine(workspace.Root, "src", "Other")),
+                    File.Exists(lockedPath),
+                    pane.Status);
+            });
+
+        siblingGone.ShouldBeTrue("a sibling of a locked file is not itself locked");
+        otherGone.ShouldBeTrue("a subfolder away from the lock should never notice it");
+        lockedKept.ShouldBeTrue();
+        status.ShouldContain("could not be");
+    }
+
+    [Fact]
     public void A_declined_confirmation_deletes_nothing()
     {
         using TempWorkspace workspace = new();
@@ -251,6 +306,11 @@ public sealed class TestRunConvenienceTests
 
     /// <summary>Builds the workspace pane over the throwaway root, with the writable roots set.</summary>
     private static T OverPane<T>(TempWorkspace workspace, FakeShell shell, Func<WorkspaceViewModel, T> assert) =>
+        OverPane(workspace, shell, (_, pane) => assert(pane));
+
+    /// <summary>The same pane, with the dispatcher in hand for tests that must pump past an await.</summary>
+    private static T OverPane<T>(
+        TempWorkspace workspace, FakeShell shell, Func<Dispatcher, WorkspaceViewModel, T> assert) =>
         UiThread.Run(dispatcher =>
         {
             using ServiceProvider provider = Build(dispatcher, workspace.Root, shell, new FakeUiStateStore());
@@ -259,7 +319,7 @@ public sealed class TestRunConvenienceTests
             UiThread.Pump(dispatcher, () => pane.Loaded.IsCompleted, TimeSpan.FromSeconds(15))
                 .ShouldBeTrue("the pane never finished its first read of the workspace");
 
-            return assert(pane);
+            return assert(dispatcher, pane);
         });
 
     /// <summary>Builds the whole shell, with the agent loop stubbed so Run finishes instantly.</summary>

@@ -422,27 +422,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             {
                 // Recreated when missing, so a clean always leaves the roots the guard promises.
                 Directory.CreateDirectory(full);
-
-                foreach (FileSystemInfo entry in new DirectoryInfo(full).EnumerateFileSystemInfos())
-                {
-                    try
-                    {
-                        if (entry is DirectoryInfo directory)
-                        {
-                            directory.Delete(recursive: true);
-                        }
-                        else
-                        {
-                            entry.Delete();
-                        }
-
-                        removed++;
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                    {
-                        failures.Add($"{entry.Name}: {ex.Message}");
-                    }
-                }
+                removed += Sweep(new DirectoryInfo(full), failures);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -450,13 +430,116 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             }
         }
 
-        Status = failures.Count == 0
+        string summary = failures.Count == 0
             ? string.Create(CultureInfo.InvariantCulture, $"Cleaned {names}: {removed} item(s) removed.")
             : string.Create(CultureInfo.InvariantCulture,
                 $"Cleaned {names}: {removed} item(s) removed, {failures.Count} could not be. {failures[0]}");
+        Status = summary;
 
-        _ = RefreshAsync();
+        _ = FinishCleanAsync(summary);
     }
+
+    /// <summary>
+    /// Re-reads the tree, then puts the clean's summary back. The refresh reports its own
+    /// progress and file count into <see cref="Status"/>, which used to overwrite the one line
+    /// saying what the clean actually did - and "2 could not be" is not a line to lose. A
+    /// failed read keeps its error instead: a pane that cannot see the workspace outranks a
+    /// tidy summary.
+    /// </summary>
+    private async Task FinishCleanAsync(string summary)
+    {
+        if (await RefreshAsync().ConfigureAwait(true))
+        {
+            Status = summary;
+        }
+    }
+
+    /// <summary>
+    /// Empties a directory from the leaves up, one entry at a time, and reports how many it
+    /// removed. Bottom-up rather than <c>Delete(recursive: true)</c>, because the framework's
+    /// recursion abandons a whole subtree at the first file it cannot delete - and in a
+    /// Dropbox-synced workspace there usually is one, held for hashing or copied read-only
+    /// into build output. One stubborn file used to keep every subfolder around it alive;
+    /// swept leaf-first it costs itself and the folders directly above it, nothing more.
+    /// </summary>
+    private int Sweep(DirectoryInfo directory, List<string> failures)
+    {
+        FileSystemInfo[] entries;
+        try
+        {
+            entries = directory.GetFileSystemInfos();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failures.Add($"{Describe(directory)}: {ex.Message}");
+            return 0;
+        }
+
+        int removed = 0;
+        foreach (FileSystemInfo entry in entries)
+        {
+            if (entry is DirectoryInfo child)
+            {
+                int failuresBefore = failures.Count;
+                removed += Sweep(child, failures);
+
+                // A folder whose sweep left something behind is not empty; asking anyway
+                // would only bury the real failure under a "directory is not empty".
+                if (failures.Count == failuresBefore && TryDelete(child, failures))
+                {
+                    removed++;
+                }
+            }
+            else if (TryDelete(entry, failures))
+            {
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// Deletes one file or one emptied folder, insisting a little: read-only comes off first,
+    /// because delete refuses such files and refusing is not what their attribute means here,
+    /// and a couple of spaced retries outlast the moment a sync client holds an entry. An
+    /// entry that vanished mid-attempt was the point of the exercise, so it counts.
+    /// </summary>
+    private bool TryDelete(FileSystemInfo entry, List<string> failures)
+    {
+        const int Attempts = 3;
+
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                if ((entry.Attributes & FileAttributes.ReadOnly) != 0)
+                {
+                    entry.Attributes &= ~FileAttributes.ReadOnly;
+                }
+
+                entry.Delete();
+                return true;
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt == Attempts)
+                {
+                    failures.Add($"{Describe(entry)}: {ex.Message}");
+                    return false;
+                }
+
+                Thread.Sleep(50 * attempt);
+            }
+        }
+    }
+
+    /// <summary>The entry's workspace-relative path, so a deep failure says where it lives.</summary>
+    private string Describe(FileSystemInfo entry) => ToRelative(entry.FullName) ?? entry.Name;
 
     /// <summary>
     /// Launches the workspace's application on the desktop - the live check the ladder cannot
@@ -556,13 +639,14 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Builds the tree off the UI thread, then swaps it in and lays the session's changes over
     /// it. Errors land in <see cref="Status"/>: a workspace pane that cannot read the
-    /// workspace is a fact worth showing, not worth crashing over.
+    /// workspace is a fact worth showing, not worth crashing over. Says whether the read
+    /// completed, so a caller with news of its own knows whether Status is free to carry it.
     /// </summary>
-    private async Task RefreshAsync()
+    private async Task<bool> RefreshAsync()
     {
         if (_isLoading)
         {
-            return;
+            return false;
         }
 
         _isLoading = true;
@@ -598,10 +682,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             Status = _watchFailure is null
                 ? string.Create(CultureInfo.InvariantCulture, $"{files} file(s).")
                 : string.Create(CultureInfo.InvariantCulture, $"{files} file(s). {_watchFailure}");
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {
             Status = $"Could not read '{RootPath}': {ex.Message}";
+            return false;
         }
         finally
         {

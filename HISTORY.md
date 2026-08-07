@@ -9,6 +9,38 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-07 — Clean stops losing to a single held handle
+
+**Shipped.** From the operator's report that Clean left subfolders standing: the pane's clean
+now empties the writable roots leaf-first, and its summary survives the refresh that follows.
+647 tests green, +2.
+
+**What was found.** Clean always meant to delete subfolders - `Delete(recursive: true)` - but
+the framework's recursion abandons a whole subtree at the first file it cannot remove, and in
+a Dropbox-synced workspace there usually is one: held for hashing (GlassCoderTest's `bin`/`obj`
+are never sync-ignored), or copied read-only into build output. One stubborn file kept every
+subfolder around it alive. Worse, the refresh after a clean overwrote the status line at once,
+so "2 could not be" flashed away unread - partial cleans looked like silent refusals to delete
+folders.
+
+**Decided**
+
+- **Bottom-up, per-entry sweep.** Read-only comes off before the delete, three spaced retries
+  outlast a sync-client hold, an entry that vanishes mid-attempt counts as removed, and a
+  folder is only asked to go when its own sweep left it empty. A file that genuinely will not
+  go costs itself and the folders directly above it, nothing beside it; failures name their
+  workspace-relative path.
+- **The clean summary outlives the refresh.** `RefreshAsync` now says whether the read
+  completed, and the clean puts its summary back on success. A failed read keeps its error -
+  a pane that cannot see the workspace outranks a tidy summary.
+
+**Open**
+
+- The retries sleep on the UI thread - worst case ~150ms per stubborn entry - so a workspace
+  with many held files makes Clean noticeably sluggish before it reports.
+
+---
+
 ## 2026-08-06 (coda) — The swap the CLI kept refusing
 
 **Shipped.** From reviewing run `4b562c91` (20 steps, 123k - the template fix verified): a
