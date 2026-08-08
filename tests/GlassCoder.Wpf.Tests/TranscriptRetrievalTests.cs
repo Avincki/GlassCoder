@@ -98,6 +98,8 @@ public sealed class TranscriptRetrievalTests
 
         public void Publish(ReviewRecord review) => ReviewRecorded?.Invoke(this, review);
 
+        public int NextStepIndex(string runId) => 0;
+
         public void Clear()
         {
         }

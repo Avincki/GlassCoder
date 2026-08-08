@@ -92,13 +92,13 @@ public sealed class ChangesViewModel : ViewModelBase
     private readonly Dispatcher _dispatcher;
     private readonly GitTool? _git;
     private readonly IStepLogger? _steps;
+    private readonly ITranscriptBus? _transcript;
     private ChangeRowViewModel? _selected;
     private PendingApproval? _pending;
     private string _commitMessage = string.Empty;
     private string _gitStatus = string.Empty;
     private bool _isGitBusy;
     private bool _isAgentRunning;
-    private int _manualStep;
 
     /// <summary>Creates the view model and subscribes to the change log.</summary>
     /// <param name="changes">The per-task change log.</param>
@@ -115,12 +115,14 @@ public sealed class ChangesViewModel : ViewModelBase
         IChangeLog changes,
         Dispatcher? dispatcher = null,
         GitTool? git = null,
-        IStepLogger? steps = null)
+        IStepLogger? steps = null,
+        ITranscriptBus? transcript = null)
     {
         _changes = changes;
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
         _git = git;
         _steps = steps;
+        _transcript = transcript;
 
         foreach (CodeChange change in changes.All())
         {
@@ -323,7 +325,7 @@ public sealed class ChangesViewModel : ViewModelBase
         {
             RunId = context.RunId,
             TaskId = context.TaskId,
-            StepIndex = _manualStep++,
+            StepIndex = _transcript?.NextStepIndex(context.RunId) ?? 0,
             Role = "human",
             StartedAt = DateTimeOffset.UtcNow,
             Prompt = [],

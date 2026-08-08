@@ -122,6 +122,63 @@ public sealed class OperatorRatingTests
         call.Arguments["comment"].ShouldBe("result field is clipped at the bottom");
     }
 
+    /// <summary>
+    /// A human step is numbered one past whatever the run reached, which is what the post-run
+    /// review row already does. Both callers used to count from zero of their own, so a rating
+    /// given after step 25 was logged as step 0 and sat in the transcript's # column claiming to
+    /// be the first thing that happened.
+    /// </summary>
+    [Fact]
+    public void A_rating_is_numbered_after_the_run_it_judges()
+    {
+        using TempWorkspace workspace = new();
+        WriteApp(workspace);
+        FakeShell shell = new();
+
+        TranscriptBus bus = new(new RecordingStepLogger());
+        RunContext.Set(new RunContext("run-1", "task-1"));
+        try
+        {
+            for (int index = 0; index <= 25; index++)
+            {
+                bus.LogStep(Step("run-1", index));
+            }
+
+            // Another run's steps must not push this one's numbering along.
+            bus.LogStep(Step("run-2", 99));
+
+            OverPane(workspace, shell, bus, (dispatcher, pane) =>
+            {
+                pane.RunAppCommand.Execute(null);
+                CloseApp(dispatcher, pane, shell);
+                pane.AppRating = 5;
+                pane.SubmitRatingCommand.Execute(null);
+                return 0;
+            });
+
+            StepRecord rating = bus.Steps.Single(s => s.Role == "human");
+            rating.StepIndex.ShouldBe(26, "one past the run's last step");
+        }
+        finally
+        {
+            RunContext.Clear();
+        }
+    }
+
+    private static StepRecord Step(string runId, int index) => new()
+    {
+        RunId = runId,
+        TaskId = "task-1",
+        StepIndex = index,
+        Role = "worker",
+        StartedAt = DateTimeOffset.UnixEpoch,
+        Prompt = [],
+        ToolCalls = [],
+        ModelLatencyMs = 1,
+        StepLatencyMs = 1,
+        Outcome = "ok",
+    };
+
     /// <summary>A comment nobody wrote is absent rather than empty, so a reader can tell.</summary>
     [Fact]
     public void An_unwritten_comment_is_null_rather_than_blank()
@@ -214,6 +271,10 @@ public sealed class OperatorRatingTests
             services.AddGlassCoderDesktop(dispatcher);
             services.AddSingleton<IDesktopShell>(shell);
             services.AddSingleton(steps);
+            if (steps is ITranscriptBus bus)
+            {
+                services.AddSingleton(bus);
+            }
 
             using ServiceProvider provider = services.BuildServiceProvider();
             WorkspaceViewModel pane = provider.GetRequiredService<WorkspaceViewModel>();

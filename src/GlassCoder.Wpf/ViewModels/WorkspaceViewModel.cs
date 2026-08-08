@@ -169,7 +169,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private string? _runId;
     private string? _ratedRunId;
     private readonly IStepLogger? _steps;
-    private int _manualStep;
+    private readonly ITranscriptBus? _transcript;
     private bool _isRatingApp;
     private int? _appRating;
     private string _appComment = string.Empty;
@@ -188,7 +188,8 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         IDesktopShell shell,
         Dispatcher? dispatcher = null,
         DropboxIgnoreMarker? dropboxMarker = null,
-        IStepLogger? steps = null)
+        IStepLogger? steps = null,
+        ITranscriptBus? transcript = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -200,6 +201,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
         _dropboxMarker = dropboxMarker;
         _steps = steps;
+        _transcript = transcript;
 
         RootPath = guard.RepoRoot;
         _rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath)) + Path.DirectorySeparatorChar;
@@ -742,12 +744,16 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         }
 
         string comment = (AppComment ?? string.Empty).Trim();
+        string rated = _ratedRunId ?? RunContext.Current.RunId;
 
         _steps?.LogStep(new StepRecord
         {
-            RunId = _ratedRunId ?? RunContext.Current.RunId,
+            RunId = rated,
             TaskId = RunContext.Current.TaskId,
-            StepIndex = _manualStep++,
+
+            // One past whatever the run reached, which is what the post-run review row already
+            // does. The caller cannot know that number; the bus saw every step.
+            StepIndex = _transcript?.NextStepIndex(rated) ?? 0,
             Role = "human",
             StartedAt = DateTimeOffset.UtcNow,
             Prompt = [],

@@ -26,6 +26,21 @@ public interface ITranscriptBus
     /// <summary>Raised when a finished run's second opinion is recorded (workplan task 37).</summary>
     event EventHandler<ReviewRecord>? ReviewRecorded;
 
+    /// <summary>
+    /// The index a step recorded <em>outside</em> the loop should carry: one past the highest
+    /// this run has reached (workplan task 65).
+    /// <para>
+    /// A human action - a manual commit, a push, an operator's rating - is a step the loop
+    /// never numbered, and its caller has no way to know what the run got to. Both callers
+    /// counted from zero instead, so a rating given after step 25 was logged as step 0 and sat
+    /// in the transcript's <c>#</c> column claiming to be the first thing that happened. The
+    /// answer lives here because this is the object that saw every step; it is the same
+    /// convention <c>StepRowViewModel.ForReview</c> already uses for the post-run review.
+    /// </para>
+    /// </summary>
+    /// <param name="runId">The run the action belongs to, or the no-run placeholder.</param>
+    int NextStepIndex(string runId);
+
     /// <summary>Drops everything held, for the start of a new session.</summary>
     void Clear();
 }
@@ -72,6 +87,41 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
             {
                 return [.. _reviews];
             }
+        }
+    }
+
+    /// <inheritdoc />
+    public int NextStepIndex(string runId)
+    {
+        ArgumentNullException.ThrowIfNull(runId);
+
+        lock (_gate)
+        {
+            int highest = -1;
+            int reviews = 0;
+
+            foreach (StepRecord step in _steps)
+            {
+                if (string.Equals(step.RunId, runId, StringComparison.Ordinal) && step.StepIndex > highest)
+                {
+                    highest = step.StepIndex;
+                }
+            }
+
+            foreach (ReviewRecord review in _reviews)
+            {
+                if (string.Equals(review.RunId, runId, StringComparison.Ordinal))
+                {
+                    reviews++;
+                }
+            }
+
+            // Reviews are counted although they are not steps, because the transcript numbers
+            // each one "one past the run's last step" and a review is not in _steps to push this
+            // along. Without the term, a run that ended at step 18 gave its review row 19 and
+            // then handed 19 to the operator's rating as well - two rows claiming one number.
+            // A gap is harmless where a collision is not, so this errs upward.
+            return highest + 1 + reviews;
         }
     }
 
