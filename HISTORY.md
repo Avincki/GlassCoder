@@ -9,6 +9,56 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (last) — The tool list moves to where it can say what a tool is for
+
+**Shipped.** Workplan task 64, done ahead of the retrieval branch because that branch adds tool
+sets behind switches and this is the surface that has to say which ones a session registered.
+`ToolCatalog` in `GlassCoder.Tools` lists every tool the build knows about — nineteen, thirteen
+active on a default install — and About renders them with their purpose, dimming the six the
+configuration switched off and naming the setting that brings each back. The status bar opens at
+"Ready." and says nothing about tools. 710 tests green, +11.
+
+Also written this session: workplan tasks 54-63, the gated MCP retrieval track, which reopens
+task 53.
+
+**Decided**
+
+- **The registry cannot answer "what could this do".** A disabled tool set is never registered
+  *and never constructed* — with `Git:Enabled` false, `AddGitTools` is not called, `GitTool` is
+  not in the container, and there is no `AIFunction` to read a description from. That is the
+  right design and it stays: gating registration rather than execution is what keeps a
+  switched-off tool out of the model's schema entirely. So the catalogue reflects over **types**,
+  not instances — no construction, no dependencies, keyed on the same `[GlassCoderTool]`
+  attribute `ToolFunctionFactory` uses, so a tool added later cannot go missing from it.
+- **One description, two routes to it.** The live `AIFunction.Description` when the tool is
+  registered — literally what was sent — and the `[Description]` attribute when it is not, which
+  is the string that would be sent. A test asserts they agree wherever both exist, so the two
+  paths cannot drift; and there is no third set of prose written for humans, which would have
+  been a third place to keep correct and the first to go stale. It makes About a review surface
+  for the prompt as a side effect: a description that reads badly to a person reads badly to the
+  model too.
+- **An inactive row names its switch**, built from `GitOptions.SectionName` and
+  `SandboxOptions.SectionName` with `nameof` — the same constants the registration reads, so the
+  setting a row names and the setting that gates it cannot disagree. "Inactive" alone invites
+  "how do I turn it on", which is the reasoning the operator guide's *defaults that refuse*
+  already follows.
+- **A tool no path registers is a defect, not a switch-off**, and it fails a test rather than
+  waiting to be noticed in a window. `ModelContextProtocol` sat pinned and referenced by nothing
+  for the life of the project; that shape of dormancy is worth a build break.
+- **Active MCP tools will need no change here.** The sweep ends by adding any registered function
+  no attributed method declares, which is exactly what a server-adapted tool is, so `learn_search`
+  joins the list the day task 57 registers it. Only an *inactive* retrieval tool needs a second
+  source, and `RetrievalOptions` does not exist yet.
+
+**Open**
+
+- The schema size on each active row is the generated figure, not what reaches the wire — the
+  client re-serialises indented and it arrives about a third larger. Said plainly in the code
+  because the number invites comparison with `PromptBudgetTests`, which measures at the socket.
+  Task 58 is where the two are reconciled.
+
+---
+
 ## 2026-08-08 (late) — The screen is the one oracle the harness does not have
 
 **Shipped.** From runs `ea9a1f66` and `216360bf` and the ui-layout external review, critically

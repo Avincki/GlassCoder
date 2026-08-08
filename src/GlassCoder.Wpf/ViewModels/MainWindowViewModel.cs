@@ -25,7 +25,6 @@ namespace GlassCoder.Wpf.ViewModels;
 public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly IAgentLoop _loop;
-    private readonly IToolRegistry _tools;
     private readonly ISettingsDialog _settings;
     private readonly IAboutDialog _about;
     private readonly ICriticPanel _critics;
@@ -49,7 +48,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>Creates the shell.</summary>
     public MainWindowViewModel(
         IAgentLoop loop,
-        IToolRegistry tools,
         TranscriptViewModel transcript,
         ChangesViewModel changes,
         MetricsViewModel metrics,
@@ -65,7 +63,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ArgumentNullException.ThrowIfNull(critique);
 
         _loop = loop;
-        _tools = tools;
         _settings = settings;
         _about = about;
         _critics = critics;
@@ -101,8 +98,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ExtendLimitCommand = new RelayCommand(() => ResolveLimit(true), () => HasLimitPrompt);
         StopAtLimitCommand = new RelayCommand(() => ResolveLimit(false), () => HasLimitPrompt);
 
-        Status = string.Create(CultureInfo.InvariantCulture,
-            $"Ready. {_tools.Functions.Count} tools: {string.Join(", ", ToolNames)}");
+        // Status opens at "Ready." and nothing more. It used to open with the whole tool list,
+        // which wrapped to two lines of a one-line surface and was gone the moment anything
+        // happened - a startup banner squatting on the space reserved for run state. The
+        // inventory lives in About now, where it can say what each tool is for and which ones
+        // this configuration switched off (workplan task 64).
     }
 
     /// <summary>The live transcript surface.</summary>
@@ -119,21 +119,6 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     /// <summary>Names of the surfaces, for the navigation list.</summary>
     public IReadOnlyList<string> Surfaces { get; } = ["Transcript", "Changes", "Metrics"];
-
-    /// <summary>Tool names, as advertised to the model.</summary>
-    public IReadOnlyList<string> ToolNames
-    {
-        get
-        {
-            List<string> names = [];
-            foreach (Microsoft.Extensions.AI.AIFunction function in _tools.Functions)
-            {
-                names.Add(function.Name);
-            }
-
-            return names;
-        }
-    }
 
     /// <summary>Which surface is selected.</summary>
     public string SelectedSurface

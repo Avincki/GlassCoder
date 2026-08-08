@@ -518,3 +518,218 @@ Acceptance: an agent can check a package version and an API shape, and the same 
 Two reasons for the order. The measured one: a tool costs ~300 tokens of schema on every request, and nothing in the three transcripts analysed so far shows a run failing on a package version — the failures were line endings, a missing solution, and a tool that could not scaffold. Building for a hallucination that has not been observed is how a tool list gets to fifty. The structural one: the hermetic requirement is not negotiable, and record/replay is most of the work. Shipping `nuget_info` live "for now" would put a network call inside the loop and quietly break the Lab's ablations, which is precisely the failure this task was written to avoid.
 
 The narrow slice belongs on `dotnet_project` when it comes — it is an SDK question, and that tool already owns the guard, the change log and the cache invalidation.
+
+**Reopened as tasks 54-63.** Both reasons above were answered rather than waived: the schema rent is not a cost on this hardware, and the switches make retrieval an experiment rather than a commitment. The reasoning is in task 54.
+
+## 54. Retrieval, reopened: what the SDK and the two servers actually cost
+
+- [ ] **Estimated time:** 0.5d
+
+Task 53 decided against building this, and this reverses that decision. Both of its reasons have been answered rather than waived.
+
+The **structural** reason stands and is honoured: hermeticity is not negotiable, record/replay is most of the work, and it is built first here (task 56) rather than promised as hardening afterwards. The **measured** reason no longer holds. It rested on schema rent — "a tool costs ~300 tokens of schema on every request" — and on this serving layout tokens have no price: the worker's `InputCostPerMillionTokens` and `OutputCostPerMillionTokens` are both `0.0`, and the Spark serves it at `--max-model-len 131072`, against which the entire advertised tool block is 2.7% of the window. Nothing is scarce that the rent argument was protecting.
+
+The priority argument is also spent. Three run reviews deferred this on the grounds that the bottleneck was harness thrash rather than external knowledge; those fixes shipped, and run `17f5fa36` finished the desktop goal in 20 steps and 135k tokens — the cheapest of that goal's nine runs, against `216360bf`'s 641k. What is left is a genuine open question, and the way this repository answers open questions is an arm, not an argument.
+
+What makes it an arm is one switch per server. `Retrieval:Learn:Enabled` and `Retrieval:GitHub:Enabled` move independently under a master `Retrieval:Enabled`, exactly as `Git:Enabled` and `Sandbox:EnableBashTool` already do, so "does Microsoft Learn help" and "does public code search help" are two separate questions with two separate numbers — and each can be asked with the tools *registered but answering nothing*, which is the only way to separate the cost of having a tool from the value of its replies.
+
+This first task builds nothing. It measures, because the numbers decide the shape of tasks 57 and 58.
+
+- [ ] `ModelContextProtocol` 1.4.1 has been pinned in `Directory.Packages.props` since the beginning, is referenced by no project, and **has never been restored** — it is not in the local NuGet cache. Restore it in a throwaway project first.
+- [ ] Confirm `McpClientTool` derives from `AIFunction`. The whole adapter design rests on it: `ToolRegistry` already has an `IReadOnlyList<AIFunction>` constructor, so if the SDK's tools are `AIFunction`s there is a seam and no redesign. If they are not, decide the wrapper before task 57 is written rather than during it.
+- [ ] Connect to Microsoft Learn and to GitHub by hand and record, verbatim, every advertised tool: its name, its parameter schema and its server-authored description, with character counts. Endpoints, auth and toolset surfaces drift between releases (CLAUDE.md §19) — verify them here rather than trusting anything written down in this file.
+- [ ] The deliverable is a table of numbers, not code. It decides how many tools task 57 registers and whether task 58 has anything left to do.
+
+Acceptance: the SDK restores, the adapter question is answered yes or no in writing, and the character cost of every candidate tool is known before one is registered. Depends on task 7.
+
+## 55. Retrieval options and the invocation policy, with no network at all
+
+- [ ] **Estimated time:** 1d
+
+Two levels of switch, because they answer different questions. The master is a kill switch — off means the subsystem does not exist. The per-server flags are the levers an arm moves. `GitOptions` is the shape to copy: a record bound with `AddOptions<T>().Bind(...).ValidateOnStart()`, read at registration time.
+
+```jsonc
+"Retrieval": {
+  "Enabled": false,          // master: nothing is registered, nothing is constructed
+  "Mode": "Replay",          // orthogonal to which server is on - see task 56
+  "MaxCallsPerRun": 3,
+  "MaxResultChars": 3000,
+  "AllowProactive": false,
+  "MaxCallsWithoutAppliedChange": 2,
+  "CacheDirectory": "",      // empty resolves under AppPaths
+  "Learn":  { "Enabled": false, "Endpoint": "…", "Tools": [ "learn_search", "learn_fetch" ] },
+  "GitHub": { "Enabled": false, "ReadOnly": true, "Tools": [ "gh_symbol_exists" ],
+              "ApiKeyEnvironmentVariable": "GLASSCODER_GITHUB_TOKEN" }
+}
+```
+
+- [ ] The per-server `Tools` allow-list is itself a lever. A server's advertised surface is designed for a general agent, not a C# repair loop, and there is no obligation to expose all of it — this makes the registered surface a configured, measurable quantity rather than whatever the server happens to offer.
+- [ ] `IRetrievalPolicy.TryAdmit(context, toolName, arguments, out denial)`, checked in order: server enabled, calls this run under `MaxCallsPerRun`, result budget remaining, a required signal present unless `AllowProactive`, and not more than `MaxCallsWithoutAppliedChange` retrievals since the last applied change. That last one is the anti-search-loop counter, and it exists because three transcripts show this model answering a refutation by calling optional tools rather than fixing anything — `f4ed50e0` added FlaUI and Moq without writing a test that used them.
+- [ ] New `ToolErrorCodes`: `retrieval_disabled`, `retrieval_not_indicated`, `retrieval_budget_exhausted`, `retrieval_cache_miss`, `upstream_unavailable`. Metrics group by these, so they are stable from the first commit.
+- [ ] **A denial is an observation with `OutcomeOk` false**, so `RunProgressSentry` counts it. The wire-shadow mechanism that carries that flag already exists; a refusal the progress machinery cannot see is how run `4b562c91` sent the same misshapen call five times.
+- [ ] Do not rely on the system prompt to hold this. "Only call when needed" is advice; `IRetrievalPolicy` is a mechanism, and the difference is the lesson of every alias and stall counter in this file.
+- [ ] Tests are a registration matrix: master off registers nothing whatever the per-server flags say; Learn on and GitHub off registers exactly the Learn names; both on registers both sets. Plus budget exhaustion, the not-indicated refusal, and the anti-loop counter resetting on an applied change.
+
+Acceptance: the options bind and validate, the policy refuses for each reason with its own code, and no line of this task opens a socket. Depends on tasks 7, 8.
+
+## 56. The cache: Live, Record, Replay — and Replay is what the Lab runs
+
+- [ ] **Estimated time:** 1.5d
+
+Built before the client, on purpose: the client's only route upstream goes through this, so there is never a version of the code where a network call can happen outside it. `TaskSuiteDefinition` states the property at stake — "every run starts from a byte-identical repository, which is what makes two ablation arms comparable at all" — and a live search result is byte-identical to nothing. Results change between Tuesday and Thursday; an article is revised; GitHub throttles the fourth arm into a different shape from the first.
+
+| Mode | Network | Cache write | On a miss |
+|---|---|---|---|
+| `Live` | yes | optional | n/a |
+| `Record` | yes | always | n/a |
+| `Replay` | **never** | no | **hard failure** |
+
+- [ ] `IRetrievalCache` on disk under `AppPaths`, keyed on `hash(server, tool, normalisedArguments)` — trimmed, case-folded type names, collapsed whitespace — with the request, the response and a recorded-at stamp in each entry.
+- [ ] **A Replay miss returns `retrieval_cache_miss` and never falls back to the network.** A cache that quietly reaches out on a miss gives non-reproducible runs *and* the belief that they are reproducible, which is worse than having no cache.
+- [ ] The mode is orthogonal to which server is switched on. `Learn:Enabled` with `Mode: Live` is still a non-reproducible arm, so `suite` and `ablate` pin Replay regardless of the rest of the configuration.
+- [ ] The corpus is an artifact: exportable, and reusable by a run on another machine, or the arms are not comparable across machines either.
+
+Acceptance: two Replay runs of the same arm days apart produce byte-identical retrieval observations; a cold cache in Replay fails loudly and reaches no network; a Record run writes what a later Replay serves. Depends on task 55.
+
+## 57. The MCP client host, and one switch per server
+
+- [ ] **Estimated time:** 2d
+
+`McpToolHost` connects each enabled server at startup, lists its tools, keeps the ones the `Tools` allow-list names, and wraps each in an `AIFunction` registered through the seam `ToolRegistry` already has. Learn is wired first and GitHub second; what depends on evidence is not whether GitHub gets built but whether it stays on, which task 61 answers.
+
+- [ ] **The switch gates registration, not execution.** A tool that is present in the schema and refuses when called has measured nothing: the model still sees it, still weighs it during selection, and `learn-tools-only` becomes indistinguishable from `with-learn`. Disabled means absent from `IToolRegistry.Functions`, exactly as the git tools are today.
+- [ ] The name and the description are **ours**, not the server's. A server-authored description is prompt written by someone optimising for a different agent, and it goes straight into the model's context on every request. Namespace on registration (`learn_*`, `gh_*`) so the transcript's tool filter keeps working when two servers both want to be called `search`.
+- [ ] Every adapted tool passes `ToolFunctionFactory.ValidateSchema` at startup. §7's invariant — the schema is generated from the executor, so they cannot drift — genuinely weakens to "trust the server" here, and there is no way to keep it fully. What can be kept is refusing a bad tool loudly at startup rather than discovering it mid-run.
+- [ ] Every call goes policy first, then cache, then truncation to `MaxResultChars`. A dead server, a timeout or a 429 comes back as `upstream_unavailable`; nothing throws into the loop.
+- [ ] Sessions and any server process die with the run, including when it is cancelled.
+- [ ] Tests against a fake MCP server: an unreachable server produces a failed observation and a continuing run, a server advertising an unusable schema is refused at startup, cancellation tears the session down, and truncation reports that it truncated.
+
+Acceptance: with Learn enabled the model is offered exactly the allow-listed Learn tools under our names; with it disabled they are absent from the registry; an unreachable server never ends a run. Depends on tasks 54, 55, 56.
+
+## 58. Make the schema budget measure the right thing
+
+- [ ] **Estimated time:** 0.5d
+
+`PromptBudgetTests` asserts 14,000 characters and the current measurement is **13,980** — twenty characters of headroom, which would fail the build on the first MCP tool. Three separate problems are wearing that one number, and none of them is the one the test was written to catch.
+
+**It measures a configuration nobody runs.** The assertion is made with `git: true`. The operator's live settings have `Git:Enabled` false — set deliberately for the measurement phase — so a live desktop run advertises thirteen tools at **11,562** characters, 2,438 under the ceiling. A single number standing in for the union of every optional tool set is a worst case, not a budget.
+
+**Nearly a quarter of it is indentation nobody chose.** Minified, the same eighteen tools are **10,729** characters: 3,251 of the 13,980 are whitespace, 23.3%. `ToolFunctionFactory.SerializerOptions` already sets `WriteIndented = false` and it is already enforced for tool *results*; the schema path is re-serialised by the OpenAI client through `AIJsonUtilities.DefaultOptions`, which this harness does not own. Reaching that seam is worth 3,271 characters of headroom at zero cost to capability.
+
+**And the rent it was protecting has no price here.** The test's premise is that schemas are re-sent on every request and invisible to the context assembler, which is still true — but on this serving layout the tokens are free and the window is 131,072. What the character count was standing in for is a real risk that it cannot see, and the test says so itself: batch 2 made `edit_file` *smaller* and tool-call validity fell from 1.00, where it had sat for eleven runs, to 0.86, and run `9fad0808` was cancelled. The schema shrank and the outcome got worse.
+
+- [ ] Assert **per profile** — phase0, phase1, live desktop, and each retrieval arm — each with its own stated ceiling and its own printed per-tool breakdown. The default profile keeps today's number and today's assertion passes untouched.
+- [ ] Minify the schema path if the client seam allows it. If it does not, record that in the test comment so the next reader does not re-derive it.
+- [ ] **Add the gate that matters: `toolCallValidityRate` on the arm, floor 0.90.** That is the Phase 0 metric, it is already in `metrics.jsonl`, and it catches the failure a character count never could.
+- [ ] Raising a profile's ceiling is now defensible where it was not before — the honest question is what share of a request tool definitions should get, not what the server will take. **Do not pay for it by trimming descriptions:** that is spent. `FileEdit` already carries no `[Description]` attributes deliberately, batch 2 already cut eleven, and there are perhaps 200-300 soft characters left across all eighteen tools against the 600-900 two Learn tools need.
+
+Acceptance: every profile has a stated ceiling with real headroom, the retrieval arms' cost is a printed number, and an arm that drops tool-call validity below the floor fails. Depends on tasks 20, 54.
+
+## 59. Admit on the diagnostics that actually indicate external knowledge
+
+- [ ] **Estimated time:** 1d
+
+The policy from task 55 refuses everything by default; this is what lets a call through. The distinction it has to draw is between a symbol the workspace should know about and one it cannot — and the harness already computes exactly that.
+
+- [ ] Expose the last verification summary's diagnostic codes and the symbols they name on the run context.
+- [ ] Admit when a diagnostic names a symbol **no workspace source declares** — reuse `SymbolHints` and `RoslynCodeAnalyzer`'s reference set, which already answer this question for the pre-write gate's refusal messages, rather than growing a second opinion about it.
+- [ ] Deny on a local `CS0103` for a type the model has just written. That is a typo or a missing file, and no amount of documentation fixes it.
+- [ ] Suite task metadata `RequiresExternalDocs`, and a structured `reason` argument constrained to `unknown_api`, `version_check`, `symbol_exists` — never free-form curiosity.
+- [ ] Report inconclusively rather than confidently when the reference set is incomplete, on the same contract as the pre-write gate. Task 48 was declined precisely because a confident wrong answer is the failure mode to design against.
+
+Acceptance: a synthetic `CS0246` on a type that lives in no workspace source admits one call; a `CS0103` on the model's own just-written type denies with `retrieval_not_indicated`. Depends on tasks 14, 55.
+
+## 60. A suite task whose answer is not in the repository
+
+- [ ] **Estimated time:** 1d
+
+All eight fixtures are self-contained by design, and that is the property that makes them hermetic. It also means **a perfect retrieval tool scores exactly zero on the current suite**, and every arm in task 61 would return the same number for the same reason. Without this task there is no experiment; the switches make it runnable and the fixture makes it informative.
+
+- [ ] A ninth suite task whose correct answer is a current API used correctly — one the fixture cannot contain and a local worker is unlikely to hold — with a shipped test as its deterministic oracle. No human grading, as with the other eight.
+- [ ] The repository stays byte-identical every run. Only the replayed corpus supplies the outside answer, which is what keeps the hermeticity claim true rather than merely restated.
+- [ ] `glasscoder fixtures` reports its starting state honestly, like the others: a fixture in the wrong starting state makes every pass@1 computed from it meaningless.
+- [ ] Writing this fixture is part of the work, not an afterthought — the proposal said so and it is the item most likely to be skipped under time pressure.
+
+Acceptance: `baseline` fails it consistently and `with-learn` in Replay passes it. Depends on tasks 21, 56.
+
+## 61. Retrieval metrics, and the arms that separate presence from answers
+
+- [ ] **Estimated time:** 1d
+
+Each arm is configuration overrides and nothing else, and each moves one lever, because an arm that moves two measures neither.
+
+| Arm | Learn | GitHub | Isolates |
+|---|---|---|---|
+| `baseline` | off | off | the number the rest are read against |
+| `with-learn` | on | off | authoritative API surface |
+| `with-code-search` | off | on | the hallucination-detector hypothesis |
+| `with-retrieval` | on | on | whether the two interact or double-count |
+| `learn-tools-only` | stubbed | off | the cost of Learn's mere presence |
+| `github-tools-only` | off | stubbed | the same, for GitHub |
+| `retrieval-no-cache` | on | off | run-to-run variance under `Live` |
+
+- [ ] Metrics: `retrievalCallsAllowed`, `retrievalCallsBlocked` by code, `retrievalCacheHits` / `Misses`, `retrievalUpstreamCalls`, `retrievalCharsReturned`.
+- [ ] **The two `*-tools-only` arms are the important ones.** They register the tools and stub them to return nothing, which separates the cost of having a tool from the value of its answers — the thing a naive comparison confounds, and now the only instrument left, since neither money nor context pressure can be appealed to on this hardware. If either is meaningfully worse than `baseline` on tool-call validity or steps-to-solve, retrieval has to clear that deficit before any result reads as a win.
+- [ ] `retrieval-no-cache` is worth running once and probably never again. If its variance is large, every uncached result anyone has ever read was an anecdote.
+- [ ] Say what was not covered. An arm that silently drops a task reads as coverage it did not have.
+
+Acceptance: on a greenfield desktop scaffold, blocked greatly exceeds allowed and upstream calls are zero; on the task-60 fixture, allowed calls correlate with the pass; the presence-only arms have their own numbers. Depends on tasks 22, 57, 58, 60.
+
+## 62. GitHub, read-only, and the untrusted content it returns
+
+- [ ] **Estimated time:** 1d
+
+The switch is the cheap part; the reason this is its own task is everything around it. Microsoft Learn is a trusted publisher with one answer and a version attached. Public GitHub is neither: it has ten thousand answers ranked by popularity rather than correctness, no legible recency, and — since `create_file` and `edit_file` shipped — its text reaches an agent that can write to the workspace. "Ignore your previous instructions" in a repository description is not a hypothetical attack, it is a cheap one.
+
+- [ ] **`gh_symbol_exists` only, not free-form code search.** An existence count for an exact symbol is the one use with no authority problem — `Array.SortedCopy` returns essentially nothing across public C# and `Array.Sort` returns millions, and a count of zero is a count of zero. It runs before a step is spent writing the file. Free-form `gh_search_code` stays unbuilt until something demonstrates it is needed.
+- [ ] Read-only by construction: search and read, nothing that writes to an external system. No issues, no pull-request comments.
+- [ ] The token resolves through the existing `ApiKeyEnvironmentVariable` path or the DPAPI-protected store, never `settings.json` and never `.glasscoder.json` — that file is meant to be committed. Responses go through `SecretRedactor` like everything else, because a token echoed in an error body is the obvious way to leak one.
+- [ ] Retrieved text is framed where it enters the window as quoted, untrusted **evidence, not instruction**, and never on its own justifies a write. The verification ladder is unaffected by anything a search returned — a change still has to compile and pass, and that is a genuine structural defence already in place.
+- [ ] Recommend `Approval:RequireApprovalForWrites` whenever GitHub retrieval is on, and say so where the switch is.
+- [ ] Rate limits are observations, not exceptions, and never a silent reach past Replay.
+
+Acceptance: a known symbol returns hits, an invented one returns zero, a rate limit returns an observation, and a Replay run never reaches the network. Depends on tasks 57, 61.
+
+## 63. Say where the network is, and what shipped
+
+- [ ] **Estimated time:** 0.5d
+
+- [ ] Correct the operator's guide. `Sandbox:AllowNetwork` false and `Sandbox:Mode` Docker govern **repository code** — what `build`, `run_tests` and `bash` may reach. MCP clients run in the harness process, their traffic does not pass that seam, and anyone reading `AllowNetwork: false` as "this run touched nothing external" would be wrong. The guarantee stays true; the sentence that implies more than it does has to go.
+- [ ] A Retrieval tab in the settings dialog: master and per-server switches, mode, budgets, endpoints, and where the key lives.
+- [ ] Rewrite `docs/NewFeatures/mcp-retrieval.html` from a proposal into a description of what shipped, as `claude-second-opinion.html` was. Update the proposal table in `docs/index.html`, whose "package pinned, referenced by nothing" row stops being true at task 57.
+- [ ] A `HISTORY.md` entry recording the decision and its reversal of task 53: gated, default off, one switch per server, Replay for the Lab — and the reason the rent argument no longer applied.
+
+Acceptance: no document claims the sandbox covers retrieval traffic, and the shipped state is described rather than proposed. Depends on tasks 57, 61.
+
+## 64. The tool inventory belongs in About, with what each one is for
+
+- [x] **Estimated time:** 0.5d
+
+**Done first, and deliberately before the retrieval branch.** Tasks 54-63 add tool sets behind switches, and this is the surface that has to be able to say which of them a session actually registered. Building it against the two switches that exist today - git and bash - proves the shape on a case that can be tested now, and leaves task 57 nothing to do but be discovered.
+
+The shell announces the tool list once, in the status bar, and then loses it. `MainWindowViewModel` builds `"Ready. 13 tools: update_todos, list_changes, read_file, …"` as the opening `Status`, which wraps to two lines of a one-line surface and is overwritten by the first thing that happens. Names alone were never the useful part: the question anyone actually has is what this thing can do, and a comma-separated list of identifiers does not answer it. About already holds the registry and already reports the count — it is the right home, and it is a surface someone opens deliberately rather than one that shouts at startup.
+
+**Every tool the build knows about is listed, active or not.** A list of only what is registered answers "what can it do right now" and hides the more useful question, which is what it could do and what is switching it off. Five of eighteen are absent on a default install — the git set, `bash`, and soon the retrieval tools — and each absence is a configuration decision somebody made, not a gap in the product. Showing them greyed with the switch that governs them turns About from a status readout into the capability map, and it is what makes "which arm am I actually running" answerable at a glance once task 57 lands.
+
+- [x] Drop the names from the opening `Status`. `ToolNames` on `MainWindowViewModel` has exactly one consumer and becomes dead with it. `PhaseCheckpoint.ToolNames` in `GlassCoder.Lab` is a different property with its own tests and is not touched.
+- [x] **`IToolRegistry.Functions` cannot be the only source, and this is the substance of the task.** A disabled tool set is never registered *and never constructed* — with `Git:Enabled` false, `AddGitTools` is not called, `GitTool` does not exist in the container, and no `AIFunction` is built, so there is no description to read. That is deliberate and must stay: gating registration rather than execution is what keeps a switched-off tool out of the model's schema entirely.
+- [x] So discover the full set by **reflecting over types, not instances**: scan the `GlassCoder.Tools` assembly for `IToolSet` implementations and their `[GlassCoderTool]` methods, reading `Name`, `Order` and `[Description]` off the `MethodInfo`. No construction, no dependencies, no DI — and it cannot silently miss a tool, because it keys on the same attribute `ToolFunctionFactory` does.
+- [ ] **Retrieval tools are the exception and need their own source.** They are adapted from a server at run time, not `[GlassCoderTool]` methods, so reflection will not find them. List them from the per-server `Tools` allow-lists in `RetrievalOptions` — available from configuration without connecting to anything — paired with the locally authored descriptions task 57 requires anyway. That is the natural home for those strings.
+- [x] Active is membership in `IToolRegistry.Functions`. For an active tool the description is `AIFunction.Description` — literally what was sent — and for an inactive one it is the `[Description]` attribute, which is the string that *would* be sent. Same text by construction; a test asserts they agree for tools that are on, so the two paths cannot drift.
+- [x] **An inactive row names the switch that governs it**, because "inactive" alone invites "how do I turn it on": `Git:Enabled`, `Sandbox:EnableBashTool`, `Retrieval:Learn:Enabled`. This mirrors the operator guide's "defaults that refuse", where each refusal names its setting.
+- [x] No second set of human-facing prose anywhere. The descriptions are already a line or two and they are what the model is told; a parallel copy would be a third place to keep correct and the first to go stale. It also makes About a cheap review surface for the prompt — a description that reads badly to a person very likely reads badly to the model, and fixing it improves both.
+- [x] `AboutWindow.xaml` is `Height="392"` with `ResizeMode="NoResize"`; eighteen or more rows will not fit beside the existing content. Grow the window and put the list in a `ScrollViewer` below the divider and above the build line, in advertised order, with inactive rows visually distinct rather than hidden or sorted away — a switched-off tool sitting in its own place in the order is part of what the list is saying.
+- [x] Optional, and it fits what this application is for: each active tool's schema character count on its row. About then becomes the profile inspector — what exists, what is on, what each is for, and what each costs on every request — which puts the number from task 58 where someone would look for it rather than only in a test's output.
+- [x] Tests in `GlassCoder.Wpf.Tests`: every registered function appears and is marked active; a tool set switched off appears and is marked inactive with its switch named; the union is stable whichever switches are on; descriptions agree between the two sources for active tools; and `Status` no longer contains a tool name.
+
+Acceptance: the status bar says nothing about tools; About lists every tool the build knows about with its name and purpose, marks which are active in this session, names the setting behind each inactive one, and scrolls when there are many. Depends on tasks 7, 25.
+
+The reflection sweep has a second use worth noting when it is written: a tool type that appears in no registration path at all — enabled or disabled — is a defect this list would show, and that class of dormancy is real here. `ModelContextProtocol` sat pinned and referenced by nothing for the whole life of the project.
+
+**Shipped as `ToolCatalog` in `GlassCoder.Tools`, and one bullet turned out not to be needed.** The catalogue joins the type sweep to the live registry and returns `ToolCatalogEntry` — name, description, order, active, schema size, and the setting that would switch an inactive tool on. `AboutViewModel` renders those into rows, because the phrasing of "off" belongs on the WPF side of the seam and a record in `GlassCoder.Tools` has no business knowing how a window words things. Nineteen tools on a default install, thirteen of them active.
+
+The switch map is built from `GitOptions.SectionName` and `SandboxOptions.SectionName` with `nameof`, which are the same constants `ToolsServiceCollectionExtensions` reads — so the setting a row names and the setting that actually gates it cannot drift into disagreement.
+
+*"Retrieval tools need their own source"* was half wrong and is left unticked for the half that survives. **Active** MCP tools need no new source at all: the sweep ends by adding any registered function that no `[GlassCoderTool]` method declares, which is exactly what a server-adapted tool will be, so `learn_search` will appear on the list the day task 57 registers it without this file being touched. Only an **inactive** retrieval tool needs `RetrievalOptions`, and that type does not exist yet — the bullet is the reminder to add the second source when task 55 gives it something to read.
+
+The orphan check shipped as an assertion rather than a display state: `Every_inactive_tool_has_a_switch_that_would_enable_it` fails the build if a declared tool is reachable by no registration path. About still renders `not registered by any path` for the case, but the test means nobody has to be looking at the window to find out.
