@@ -523,7 +523,7 @@ The narrow slice belongs on `dotnet_project` when it comes — it is an SDK ques
 
 ## 54. Retrieval, reopened: what the SDK and the two servers actually cost
 
-- [ ] **Estimated time:** 0.5d
+- [x] **Estimated time:** 0.5d
 
 Task 53 decided against building this, and this reverses that decision. Both of its reasons have been answered rather than waived.
 
@@ -535,12 +535,42 @@ What makes it an arm is one switch per server. `Retrieval:Learn:Enabled` and `Re
 
 This first task builds nothing. It measures, because the numbers decide the shape of tasks 57 and 58.
 
-- [ ] `ModelContextProtocol` 1.4.1 has been pinned in `Directory.Packages.props` since the beginning, is referenced by no project, and **has never been restored** — it is not in the local NuGet cache. Restore it in a throwaway project first.
-- [ ] Confirm `McpClientTool` derives from `AIFunction`. The whole adapter design rests on it: `ToolRegistry` already has an `IReadOnlyList<AIFunction>` constructor, so if the SDK's tools are `AIFunction`s there is a seam and no redesign. If they are not, decide the wrapper before task 57 is written rather than during it.
-- [ ] Connect to Microsoft Learn and to GitHub by hand and record, verbatim, every advertised tool: its name, its parameter schema and its server-authored description, with character counts. Endpoints, auth and toolset surfaces drift between releases (CLAUDE.md §19) — verify them here rather than trusting anything written down in this file.
-- [ ] The deliverable is a table of numbers, not code. It decides how many tools task 57 registers and whether task 58 has anything left to do.
+- [x] `ModelContextProtocol` 1.4.1 has been pinned in `Directory.Packages.props` since the beginning, is referenced by no project, and **has never been restored** — it is not in the local NuGet cache. Restore it in a throwaway project first.
+- [x] Confirm `McpClientTool` derives from `AIFunction`. The whole adapter design rests on it: `ToolRegistry` already has an `IReadOnlyList<AIFunction>` constructor, so if the SDK's tools are `AIFunction`s there is a seam and no redesign. If they are not, decide the wrapper before task 57 is written rather than during it.
+- [x] Connect to Microsoft Learn and to GitHub by hand and record, verbatim, every advertised tool: its name, its parameter schema and its server-authored description, with character counts. Endpoints, auth and toolset surfaces drift between releases (CLAUDE.md §19) — verify them here rather than trusting anything written down in this file.
+- [x] The deliverable is a table of numbers, not code. It decides how many tools task 57 registers and whether task 58 has anything left to do.
 
 Acceptance: the SDK restores, the adapter question is answered yes or no in writing, and the character cost of every candidate tool is known before one is registered. Depends on task 7.
+
+**Answered, measured 2026-08-08 against both live servers.**
+
+**The adapter question is yes, and better than yes.** `McpClientTool : AIFunction : AIFunctionDeclaration : AITool`, so `ToolRegistry`'s existing `IReadOnlyList<AIFunction>` constructor takes them with no wrapper and no redesign. The SDK also ships `WithName(...)` and `WithDescription(...)` on the tool itself, which is task 57's "the name and the description are ours" requirement already built: renaming needs no adapter type, only a call. The client shape in 1.4.1 is `McpClient.CreateAsync(IClientTransport, McpClientOptions?, ILoggerFactory?, CancellationToken)` over `HttpClientTransport` + `HttpClientTransportOptions` (`Endpoint`, `TransportMode`, `AdditionalHeaders`, `ConnectionTimeout`, `OAuth`), with `HttpTransportMode.AutoDetect` negotiating streamable HTTP or SSE.
+
+**Microsoft Learn** — `https://learn.microsoft.com/api/mcp`, no auth, *Microsoft Learn MCP Server 1.0.0*, protocol `2025-06-18`:
+
+| tool | schema | description | total |
+|---|---:|---:|---:|
+| `microsoft_docs_search` | 196 | 716 | 912 |
+| `microsoft_code_sample_search` | 565 | 894 | 1,459 |
+| `microsoft_docs_fetch` | 139 | 1,065 | 1,204 |
+| **all three** | **900** | **2,675** | **3,575** |
+
+**GitHub** — `https://api.githubcopilot.com/mcp/`, PAT accepted, `X-MCP-Readonly: true` honoured, *github-mcp-server* remote, protocol `2025-11-25`:
+
+| | schema | description | total |
+|---|---:|---:|---:|
+| **all 27 advertised** | **23,852** | **3,579** | **27,431** |
+| `search_code` alone | 1,547 | 175 | 1,722 |
+| `search_repositories` | 916 | 182 | 1,098 |
+| `get_file_contents` | 1,061 | 64 | 1,125 |
+
+**The two servers have opposite cost profiles, and that decides a different mitigation for each.** Learn's schemas are tiny and its descriptions are 75% of its cost — server-authored prose written to sell the tool to a general agent — so `WithDescription` does most of the work there, and two Learn tools with locally authored text land near 600 characters before envelope against 3,575 as advertised. GitHub is the reverse: 87% schema, and **a schema cannot be rewritten**. Only subsetting helps.
+
+**GitHub as advertised is 27,431 characters — nearly twice the entire current tool block (13,980) and more than twice its minified form.** "Register a subset, not a catalogue" stops being a principle and becomes arithmetic. Worth carrying into task 62: even the one tool worth having, `search_code`, is 1,547 characters of schema, which is larger than any tool GlassCoder declares today (`edit_file` is 879 raw). GitHub's best case is still the most expensive tool in the harness.
+
+**Two smaller findings.** `X-MCP-Toolsets: search` returned zero tools — it is not a valid toolset name, and rather than hunt for the right one the allow-list filter task 55 already specifies does the same job client-side, with the header left as an optimisation. And Learn advertises `microsoft_code_sample_search`, which answers part of "how is this API actually used" from a trusted publisher with no injection surface — the question GitHub code search was mostly wanted for. That is a point against task 62 that did not exist when the proposal was written.
+
+The spike lives outside the repository, in the session scratchpad; nothing from it is committed.
 
 ## 55. Retrieval options and the invocation policy, with no network at all
 
