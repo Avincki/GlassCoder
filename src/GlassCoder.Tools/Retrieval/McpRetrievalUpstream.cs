@@ -279,10 +279,21 @@ public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable,
 /// </summary>
 public sealed class RetrievalCatalog
 {
-    /// <summary>The corpus key under which a server's advertised tools are recorded.</summary>
-    private const string ToolListKey = "__tools__";
+    /// <summary>
+    /// The corpus key under which a server's advertised tools are recorded. Public because the
+    /// settings dialog writes the same entry when an operator records the lists by hand, and two
+    /// spellings of one key would be a corpus that reads back empty.
+    /// </summary>
+    public const string ToolListKey = "__tools__";
 
     private static readonly JsonSerializerOptions Serializer = new() { WriteIndented = true };
+
+    /// <summary>Renders descriptors for the corpus, in the shape <see cref="Describe"/> reads.</summary>
+    public static string Serialize(IEnumerable<RetrievalToolDescriptor> descriptors)
+    {
+        ArgumentNullException.ThrowIfNull(descriptors);
+        return JsonSerializer.Serialize(descriptors.Select(Persistable), Serializer);
+    }
 
     private readonly IRetrievalCache _cache;
     private readonly McpRetrievalUpstream? _upstream;
@@ -325,7 +336,7 @@ public sealed class RetrievalCatalog
 
         if (live.Count > 0 && mode == RetrievalMode.Record)
         {
-            _cache.Put(key, JsonSerializer.Serialize(live.Select(Persistable), Serializer));
+            _cache.Put(key, Serialize(live));
         }
 
         return live;

@@ -822,8 +822,20 @@
                 </DockPanel>
                 <TextBlock Style="{StaticResource Hint}"
                            Text="Empty puts it under the application data folder, beside the logs. A relative path anchors there too." />
-                <TextBlock Style="{StaticResource Hint}"
-                           Text="A server's tool list is recorded like any other answer, so a Replay run registers its tools from the corpus and opens no connection at startup either. That also means a cold corpus registers nothing: run once in Record before switching an arm to Replay." />
+
+                <Border Background="#FFF8E1" BorderBrush="#FFE082" BorderThickness="1"
+                        CornerRadius="3" Padding="10,8" Margin="0,10,0,0">
+                  <StackPanel>
+                    <TextBlock TextWrapping="Wrap" Foreground="#5D4037"
+                               Text="Switching a server on is not enough on its own. A server's tool list is recorded like any other answer, so that a Replay run opens no connection even at startup - which means an empty corpus advertises nothing at all, however many boxes are ticked. Record the lists once here, then save and restart." />
+                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                      <Button Content="Record tool lists now" Padding="12,4" MinWidth="150"
+                              Command="{Binding RecordRetrievalToolsCommand}" />
+                      <TextBlock Text="{Binding Status}" VerticalAlignment="Center" Margin="10,0,0,0"
+                                 Foreground="#5D4037" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
               </StackPanel>
             </GroupBox>
 

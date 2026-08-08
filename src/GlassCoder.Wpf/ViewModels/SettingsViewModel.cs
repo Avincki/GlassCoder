@@ -8,6 +8,8 @@ using GlassCoder.Core.Configuration;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Execution;
+using System.IO;
+using Microsoft.Extensions.Options;
 using GlassCoder.Tools.Retrieval;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
@@ -73,6 +75,8 @@ public sealed class SettingsViewModel : ViewModelBase
         ExportCommand = new RelayCommand(Export, () => !IsBusy);
         ImportCommand = new RelayCommand(Import, () => !IsBusy);
         SaveToProjectCommand = new RelayCommand(SaveToProject, () => !IsBusy && HasProjectRoot);
+        RecordRetrievalToolsCommand = new RelayCommand(
+            async () => await RecordRetrievalToolsAsync().ConfigureAwait(true), () => !IsBusy);
     }
 
     /// <summary>Raised when the dialog should close. The argument is whether anything was saved.</summary>
@@ -297,7 +301,95 @@ public sealed class SettingsViewModel : ViewModelBase
     /// <summary>Writes the project-shaped sections into the project itself.</summary>
     public RelayCommand SaveToProjectCommand { get; }
 
+    /// <summary>Records what each enabled retrieval server advertises, so its tools can register.</summary>
+    public RelayCommand RecordRetrievalToolsCommand { get; }
+
     /// <summary>Checks every role in turn, and reports how many worked.</summary>
+    /// <summary>
+    /// Connects to each enabled retrieval server, asks what it advertises, and writes the answer
+    /// to the corpus (workplan tasks 56, 63).
+    /// <para>
+    /// This exists because switching retrieval on was not enough and the reason was invisible.
+    /// Registration reads the recorded tool list, so that a <see cref="RetrievalMode.Replay"/>
+    /// run opens no socket at startup - which is the property the Lab depends on, and which
+    /// leaves an operator who has just ticked two boxes with tools that never appear. The
+    /// alternative was a six-step dance through Record mode and back. One button is better.
+    /// </para>
+    /// <para>
+    /// It records tool <em>lists</em>, not answers. That is what registration needs; the answers
+    /// to actual questions still come from whatever mode the run is in.
+    /// </para>
+    /// </summary>
+    public async Task RecordRetrievalToolsAsync()
+    {
+        RetrievalOptions retrieval = Settings.Retrieval;
+        RetrievalServer[] servers = [.. retrieval.EnabledServers()];
+
+        if (!retrieval.Enabled || servers.Length == 0)
+        {
+            Status = "Switch retrieval on, and at least one server, before recording its tools.";
+            return;
+        }
+
+        IsBusy = true;
+        Status = "Asking the retrieval servers what they offer…";
+        try
+        {
+            string directory = string.IsNullOrWhiteSpace(retrieval.CacheDirectory)
+                ? AppPaths.ResolveDataDirectory(RetrievalOptions.DefaultCacheDirectory)
+                : AppPaths.ResolveDataDirectory(retrieval.CacheDirectory);
+
+            RetrievalCache cache = new(directory);
+            await using McpRetrievalUpstream upstream = new(new StaticOptionsMonitor(retrieval));
+
+            List<string> recorded = [];
+            List<string> failed = [];
+
+            foreach (RetrievalServer server in servers)
+            {
+                IReadOnlyList<RetrievalToolDescriptor> tools =
+                    await upstream.ListToolsAsync(server).ConfigureAwait(true);
+
+                if (tools.Count == 0)
+                {
+                    failed.Add(server.ToString());
+                    continue;
+                }
+
+                cache.Put(
+                    RetrievalCacheKey.From(server, RetrievalCatalog.ToolListKey, null),
+                    RetrievalCatalog.Serialize(tools));
+
+                recorded.Add($"{server} ({tools.Count})");
+            }
+
+            Status = (recorded.Count, failed.Count) switch
+            {
+                (0, _) => $"No server answered. Check the endpoints, and any token they need. ({string.Join(", ", failed)})",
+                (_, 0) => $"Recorded {string.Join(", ", recorded)}. Save and restart to advertise them.",
+                _ => $"Recorded {string.Join(", ", recorded)}; {string.Join(", ", failed)} did not answer.",
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Status = $"Could not write the corpus: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    /// <summary>The unsaved options, for a client built outside the container.</summary>
+    private sealed class StaticOptionsMonitor(RetrievalOptions options) : IOptionsMonitor<RetrievalOptions>
+    {
+        public RetrievalOptions CurrentValue => options;
+
+        public RetrievalOptions Get(string? name) => options;
+
+        public IDisposable? OnChange(Action<RetrievalOptions, string?> listener) => null;
+    }
+
     public async Task TestAllAsync()
     {
         IsBusy = true;

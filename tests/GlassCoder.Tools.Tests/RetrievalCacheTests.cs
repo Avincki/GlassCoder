@@ -168,6 +168,38 @@ public sealed class RetrievalCacheTests : IDisposable
         cache.Get(key).ShouldBeNull();
     }
 
+    /// <summary>
+    /// The settings dialog writes the recorded tool list by hand, and the catalogue reads it at
+    /// registration. Two spellings of that one key would be a corpus that reads back empty and a
+    /// server whose tools never appear - which is exactly the failure an operator reported after
+    /// switching retrieval on, so it is pinned rather than assumed.
+    /// </summary>
+    [Fact]
+    public void What_the_dialog_records_is_what_registration_reads()
+    {
+        RetrievalCache cache = new(Root);
+        RetrievalToolDescriptor[] advertised =
+        [
+            new("microsoft_docs_search", Schema("query")),
+            new("microsoft_docs_fetch", Schema("url")),
+        ];
+
+        cache.Put(
+            RetrievalCacheKey.From(RetrievalServer.Learn, RetrievalCatalog.ToolListKey, null),
+            RetrievalCatalog.Serialize(advertised));
+
+        // Replay, and no upstream at all: if this resolves, it resolved from disk.
+        IReadOnlyList<RetrievalToolDescriptor> read =
+            new RetrievalCatalog(cache, upstream: null).Describe(RetrievalServer.Learn, RetrievalMode.Replay);
+
+        read.Select(d => d.ServerTool).ShouldBe(["microsoft_docs_search", "microsoft_docs_fetch"]);
+        read[0].Schema.GetProperty("properties").TryGetProperty("query", out _).ShouldBeTrue();
+    }
+
+    private static System.Text.Json.JsonElement Schema(string parameter) => System.Text.Json.JsonDocument
+        .Parse("{\"type\":\"object\",\"properties\":{\"" + parameter + "\":{\"type\":\"string\"}}}")
+        .RootElement.Clone();
+
     private static RetrievalResult Call(CachingRetrievalUpstream caching, RetrievalMode mode) =>
         caching.CallAsync(
             mode,
