@@ -842,3 +842,34 @@ Acceptance: closing a launched application asks for a rating; recording it puts 
 `FakeShell` moved out of `TestRunConvenienceTests` into its own file on the way: two tests drive the workspace pane, and two fakes of one seam drift apart exactly where it matters.
 
 **Not done: the rating does not reach `metrics.jsonl`.** Metrics are written when a run ends and the rating arrives afterwards, so recording it there means either rewriting a finished line or a second line per run that every reader has to join. Both are worse than a transcript entry that is already replayable and already grepped. Revisit when an arm actually wants to compare operator scores — which is task 61's problem, and it will want the fixture from task 60 first.
+
+## 66. Notice when a test suite exercises nothing
+
+- [ ] **Estimated time:** 1d
+
+Run `122e11c6` produced five passing tests that never call the application. Every one of them multiplies two literals with the `*` operator and asserts the answer:
+
+```csharp
+double firstNumber = 5.0;
+double secondNumber = 3.0;
+double result = firstNumber * secondNumber;   // the test computes it itself
+Assert.Equal(15.0, result);
+```
+
+`using MultiplyApp;` is present and unused. The `ProjectReference` exists and is never exercised. Delete the entire application and all five still pass — they assert that .NET can multiply doubles.
+
+**That suite satisfied every oracle this harness has.** Compile green, `run_tests` green, the ladder's UnitTests rung passed, the completion critique accepted 1/3 on the strength of "build and tests pass", the post-run review accepted 3/3, and the operator rated the running window 5/5. Nothing was wrong with any of those judgements: the window really was right, and the tests really did pass. **Nothing in the harness asks whether the tests touch the product**, and that is a missing oracle in the harness-advisor's own sense — a run that clears every rung and still fails the thing the rungs stand for.
+
+It is also not a model failure to route around. The logic lives inside `MultiplyButton_Click`, so there was no seam a test could reach; the model wrote the only tests the design allowed. A notice that fires here is therefore evidence about the *design*, which is the more useful thing to say.
+
+- [ ] **Syntax tree only.** For each test source, collect the identifiers its method bodies actually use, and ask whether any is declared by a workspace source outside the test project - the sweep `FindSymbolTool.Declares` already runs, through the analyzer's cache. No reference resolution, so none of the false-negative risk that kept `find_references` unbuilt (task 48).
+- [ ] **A notice, never a gate.** The signal is good, not certain: tests that drive the product through DI, reflection or a launched process would look identical to tests that drive nothing. This repository has twice been taught what a confident refusal costs - the gate deadlocks of `5c071f37` and `a408b61b`, and the XAML handler pre-check that was designed and then dropped for exactly this reason. It rides the `run_tests` summary and the ladder's rung report; it refuses nothing.
+- [ ] **It has to reach the critics.** The moment that matters is when a green suite is about to be read as proof, and the panel reads the verification summary. A notice the critics cannot see would leave "build and tests pass" meaning what it means today.
+- [ ] Word it as the question rather than the verdict: *"these tests reference no type from the projects they depend on - they may not be exercising the code under test"*. Naming the referenced-but-unused assembly is what makes it actionable.
+- [ ] Tests: a suite that calls a workspace type is silent; one that only asserts over literals is noticed; one that reaches its subject through a variable or a helper is silent; a project with no `ProjectReference` at all is silent, because there is nothing it was supposed to exercise.
+
+Acceptance: the `CalculatorTests.cs` this task was written from produces a notice, and a suite that calls `Calculator.TryMultiply` does not. Depends on tasks 17, 47.
+
+**Why this is worth more than it looks.** Task 60 is stuck on finding a fixture whose answer the worker does not already know. This is the opposite and cheaper problem: a defect the worker produces *reliably*, on a goal it otherwise solves cleanly, which every existing oracle waves through. Three consecutive runs of the desktop goal have now shipped it. If the notice changes what the next run writes, that is a measurable harness improvement on a task suite that already exists - no new fixture required.
+
+**Not in scope: judging test quality.** Coverage, assertion strength and whether a test is meaningful are all somebody else's problem. This asks one question - does the suite mention the product at all - and stops there.
