@@ -56,6 +56,12 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<MainWindow>();
         services.Replace(ServiceDescriptor.Singleton<IApprovalGate, WpfApprovalGate>());
 
+        // The operator's answer to a tripped step or token ceiling. One instance behind both
+        // faces: the loop asks the interface, the shell assigns the handler on the class.
+        services.AddSingleton<LimitExtensionGate>();
+        services.AddSingleton<GlassCoder.Core.Agent.ILimitExtensionGate>(
+            sp => sp.GetRequiredService<LimitExtensionGate>());
+
         // UI state, not settings: it lives in the registry precisely so it never reaches
         // IConfiguration, whose hash is what makes a run's arm identifiable.
         services.AddSingleton<IUiStateStore, RegistryUiStateStore>();

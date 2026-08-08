@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -28,6 +29,18 @@ public sealed class ToolRegistry : IToolRegistry
         ["todo_write"] = "update_todos",
         ["write_todos"] = "update_todos",
         ["todos"] = "update_todos",
+    };
+
+    /// <summary>
+    /// Wrong <em>argument</em> names whose intent is unambiguous, per tool - the same contract
+    /// as <see cref="Aliases"/>, one level down. Run c5eb67f6 called
+    /// <c>read_file(offset: 70)</c> - another harness's name for <c>startLine</c> - thirteen
+    /// times; the binder silently dropped the unknown key and returned the head of the file
+    /// thirteen times, each answer marked Succeeded.
+    /// </summary>
+    private static readonly Dictionary<(string Tool, string Argument), string> ArgumentAliases = new()
+    {
+        [("read_file", "offset")] = "startLine",
     };
 
     private readonly Dictionary<string, AIFunction> _byName;
@@ -112,6 +125,36 @@ public sealed class ToolRegistry : IToolRegistry
             };
         }
 
+        // Arguments are validated against the schema before they bind, because the binder
+        // silently drops unknown keys: run c5eb67f6 paged a file with 'offset' - another
+        // harness's name for startLine - thirteen times, got the head of the file thirteen
+        // times, and every answer read Succeeded. A known alias is rewritten and invoked; any
+        // other unknown name fails loudly with the real parameter list; integer parameters
+        // forgive the numeric shapes models actually send ("70", 70.0).
+        if (call.Arguments is { Count: > 0 } &&
+            NormalizeArguments(call.Name, function, call.Arguments) is { } normalized)
+        {
+            if (normalized.Error is not null)
+            {
+                _logger.LogWarning(
+                    "Arguments for tool {ToolName} were refused before binding: {Reason}",
+                    call.Name, normalized.Error);
+                return new ToolInvocation
+                {
+                    CallId = call.CallId,
+                    ToolName = call.Name,
+                    Status = ToolCallStatus.InvalidArguments,
+                    Arguments = arguments,
+                    Duration = TimeSpan.Zero,
+                    ErrorMessage = normalized.Error,
+                    Result = Observation.Fail<object>(
+                        call.Name, ToolErrorCodes.InvalidArgument, normalized.Error, normalized.Hint),
+                };
+            }
+
+            call = new FunctionCallContent(call.CallId, call.Name, normalized.Arguments);
+        }
+
         long start = Stopwatch.GetTimestamp();
         try
         {
@@ -167,6 +210,110 @@ public sealed class ToolRegistry : IToolRegistry
             return Faulted(call, arguments, start, ToolCallStatus.Faulted, ToolErrorCodes.Unexpected, ex, null);
         }
     }
+
+    /// <summary>
+    /// The supplied arguments checked against the function's schema: aliased names rewritten,
+    /// integer values coerced from the shapes models send, unknown names refused with the real
+    /// parameter list. Null when nothing needed changing.
+    /// </summary>
+    private static NormalizedArguments? NormalizeArguments(
+        string toolName, AIFunction function, IDictionary<string, object?> supplied)
+    {
+        JsonElement schema = function.JsonSchema;
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out JsonElement properties) ||
+            properties.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        Dictionary<string, JsonElement> known = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in properties.EnumerateObject())
+        {
+            known[property.Name] = property.Value;
+        }
+
+        Dictionary<string, object?>? rewritten = null;
+        foreach ((string name, object? value) in supplied)
+        {
+            string target = name;
+            if (!known.ContainsKey(name))
+            {
+                if (ArgumentAliases.TryGetValue((toolName, name), out string? canonical) &&
+                    known.ContainsKey(canonical))
+                {
+                    target = canonical;
+                }
+                else
+                {
+                    return new NormalizedArguments(
+                        null,
+                        $"'{toolName}' has no parameter named '{name}'.",
+                        $"Its parameters are: {string.Join(", ", known.Keys)}.");
+                }
+            }
+
+            object? coerced = CoerceInteger(known[target], value, out string? refusal);
+            if (refusal is not null)
+            {
+                return new NormalizedArguments(null, $"'{name}' {refusal}", null);
+            }
+
+            if (!string.Equals(target, name, StringComparison.Ordinal) || !ReferenceEquals(coerced, value))
+            {
+                rewritten ??= new Dictionary<string, object?>(supplied, StringComparer.Ordinal);
+                rewritten.Remove(name);
+                rewritten[target] = coerced;
+            }
+        }
+
+        return rewritten is null ? null : new NormalizedArguments(rewritten, null, null);
+    }
+
+    /// <summary>
+    /// The value an integer parameter can bind, from the shapes models actually send: a JSON
+    /// number, "70", or 70.0. A fractional value is refused rather than truncated - 70.5 lines
+    /// is a confusion, not a request. Anything unrecognised passes through for the binder to
+    /// judge, so this can only widen what binds, never narrow it.
+    /// </summary>
+    private static object? CoerceInteger(JsonElement property, object? value, out string? refusal)
+    {
+        refusal = null;
+        if (property.ValueKind != JsonValueKind.Object ||
+            !property.TryGetProperty("type", out JsonElement type) ||
+            type.ValueKind != JsonValueKind.String ||
+            type.GetString() != "integer")
+        {
+            return value;
+        }
+
+        double? numeric = value switch
+        {
+            JsonElement { ValueKind: JsonValueKind.Number } element => element.GetDouble(),
+            JsonElement { ValueKind: JsonValueKind.String } element when double.TryParse(
+                element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) => parsed,
+            string text when double.TryParse(
+                text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) => parsed,
+            _ => null,
+        };
+
+        if (numeric is not { } number)
+        {
+            return value;
+        }
+
+        if (Math.Abs(number - Math.Round(number)) > 0.000001)
+        {
+            refusal = $"must be a whole number, got {number.ToString(CultureInfo.InvariantCulture)}.";
+            return value;
+        }
+
+        return (int)Math.Round(number);
+    }
+
+    /// <summary>Outcome of the pre-bind argument check: a rewrite, or a refusal, never both.</summary>
+    private sealed record NormalizedArguments(
+        IDictionary<string, object?>? Arguments, string? Error, string? Hint);
 
     /// <summary>
     /// The registered name the model most likely meant: a substring relation first, then a

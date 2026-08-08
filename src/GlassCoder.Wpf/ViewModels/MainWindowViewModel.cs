@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Registry;
@@ -41,6 +42,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private string? _reviewedGoal;
     private int _reviewedAttempt;
     private CancellationTokenSource? _cancellation;
+    private readonly Dispatcher _dispatcher;
+    private string? _limitPrompt;
+    private TaskCompletionSource<bool>? _limitDecision;
 
     /// <summary>Creates the shell.</summary>
     public MainWindowViewModel(
@@ -55,7 +59,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ICriticPanel critics,
         IRunReviewer reviewer,
         IOptions<CritiqueOptions> critique,
-        IUiStateStore? uiState = null)
+        IUiStateStore? uiState = null,
+        LimitExtensionGate? limitGate = null)
     {
         ArgumentNullException.ThrowIfNull(critique);
 
@@ -67,6 +72,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         _reviewer = reviewer;
         _critique = critique.Value;
         _uiState = uiState;
+        _dispatcher = Dispatcher.CurrentDispatcher;
+
+        // The loop pauses on this question from a background thread; the banner answers it
+        // from the UI thread. Assigned here because the shell is what owns a surface to ask on.
+        if (limitGate is not null)
+        {
+            limitGate.Handler = OnLimitReachedAsync;
+        }
 
         Transcript = transcript;
         Changes = changes;
@@ -85,6 +98,8 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         AboutCommand = new RelayCommand(() => _about.Show());
         RetryCommand = new RelayCommand(async () => await RetryAsync().ConfigureAwait(true), () => CanRetry);
         DismissReviewCommand = new RelayCommand(() => Review = null, () => Review is not null);
+        ExtendLimitCommand = new RelayCommand(() => ResolveLimit(true), () => HasLimitPrompt);
+        StopAtLimitCommand = new RelayCommand(() => ResolveLimit(false), () => HasLimitPrompt);
 
         Status = string.Create(CultureInfo.InvariantCulture,
             $"Ready. {_tools.Functions.Count} tools: {string.Join(", ", ToolNames)}");
@@ -319,6 +334,69 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 
     /// <summary>Clears the review from the screen without acting on it.</summary>
     public RelayCommand DismissReviewCommand { get; }
+
+    /// <summary>
+    /// The limit question the paused loop is waiting on, or null when there is none. The run
+    /// makes no model calls while this is showing - the banner is the loop's next step.
+    /// </summary>
+    public string? LimitPrompt
+    {
+        get => _limitPrompt;
+        private set
+        {
+            if (SetProperty(ref _limitPrompt, value))
+            {
+                OnPropertyChanged(nameof(HasLimitPrompt));
+            }
+        }
+    }
+
+    /// <summary>Whether the limit banner is on screen.</summary>
+    public bool HasLimitPrompt => LimitPrompt is not null;
+
+    /// <summary>Extends the tripped ceiling by one more allotment and resumes the run.</summary>
+    public RelayCommand ExtendLimitCommand { get; }
+
+    /// <summary>Declines the extension; the run stops with the ordinary limit outcome.</summary>
+    public RelayCommand StopAtLimitCommand { get; }
+
+    /// <summary>
+    /// The loop's question, marshalled onto the UI thread as a banner. The returned task is
+    /// what the paused loop awaits; cancelling the run answers it with "stop", so Cancel keeps
+    /// working while the banner is up.
+    /// </summary>
+    private Task<bool> OnLimitReachedAsync(RunLimitReached limit, CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool> decision = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenRegistration registration = cancellationToken.Register(() =>
+        {
+            decision.TrySetResult(false);
+            _dispatcher.BeginInvoke(() => LimitPrompt = null);
+        });
+        _ = decision.Task.ContinueWith(_ => registration.Dispose(), TaskScheduler.Default);
+
+        _dispatcher.BeginInvoke(() =>
+        {
+            _limitDecision = decision;
+            string unit = limit.Reason == AgentStopReason.StepLimit ? "steps" : "tokens";
+            LimitPrompt = string.Create(CultureInfo.InvariantCulture,
+                $"{(limit.Reason == AgentStopReason.StepLimit ? "Step" : "Token")} limit reached: " +
+                $"{limit.Used:N0} of {limit.Ceiling:N0} {unit}. Extend by another {limit.Allotment:N0} and continue?");
+        });
+
+        return decision.Task;
+    }
+
+    private void ResolveLimit(bool extend)
+    {
+        _limitDecision?.TrySetResult(extend);
+        _limitDecision = null;
+        LimitPrompt = null;
+        if (extend)
+        {
+            Status = "Limit extended - the run continues.";
+        }
+    }
 
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()

@@ -582,9 +582,13 @@ public sealed class DotnetProjectTool : IToolSet
         DotnetProjectResult failed,
         CancellationToken cancellationToken)
     {
-        string referencing = verdict.FullPath!;
-        string referenced = Resolve(argument);
-        string referencingRel = verdict.RelativePath!;
+        // The CLI accepts a directory for either side, and so does the model: run c5eb67f6
+        // sent 'tests/MultiplyApp.Tests' - the directory - and reading a TFM out of a directory
+        // yields nothing, so the widen never fired and the gloss said "an unknown framework".
+        // Whatever spelling arrived, the project file is what has a framework.
+        string referencing = ProjectFileOf(verdict.FullPath!) ?? verdict.FullPath!;
+        string referenced = ProjectFileOf(Resolve(argument)) ?? Resolve(argument);
+        string referencingRel = _guard.ToRelativePath(referencing);
         string referencedRel = _guard.ToRelativePath(referenced);
 
         string? from = ProjectLocator.ReadTargetFrameworks(referencing);
@@ -644,6 +648,13 @@ public sealed class DotnetProjectTool : IToolSet
             $"{from} to {to} first - a project referencing a Windows app must target Windows itself. " +
             "The csproj edit is in the change log.");
     }
+
+    /// <summary>The project file a path means: itself when it names one, the directory's single
+    /// project when it names a directory, null when there is no single answer.</summary>
+    private static string? ProjectFileOf(string path) =>
+        File.Exists(path) ? path
+        : Directory.Exists(path) ? SingleProjectIn(path)
+        : null;
 
     /// <summary>
     /// Rewrites the single <c>TargetFramework</c> element from one value to another, through the

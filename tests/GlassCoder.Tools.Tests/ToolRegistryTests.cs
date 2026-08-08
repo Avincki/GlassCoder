@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
+using GlassCoder.TestSupport;
+using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Registry;
 using Microsoft.Extensions.AI;
 
@@ -140,6 +142,65 @@ public sealed class ToolRegistryTests
         ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent("c7", "todo_write", null));
 
         invocation.Status.ShouldBe(ToolCallStatus.UnknownTool);
+    }
+
+    // ── Arguments checked before they bind (run c5eb67f6) ──
+    //
+    // The binder silently drops unknown keys: read_file(offset: 70) - another harness's name
+    // for startLine - returned the head of the file thirteen times, every answer Succeeded,
+    // while the model paged a file whose pager ignored the page number.
+
+    [Fact]
+    public async Task An_unknown_argument_is_refused_with_the_real_parameter_list()
+    {
+        ToolRegistry registry = new([new WellFormedTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(
+            new FunctionCallContent("c8", "echo", new Dictionary<string, object?> { ["txt"] = "hello" }));
+
+        invocation.Status.ShouldBe(ToolCallStatus.InvalidArguments);
+        invocation.ErrorMessage.ShouldContain("no parameter named 'txt'");
+        invocation.Result.ShouldBeOfType<ToolObservation<object>>()
+            .Error!.Hint.ShouldContain("text");
+    }
+
+    [Fact]
+    public async Task A_known_argument_alias_is_rewritten_and_honoured()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "src/Big.cs", string.Join('\n', Enumerable.Range(1, 100).Select(i => $"// line {i}")));
+        ToolRegistry registry = new([new ReadFileTool(workspace.Guard(), TempWorkspace.Wrap(new ToolsOptions()))]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent(
+            "c9", "read_file",
+            new Dictionary<string, object?> { ["path"] = "src/Big.cs", ["offset"] = 70, ["maxLines"] = 5 }));
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded);
+        invocation.Summary.ShouldContain("lines 70-74", customMessage: "the alias must page, not return the head");
+    }
+
+    [Fact]
+    public async Task Integer_arguments_accept_the_shapes_models_send()
+    {
+        // Step 18 of the run hard-failed on "70.0" as a string. Whole numbers bind however
+        // they arrive; fractions are a confusion and are refused with the reason.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "src/Big.cs", string.Join('\n', Enumerable.Range(1, 100).Select(i => $"// line {i}")));
+        ToolRegistry registry = new([new ReadFileTool(workspace.Guard(), TempWorkspace.Wrap(new ToolsOptions()))]);
+
+        ToolInvocation whole = await registry.InvokeAsync(new FunctionCallContent(
+            "ca", "read_file",
+            new Dictionary<string, object?> { ["path"] = "src/Big.cs", ["startLine"] = "70.0", ["maxLines"] = "5" }));
+        ToolInvocation fractional = await registry.InvokeAsync(new FunctionCallContent(
+            "cb", "read_file",
+            new Dictionary<string, object?> { ["path"] = "src/Big.cs", ["startLine"] = "70.5" }));
+
+        whole.Status.ShouldBe(ToolCallStatus.Succeeded);
+        whole.Summary.ShouldContain("lines 70-74");
+        fractional.Status.ShouldBe(ToolCallStatus.InvalidArguments);
+        fractional.ErrorMessage.ShouldContain("whole number");
     }
 
     [Fact]

@@ -163,8 +163,15 @@ public sealed class ReadFileTool : IToolSet
             TextFile.DescribeEndings(text),
             clipped);
 
+        // A truncated read names its own continuation. Run c5eb67f6 needed lines ~70-95, paged
+        // with a parameter this tool does not have, and re-read the head thirteen times; a
+        // summary that says how to get the rest turns the second attempt into the right one.
         string summary = truncated
-            ? $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path} (truncated)."
+            ? $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path} (truncated). " +
+              $"Continue with startLine: {result.EndLine + 1}" +
+              (Path.GetExtension(result.Path).Equals(".cs", StringComparison.OrdinalIgnoreCase)
+                  ? ", or use outline: true for the file's shape with line numbers."
+                  : ".")
             : $"Read lines {result.StartLine}-{result.EndLine} of {lines.Length} from {result.Path}.";
 
         if (clipped > 0)

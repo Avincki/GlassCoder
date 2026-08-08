@@ -7,6 +7,7 @@ using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Tools.Verification;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Core.Tests;
@@ -216,6 +217,69 @@ public sealed class StepBudgetVisibilityTests
             .ShouldNotContain(m => (m.Text ?? string.Empty).Contains("steps remain", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A limit that fires three steps from done used to mean restarting from zero. The gate
+    /// asks the operator: approval adds one configured allotment, and the question returns
+    /// when the extended ceiling trips - so a run somebody answers for can be walked to the
+    /// finish one allotment at a time, and a run nobody answers for stops exactly as before.
+    /// </summary>
+    [Fact]
+    public async Task A_granted_extension_buys_one_allotment_and_the_next_refusal_stops()
+    {
+        RecordingStepLogger transcript = new();
+        CountingGate gate = new(approvals: 1);
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("noop"))),
+            new ToolRegistry([new NoopTools()]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 2 }),
+            limitGate: gate)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep going" });
+
+        result.StopReason.ShouldBe(AgentStopReason.StepLimit);
+        result.Steps.ShouldBe(4, "one approval adds one more allotment of the configured limit");
+        gate.Asked.ShouldBe(2);
+        gate.LastLimit!.Allotment.ShouldBe(2);
+        gate.LastLimit.Ceiling.ShouldBe(4, "the second question is about the extended ceiling");
+    }
+
+    [Fact]
+    public async Task A_run_without_a_gate_stops_at_the_limit_as_before()
+    {
+        RecordingStepLogger transcript = new();
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("noop"))),
+            new ToolRegistry([new NoopTools()]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 2 }))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep going" });
+
+        result.StopReason.ShouldBe(AgentStopReason.StepLimit);
+        result.Steps.ShouldBe(2);
+    }
+
+    private sealed class CountingGate(int approvals) : ILimitExtensionGate
+    {
+        private int _granted;
+
+        public int Asked { get; private set; }
+
+        public RunLimitReached? LastLimit { get; private set; }
+
+        public Task<bool> RequestExtensionAsync(RunLimitReached limit, CancellationToken cancellationToken)
+        {
+            Asked++;
+            LastLimit = limit;
+            return Task.FromResult(_granted++ < approvals);
+        }
+    }
+
     private sealed class NoopTools : IToolSet
     {
         [GlassCoderTool("noop")]
@@ -385,6 +449,50 @@ public sealed class RepeatedFailureTests
         public GlassCoder.Tools.ToolObservation<string> SoftBoom() =>
             GlassCoder.Tools.Observation.Ok(
                 "softboom", "exit 1", "dotnet add_reference failed with exit 1.", outcomeOk: false);
+    }
+
+    /// <summary>
+    /// Run c5eb67f6 read one test file thirteen times - offset 70, 75, 76, maxLines 20, 25,
+    /// 30 - and every variation minted a fresh fingerprint, so the stall counter never armed
+    /// while the run read itself to the token limit. Reads of one unchanged path now count as
+    /// themselves whatever the window: a nudge at four, and past it they stop counting as
+    /// novel, so the ordinary stall stop takes over.
+    /// </summary>
+    [Fact]
+    public async Task Rereading_one_unchanged_file_with_varying_windows_still_stalls()
+    {
+        RecordingStepLogger transcript = new();
+
+        static ChatResponse Read(int start) => FakeChatClient.ToolCall(
+            "read_file",
+            new Dictionary<string, object?> { ["path"] = "src/T.cs", ["startLine"] = start });
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(
+                Read(70), Read(75), Read(76), Read(80), Read(20), Read(25), Read(30))),
+            new ToolRegistry([new PagingTools()]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30, MaxStalledSteps = 3 }))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "fix the file" });
+
+        result.StopReason.ShouldBe(AgentStopReason.Stalled);
+
+        transcript.Steps
+            .SelectMany(s => s.Prompt)
+            .ShouldContain(m => (m.Text ?? string.Empty).Contains("times without changing", StringComparison.Ordinal));
+    }
+
+    private sealed class PagingTools : IToolSet
+    {
+        [GlassCoderTool("read_file")]
+        [System.ComponentModel.Description("Returns a window of a file, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Read(
+            [System.ComponentModel.Description("The file.")] string path,
+            [System.ComponentModel.Description("1-based start line.")] int startLine = 1) =>
+            GlassCoder.Tools.Observation.Ok(
+                "read_file", "content", $"Read lines {startLine}-{startLine + 24} of 133 from {path}.");
     }
 
     private static AgentLoop Loop(RecordingStepLogger transcript, int maxIdentical, int maxSteps = 30) => new(

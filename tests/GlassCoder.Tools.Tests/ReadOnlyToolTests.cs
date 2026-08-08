@@ -37,6 +37,22 @@ public sealed class ReadOnlyToolTests : IDisposable
     }
 
     [Fact]
+    public void A_truncated_read_names_its_own_continuation()
+    {
+        // Run c5eb67f6 needed lines ~70-95, paged with a parameter this tool does not have, and
+        // re-read the head thirteen times. The summary now says how to get the rest.
+        _workspace.WriteFile(
+            "src/Big.cs", string.Join('\n', Enumerable.Range(1, 60).Select(i => $"// line {i}")));
+
+        ToolObservation<ReadFileResult> observation = ReadFileTool().ReadFile("src/Big.cs", maxLines: 10);
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Truncated.ShouldBeTrue();
+        observation.Summary.ShouldContain("Continue with startLine: 11");
+        observation.Summary.ShouldContain("outline: true", customMessage: "a C# file's shape is one call away");
+    }
+
+    [Fact]
     public void Read_file_honours_the_requested_window_and_reports_truncation()
     {
         _workspace.WriteFile("src/Big.cs", string.Join('\n', Enumerable.Range(1, 100).Select(i => $"line {i}")));

@@ -9,6 +9,84 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (shell) — One more allotment, and a transcript that follows the run
+
+**Shipped.** Two operator conveniences: a tripped step or token ceiling can be extended by one
+more allotment of its configured size from a banner, and the transcript follows the live run -
+newest step selected, detail pane at its end - until a click on an earlier row pins it.
+690 tests green, +2.
+
+**Decided**
+
+- **The loop pauses on the limit question instead of dying on it.** `ILimitExtensionGate` is
+  consulted when StepLimit or TokenLimit trips (only those two - time and cost stay where
+  configuration put them); approval extends the ceiling by the configured amount and the
+  question returns at the next trip. The console registers no gate and stops exactly as
+  before; the WPF shell answers with a banner, and cancelling the run answers "stop" so
+  Cancel keeps working while the banner is up. A gate that throws is a "no", never a crash.
+- **The extension is per-run.** Nothing writes back to settings: raising the configured limit
+  for every future run is what the settings dialog is for.
+- **The newest transcript row doubles as the "follow live" control.** Selecting it resumes
+  following; selecting any other row pins the view (detail from the top) - a transcript that
+  yanks the selection away mid-read is unreadable during exactly the runs worth reading. The
+  scroll mechanics live in the view code-behind; the view model keeps owning rows and
+  selection.
+
+**Open**
+
+- The banner waits indefinitely; a wall-clock limit still fires while it waits, which is the
+  honest backstop for a question nobody answers overnight.
+
+---
+
+## 2026-08-08 (night) — The pager that ignored the page number
+
+**Shipped.** From run `c5eb67f6` (41 steps, 504k, TokenLimit - the first regression to the
+death pattern since the gate fixes) and a third external review: arguments are validated
+against the schema before they bind, reads of one unchanged file count as one loop however
+the window wobbles, the TFM repair accepts directory spellings, and a truncated read names
+its own continuation. 687 tests green, +6.
+
+**What the run said.** A correctly refused edit pointed at line 81; the model paged toward it
+with `read_file(offset: 70)` - another harness's name for `startLine` - and the binder
+silently dropped the unknown key, returning the head of the file, marked Succeeded, thirteen
+times. Every wobble of the window minted a fresh fingerprint, so the stall sentry never
+armed. Fourteen steps and roughly 180k tokens later the model overwrote the file whole and
+finished the goal, but the critique recovery - which this time wrote a real integration test
+rather than f4ed50e0's packages - died at the token limit mid-fix. Secondary: the TFM widen
+never fired because the model spelled the referencing project as its directory, and reading
+a framework out of a directory yields nothing.
+
+**Decided**
+
+- **Arguments get the tool-name treatment, one level down.** The registry validates every
+  argument name against the function's schema before binding: a proven alias
+  (`read_file.offset` → `startLine`) is rewritten and invoked; any other unknown name fails
+  as InvalidArguments naming the real parameter list - one corrective step instead of
+  thirteen silent no-ops. Integer parameters accept the shapes models send ("70", 70.0);
+  fractions are refused with the reason. The binder silently dropping unknown keys was the
+  todo_write defect at the argument level, and the fix is the same contract.
+- **Reads of one unchanged path are one loop, whatever the window.** A same-path counter runs
+  beside the fingerprint tracker: a nudge at four reads with nothing applied between - naming
+  startLine, outline, and whole-file overwrite as the exits - and past four they stop
+  counting as novelty, so the ordinary stall stop takes over. Only read_file feeds it:
+  a directory re-queried with new patterns is exploration, not a loop.
+- **The TFM repair resolves directories to their single project file on both sides** - the
+  CLI accepts the spelling, so the repair must.
+- **A truncated read says how to continue** (`Continue with startLine: N`, outline for C#) -
+  the sentence that would have broken the loop at its second step.
+
+**Open**
+
+- The critique-recovery arc remains unmeasured end to end: c5eb67f6's recovery was finally
+  substantive (a real test, an app edit to match) but the budget was already spent. The next
+  clean run is the first real test of the two-panel critique.
+- Argument aliases hold one entry, by the log-proven rule; `limit` (offset's sibling in the
+  same foreign idiom) now fails fast with the parameter list, which is the acceptable path
+  until a log shows it recurring.
+
+---
+
 ## 2026-08-08 (evening) — Efficiency: the run that completed and still wasted a third
 
 **Shipped.** From run `f4ed50e0` (30 steps, 289k, Completed, 6 tests - the live trial of the

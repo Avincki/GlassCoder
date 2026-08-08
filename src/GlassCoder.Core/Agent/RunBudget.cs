@@ -17,6 +17,8 @@ internal sealed class RunBudget
     private readonly TimeProvider _time;
     private readonly long _startTimestamp;
     private decimal _criticSpendUsd;
+    private int _extraSteps;
+    private long _extraTokens;
 
     public RunBudget(AgentOptions limits, ModelRoleOptions role, TimeProvider time)
     {
@@ -28,11 +30,20 @@ internal sealed class RunBudget
 
     public int Steps { get; private set; }
 
-    /// <summary>The step ceiling this run was given.</summary>
-    public int MaxSteps => _limits.MaxSteps;
+    /// <summary>The step ceiling this run currently has, operator extensions included.</summary>
+    public int MaxSteps => _limits.MaxSteps + _extraSteps;
+
+    /// <summary>The token ceiling this run currently has, operator extensions included.</summary>
+    public long MaxTotalTokens => _limits.MaxTotalTokens + _extraTokens;
+
+    /// <summary>What one step-limit extension adds: the configured limit.</summary>
+    public int StepAllotment => _limits.MaxSteps;
+
+    /// <summary>What one token-limit extension adds: the configured limit.</summary>
+    public long TokenAllotment => _limits.MaxTotalTokens;
 
     /// <summary>How many steps are left before <see cref="AgentStopReason.StepLimit"/> trips.</summary>
-    public int StepsRemaining => Math.Max(0, _limits.MaxSteps - Steps);
+    public int StepsRemaining => Math.Max(0, MaxSteps - Steps);
 
     /// <summary>
     /// Whether the run is close enough to its step ceiling that the agent should be told.
@@ -42,7 +53,7 @@ internal sealed class RunBudget
     /// while the ceiling is invisible to it.
     /// </para>
     /// </summary>
-    public bool IsRunningOutOfSteps => _limits.MaxSteps > 0 && StepsRemaining <= Math.Max(3, _limits.MaxSteps / 4);
+    public bool IsRunningOutOfSteps => MaxSteps > 0 && StepsRemaining <= Math.Max(3, MaxSteps / 4);
 
     public long InputTokens { get; private set; }
 
@@ -78,15 +89,32 @@ internal sealed class RunBudget
     /// <summary>Adds spend already priced at another role's rates - the critique rung's, today.</summary>
     public void AddCriticSpend(decimal costUsd) => _criticSpendUsd += costUsd;
 
+    /// <summary>
+    /// Raises the tripped ceiling by one more allotment of its configured size - the operator's
+    /// answer to a limit that fired three steps from done. Only the step and token ceilings
+    /// extend; time and cost stay where configuration put them.
+    /// </summary>
+    public void Extend(AgentStopReason reason)
+    {
+        if (reason == AgentStopReason.StepLimit)
+        {
+            _extraSteps += _limits.MaxSteps;
+        }
+        else if (reason == AgentStopReason.TokenLimit)
+        {
+            _extraTokens += _limits.MaxTotalTokens;
+        }
+    }
+
     /// <summary>The limit that has tripped, or null when the loop may continue.</summary>
     public AgentStopReason? Exhausted()
     {
-        if (Steps >= _limits.MaxSteps)
+        if (Steps >= MaxSteps)
         {
             return AgentStopReason.StepLimit;
         }
 
-        if (_limits.MaxTotalTokens > 0 && TotalTokens >= _limits.MaxTotalTokens)
+        if (_limits.MaxTotalTokens > 0 && TotalTokens >= MaxTotalTokens)
         {
             return AgentStopReason.TokenLimit;
         }

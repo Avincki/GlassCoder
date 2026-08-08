@@ -38,7 +38,7 @@
       <Button Content="Clear" Padding="10,2" Command="{Binding ClearCommand}" />
     </WrapPanel>
 
-    <DataGrid Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
+    <DataGrid x:Name="StepGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True"
               ItemsSource="{Binding View}" SelectedItem="{Binding Selected}"
               GridLinesVisibility="Horizontal" HeadersVisibility="Column">
       <DataGrid.Columns>
@@ -67,7 +67,7 @@
 
     <TextBlock Grid.Row="2" Margin="0,8,0,4" FontWeight="Bold" Text="Step detail" />
 
-    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+    <ScrollViewer x:Name="DetailScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto">
       <TextBox Text="{Binding Selected.Detail, Mode=OneWay}" IsReadOnly="True"
                FontFamily="Cascadia Mono, Consolas" FontSize="12"
                TextWrapping="Wrap" BorderThickness="0" Background="Transparent" />

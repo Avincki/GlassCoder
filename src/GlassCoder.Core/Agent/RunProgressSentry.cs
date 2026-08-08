@@ -40,11 +40,24 @@ internal sealed class RunProgressSentry
     /// <summary>Consecutive stalled steps before the same telling-off.</summary>
     private const int NudgeAfterStalledSteps = 3;
 
+    /// <summary>Reads of one file, with nothing applied between them, before the model is told
+    /// the file has not changed. Past this count they stop counting as novel work.</summary>
+    private const int NudgeAfterSamePathReads = 4;
+
+    /// <summary>The tools whose 'path' argument names a file whose content they return. Only
+    /// these feed the same-path counter: a directory-shaped path re-queried with new patterns
+    /// (grep, glob) is exploration, not a loop.</summary>
+    private static readonly HashSet<string> PathReadTools = new(StringComparer.Ordinal) { "read_file" };
+
     private readonly HashSet<string> _seenCalls = new(StringComparer.Ordinal);
 
     private readonly Dictionary<string, int> _failureCounts = new(StringComparer.Ordinal);
     private readonly HashSet<string> _nudgedFailures = new(StringComparer.Ordinal);
     private string? _failureToNudge;
+
+    private readonly Dictionary<string, int> _pathReads = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _nudgedPathReads = new(StringComparer.OrdinalIgnoreCase);
+    private string? _pathReadToNudge;
 
     private int _stalledSteps;
     private string? _lastRepeatedCall;
@@ -58,6 +71,7 @@ internal sealed class RunProgressSentry
     public void ObserveStep(IReadOnlyList<ToolInvocation> invocations, bool changesApplied)
     {
         _failureToNudge = null;
+        _pathReadToNudge = null;
 
         if (changesApplied)
         {
@@ -66,6 +80,8 @@ internal sealed class RunProgressSentry
             _nudgedAboutStall = false;
             _failureCounts.Clear();
             _nudgedFailures.Clear();
+            _pathReads.Clear();
+            _nudgedPathReads.Clear();
             return;
         }
 
@@ -97,8 +113,27 @@ internal sealed class RunProgressSentry
             }
 
             anySucceeded = true;
+
+            // The same file re-read with a wobbling window is one loop, not many novel calls.
+            // Run c5eb67f6 read one test file thirteen times - offset 70, 75, 76, maxLines 20,
+            // 25, 30 - and every variation minted a fresh fingerprint, so the stall counter
+            // never armed while the run read itself to the token limit. Reads of one unchanged
+            // path are counted as themselves, whatever the window; past the nudge they stop
+            // counting as novelty.
+            bool wornPath = false;
+            if (PathReadTools.Contains(invocation.ToolName) && PathOf(invocation) is { } path)
+            {
+                string pathKey = $"{invocation.ToolName}:{path}";
+                int reads = _pathReads[pathKey] = _pathReads.GetValueOrDefault(pathKey) + 1;
+                wornPath = reads > NudgeAfterSamePathReads;
+                if (reads == NudgeAfterSamePathReads && _nudgedPathReads.Add(pathKey))
+                {
+                    _pathReadToNudge = path;
+                }
+            }
+
             string fingerprint = DescribeCall(invocation);
-            if (_seenCalls.Add(fingerprint))
+            if (_seenCalls.Add(fingerprint) && !wornPath)
             {
                 anyNovel = true;
             }
@@ -135,6 +170,16 @@ internal sealed class RunProgressSentry
               $"on either side of other work: {_failureToNudge}. Repeating it will not work. Change approach - " +
               "read the file again and quote from what it returns, use create_file with overwrite: true to " +
               "replace the whole file, or work on something else."
+            : null;
+
+    /// <summary>The same-path read nudge, exactly once per worn path.</summary>
+    public string? PathReadNudge() =>
+        _pathReadToNudge is not null
+            ? $"You have now read {_pathReadToNudge} {NudgeAfterSamePathReads} times without changing " +
+              "anything. The file has not changed between reads, so the answers cannot differ. Read " +
+              "the exact region you need in one call (startLine and maxLines, or outline: true for " +
+              "a C# file's shape), or act on what you already know - for a file this size, " +
+              "create_file with overwrite: true and the full corrected content is often the shortest path."
             : null;
 
     /// <summary>The stall nudge, once per stretch of no-progress.</summary>
@@ -222,6 +267,13 @@ internal sealed class RunProgressSentry
         int end = message.IndexOf('\n');
         return $"{invocation.ToolName}: {(end < 0 ? message : message[..end]).TrimEnd('\r')}";
     }
+
+    /// <summary>The 'path' argument as a string, when the call carried one.</summary>
+    private static string? PathOf(ToolInvocation invocation) =>
+        invocation.Arguments is { } arguments &&
+        arguments.TryGetValue("path", out object? value)
+            ? value?.ToString()
+            : null;
 
     /// <summary>
     /// A call as the repeat tracker sees it: tool, arguments and answer, all of it. The answer

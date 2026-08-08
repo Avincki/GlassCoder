@@ -106,6 +106,28 @@
       </Grid>
     </Border>
 
+    <!-- The paused loop's question: a step or token ceiling tripped and the operator may buy
+         one more allotment. The run makes no model calls while this shows - the banner is the
+         run's next step, which is why it sits on the shell like the review does. -->
+    <Border DockPanel.Dock="Bottom" Background="#E3F2FD" BorderBrush="#1565C0" BorderThickness="0,1,0,1"
+            Padding="12,8" Visibility="{Binding HasLimitPrompt, Converter={StaticResource BoolToVisibility}}">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Column="0" Text="{Binding LimitPrompt}" FontWeight="Bold"
+                   TextWrapping="Wrap" VerticalAlignment="Center" Foreground="#0D3C61" />
+
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+          <Button Content="Extend and continue" Padding="12,4" Command="{Binding ExtendLimitCommand}"
+                  ToolTip="Raises the tripped limit by one more allotment of its configured size, for this run only." />
+          <Button Content="Stop here" Padding="12,4" Margin="8,0,0,0" Command="{Binding StopAtLimitCommand}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
     <!-- The centre of the shell is a Grid rather than more docking for one reason: the
          workspace pane is user-resizable, and a GridSplitter only works between columns. -->
     <Grid>

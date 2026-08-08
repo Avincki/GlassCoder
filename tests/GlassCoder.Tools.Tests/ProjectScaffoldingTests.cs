@@ -686,6 +686,35 @@ public sealed class ProjectScaffoldingTests
     }
 
     [Fact]
+    public async Task A_framework_mismatch_with_directory_paths_is_still_repaired()
+    {
+        // Run c5eb67f6 spelled the referencing project as its directory - which the CLI
+        // accepts, so the repair must too. Reading a TFM out of a directory yielded "an
+        // unknown framework", the widen never fired, and the model hand-edited the csproj.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "tests/App.Tests/App.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>");
+        workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0-windows</TargetFramework>\n    <UseWPF>true</UseWPF>\n  </PropertyGroup>\n</Project>");
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "cannot be added due to incompatible targeted frameworks between the two projects.");
+        executor.Enqueue(0, "Reference added to the project.");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src", "tests"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.AddReference, "tests/App.Tests", "src/App");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Data!.Succeeded.ShouldBeTrue();
+        observation.Summary.ShouldContain("widened from net10.0 to net10.0-windows");
+        File.ReadAllText(Path.Combine(workspace.Root, "tests", "App.Tests", "App.Tests.csproj"))
+            .ShouldContain("<TargetFramework>net10.0-windows</TargetFramework>");
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task An_unrepairable_framework_mismatch_carries_the_diagnosis()
     {
         // Any shape outside the single-TFM base-plus-suffix case is not auto-edited - but the

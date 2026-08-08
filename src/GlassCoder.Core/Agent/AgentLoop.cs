@@ -44,6 +44,7 @@ public sealed class AgentLoop : IAgentLoop
     private readonly AgentOptions _defaults;
     private readonly TimeProvider _time;
     private readonly ILogger<AgentLoop> _logger;
+    private readonly ILimitExtensionGate? _limitGate;
 
     /// <summary>Creates the loop.</summary>
     public AgentLoop(
@@ -60,7 +61,8 @@ public sealed class AgentLoop : IAgentLoop
         IVerificationLadder? verifier = null,
         IChangeLog? changes = null,
         IOptions<VerificationLadderOptions>? verificationOptions = null,
-        ICriticPanel? critics = null)
+        ICriticPanel? critics = null,
+        ILimitExtensionGate? limitGate = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -78,6 +80,7 @@ public sealed class AgentLoop : IAgentLoop
         _defaults = options.Value;
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
+        _limitGate = limitGate;
     }
 
     /// <inheritdoc />
@@ -147,6 +150,21 @@ public sealed class AgentLoop : IAgentLoop
         {
             if (budget.Exhausted() is { } exhausted)
             {
+                // The operator may buy the run one more allotment of the tripped ceiling - a
+                // run that dies three steps from done used to restart from zero. Asked again
+                // each time the extended ceiling trips; a run nobody answers for stops exactly
+                // as before, and only steps and tokens are extendable.
+                if (exhausted is AgentStopReason.StepLimit or AgentStopReason.TokenLimit &&
+                    await RequestExtensionAsync(exhausted, budget, cancellationToken).ConfigureAwait(false))
+                {
+                    budget.Extend(exhausted);
+                    _logger.LogInformation(
+                        "Run {RunId}: {Reason} reached and extended by the operator; ceilings now " +
+                        "{MaxSteps} steps, {MaxTokens} tokens",
+                        request.RunId, exhausted, budget.MaxSteps, budget.MaxTotalTokens);
+                    continue;
+                }
+
                 stopReason = exhausted;
                 break;
             }
@@ -330,6 +348,11 @@ public sealed class AgentLoop : IAgentLoop
                 messages.Add(new ChatMessage(ChatRole.User, stallNudge));
             }
 
+            if (sentry.PathReadNudge() is { } pathReadNudge)
+            {
+                messages.Add(new ChatMessage(ChatRole.User, pathReadNudge));
+            }
+
             // Told once, when it starts to matter. A run that spends its last steps re-checking
             // finished work rather than finishing it is the common way a step limit is reached,
             // and the agent cannot pace itself against a ceiling it cannot see.
@@ -434,6 +457,37 @@ public sealed class AgentLoop : IAgentLoop
             request.RunId, stopReason, budget.Steps, budget.TotalTokens, result.Elapsed.TotalSeconds, result.ToolCallValidityRate);
 
         return result;
+    }
+
+    /// <summary>
+    /// Asks the gate whether the tripped ceiling may grow. A gate that is absent, declines,
+    /// or fails answers no - an extension is a favour, never a dependency the run can crash on.
+    /// </summary>
+    private async Task<bool> RequestExtensionAsync(
+        AgentStopReason exhausted, RunBudget budget, CancellationToken cancellationToken)
+    {
+        if (_limitGate is null)
+        {
+            return false;
+        }
+
+        RunLimitReached limit = exhausted == AgentStopReason.StepLimit
+            ? new RunLimitReached(exhausted, budget.Steps, budget.MaxSteps, budget.StepAllotment)
+            : new RunLimitReached(exhausted, budget.TotalTokens, budget.MaxTotalTokens, budget.TokenAllotment);
+
+        try
+        {
+            return await _limitGate.RequestExtensionAsync(limit, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The limit-extension gate failed; stopping at the limit as configured");
+            return false;
+        }
     }
 
     private async Task<List<ToolInvocation>> ExecuteAsync(
