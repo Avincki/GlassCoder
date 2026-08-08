@@ -405,48 +405,6 @@ public sealed class TestRunConvenienceTests
     }
 
     /// <summary>Answers the confirmation without a window, and remembers what was asked.</summary>
-    private sealed class FakeShell : IDesktopShell
-    {
-        public bool Answer { get; init; } = true;
-
-        public string? LastQuestion { get; private set; }
-
-        public string? LaunchedProject { get; private set; }
-
-        public bool Confirm(string title, string message)
-        {
-            LastQuestion = message;
-            return Answer;
-        }
-
-        public string? LaunchApp(string projectFile)
-        {
-            LaunchedProject = projectFile;
-            return null;
-        }
-
-        public void OpenFolder(string path)
-        {
-        }
-
-        public void OpenFileViewer(string fullPath, string displayPath)
-        {
-        }
-
-        public void Restart()
-        {
-        }
-
-        public string? PickFolder(string title, string? initialDirectory) => null;
-
-        public string? PickFileToOpen(string title, string filter, string? initialDirectory) => null;
-
-        public string? PickFileToSave(
-            string title, string filter, string defaultFileName, string? initialDirectory) => null;
-
-        public string? PromptForPassphrase(string title, string message, bool confirm) => null;
-    }
-
     private sealed class FakeUiStateStore : IUiStateStore
     {
         public string? LastGoal { get; set; }

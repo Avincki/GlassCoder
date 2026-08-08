@@ -59,6 +59,50 @@
                  VerticalAlignment="Center" Text="{Binding Status}" />
     </DockPanel>
 
+    <!--
+      Asked when the launched application closes, because that is the only moment the operator
+      can honestly answer it. A strip rather than a modal box: a dialog on top of whatever they
+      turned to next gets answered to make it go away, and a rating given to dismiss something is
+      worse than none. Skip is therefore a first-class button, not a corner cross.
+    -->
+    <Border DockPanel.Dock="Bottom" Margin="0,6,0,0" Padding="8,6" CornerRadius="3"
+            Background="#1E3A4C" BorderBrush="#2E5A73" BorderThickness="1">
+      <Border.Style>
+        <Style TargetType="Border">
+          <Setter Property="Visibility" Value="Collapsed" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding IsRatingApp}" Value="True">
+              <Setter Property="Visibility" Value="Visible" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
+      </Border.Style>
+
+      <StackPanel>
+        <TextBlock Foreground="{StaticResource PaneForeground}" TextWrapping="Wrap"
+                   Text="{Binding RatedApplication, StringFormat='How did {0} look? Nothing else in a run judges the screen.'}" />
+
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+          <ComboBox Width="64" ItemsSource="{Binding RatingScale}"
+                    SelectedItem="{Binding AppRating}"
+                    ToolTip="0 unusable, 5 exactly right. Recording is disabled until you choose." />
+          <TextBlock Text="0 unusable · 5 exactly right" VerticalAlignment="Center" Margin="10,0,0,0"
+                     Foreground="{StaticResource PaneMutedForeground}" />
+        </StackPanel>
+
+        <TextBox Text="{Binding AppComment, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,0"
+                 MinHeight="44" TextWrapping="Wrap" AcceptsReturn="True"
+                 Background="{StaticResource PaneField}" Foreground="{StaticResource PaneForeground}"
+                 BorderBrush="{StaticResource PaneBorder}"
+                 ToolTip="Optional. What was wrong, or what was right - it is recorded verbatim." />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+          <Button Content="Skip" Padding="10,2" Margin="0,0,6,0" Command="{Binding SkipRatingCommand}" />
+          <Button Content="Record" Padding="10,2" MinWidth="80" Command="{Binding SubmitRatingCommand}" />
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
     <!-- The tree follows the workspace: a file appears the moment its path does, whoever made
          it. Files the *current run* touched are green with their net +added −removed counts,
          and the folders above them open so a modification is never folded away. Folders start

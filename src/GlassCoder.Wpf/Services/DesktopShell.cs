@@ -84,8 +84,15 @@ public interface IDesktopShell
     /// </para>
     /// </summary>
     /// <param name="projectFile">Absolute path of the .csproj to run.</param>
+    /// <param name="onExit">
+    /// Called once, on a background thread, when the launched process ends - which is the moment
+    /// the operator has finished looking at the window and is the only moment they can honestly
+    /// judge it. Never called when the launch itself failed. Detachment is about ownership, not
+    /// ignorance: the harness still does not drive or close the app, it only notices that it is
+    /// over.
+    /// </param>
     /// <returns>Null when the launch started, else why it could not.</returns>
-    string? LaunchApp(string projectFile);
+    string? LaunchApp(string projectFile, Action? onExit = null);
 }
 
 /// <summary>The Windows implementation of <see cref="IDesktopShell"/>.</summary>
@@ -209,7 +216,7 @@ public sealed class DesktopShell : IDesktopShell
     }
 
     /// <inheritdoc />
-    public string? LaunchApp(string projectFile)
+    public string? LaunchApp(string projectFile, Action? onExit = null)
     {
         try
         {
@@ -219,7 +226,29 @@ public sealed class DesktopShell : IDesktopShell
                 WorkingDirectory = Path.GetDirectoryName(projectFile) ?? ".",
             };
 
-            using Process? _ = Process.Start(info);
+            Process? process = Process.Start(info);
+            if (process is null || onExit is null)
+            {
+                process?.Dispose();
+                return null;
+            }
+
+            // Kept alive rather than disposed at the brace, because the exit is the thing worth
+            // waiting for. 'dotnet run' outlives the build and ends when the app does, so this
+            // fires when the operator closes the window.
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) =>
+            {
+                try
+                {
+                    onExit();
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            };
+
             return null;
         }
         catch (Exception ex) when (

@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="How GlassCoder ranks against local coding agents and frontier cloud agents, including working MCP retrieval for Microsoft Learn and GitHub.">
+<title>GlassCoder — Competitive ranking</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .rail a:hover { color: var(--signal); border-left-color: var(--signal); }
+
+  main { padding: 2.5rem 0 0; max-width: 48rem; }
+
+  .part { margin-bottom: 3.25rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin-bottom: 1.1rem;
+    padding-bottom: 0.55rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .part-head .num {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    color: var(--faint);
+  }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.45rem;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 1.12rem;
+    margin: 1.75rem 0 0.65rem;
+  }
+
+  p { margin: 0 0 1rem; max-width: var(--measure); }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.25rem;
+    max-width: var(--measure);
+  }
+
+  ul.prose li, ol.prose li { margin-bottom: 0.4rem; }
+
+  code, .m {
+    font-family: var(--mono);
+    font-size: 0.88em;
+  }
+
+  pre {
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  pre .c { color: var(--faint); }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.25rem; }
+
+  table.doc {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    min-width: 32rem;
+  }
+
+  table.doc th, table.doc td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  table.doc th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 400;
+    background: var(--sunk);
+  }
+
+  table.doc td.rank {
+    font-family: var(--mono);
+    font-weight: 600;
+    color: var(--signal);
+    width: 2.5rem;
+  }
+
+  table.doc tr.highlight td {
+    background: var(--signal-soft);
+  }
+
+  .note {
+    margin: 0 0 1.5rem;
+    padding: 1rem 1.15rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    max-width: var(--measure);
+  }
+
+  .note .tag {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--signal);
+    margin-bottom: 0.45rem;
+  }
+
+  .note p { margin: 0 0 0.65rem; }
+  .note p:last-child { margin-bottom: 0; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    background: var(--sunk);
+    color: var(--muted);
+  }
+
+  .pill.pass { background: var(--pass-soft); color: var(--pass); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+
+  footer.doc-foot {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 3rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--faint);
+  }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; max-height: none; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Analysis · 2026-08-08</div>
+    <h1>Competitive ranking</h1>
+    <p class="standfirst">
+      How GlassCoder sits against other local coding agents and frontier cloud agents,
+      with Microsoft Learn and GitHub MCP retrieval treated as working (gated, off by default).
+    </p>
+    <div class="specstrip">
+      <div><b>Subject</b> GlassCoder + MCP</div>
+      <div><b>Peers</b> Local agents · Frontier agents</div>
+      <div><b>Lens</b> model × harness × context</div>
+      <div><b>Last chapter</b> Rankings</div>
+    </div>
+    <div class="backlinks">
+      <a href="index.html">← Operator's guide</a>
+      <a href="NewFeatures/mcp-retrieval.html">← Retrieval over MCP</a>
+      <a href="business/business-model-brainstorm.html">← Business model notes</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Chapters</h2>
+    <ol>
+      <li><a href="#position">1 · Positioning</a></li>
+      <li><a href="#formula">2 · How to score</a></li>
+      <li><a href="#features">3 · Feature matrix</a></li>
+      <li><a href="#mcp">4 · What MCP changes</a></li>
+      <li><a href="#narratives">5 · Head-to-head</a></li>
+      <li><a href="#choose">6 · When to choose what</a></li>
+      <li><a href="#weak">7 · Residual weaknesses</a></li>
+      <li><a href="#ranking">8 · Ranking</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <div class="note">
+      <span class="tag">Scope</span>
+      <p>
+        This is an opinionated product ranking, not a benchmark leaderboard. Scores assume
+        GlassCoder’s MCP layer works as designed: Learn + GitHub tools behind admission policy,
+        budgets, and record/replay. Default install still has retrieval <b>off</b>
+        (<code>Retrieval:Enabled: false</code>).
+      </p>
+      <p>
+        GlassCoder is not priced or designed as “a cheaper Cursor.” Its job is a
+        <b>measurable, sovereign .NET harness</b> — capability ≈ model × harness × context.
+      </p>
+    </div>
+
+    <!-- ========== 1 ========== -->
+    <section class="part" id="position">
+      <div class="part-head"><span class="num">01</span><h2>Positioning</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Class</th><th>Examples</th><th>Optimises for</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Frontier cloud agents</b></td>
+              <td>Claude Code, Cursor Agent, Codex, Devin-class</td>
+              <td>Raw task success: best models, broad tools, product polish</td>
+            </tr>
+            <tr>
+              <td><b>Local / open agents</b></td>
+              <td>Aider, Continue, Cline/Roo, OpenHands, similar</td>
+              <td>Local or cheap inference; flexible chat/editor loops; polyglot</td>
+            </tr>
+            <tr class="highlight">
+              <td><b>GlassCoder + MCP</b></td>
+              <td>This product (worker on Spark, critics, Lab)</td>
+              <td>.NET oracles, transcripts, Lab arms, data sovereignty; controlled external knowledge</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        With MCP on, GlassCoder does <b>not</b> become a generalist coding OS. It becomes a
+        stronger local/.NET research-and-ops harness with optional trusted docs (Learn) and an
+        existence check on public code (GitHub), without destroying hermetic ablations.
+      </p>
+    </section>
+
+    <!-- ========== 2 ========== -->
+    <section class="part" id="formula">
+      <div class="part-head"><span class="num">02</span><h2>How to score</h2></div>
+
+<pre><code><span class="c"># Effective quality</span>
+outcome ≈ model_quality × harness_quality × context_quality
+          × task_fit</code></pre>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead>
+            <tr>
+              <th>Factor</th>
+              <th>Frontier</th>
+              <th>Local peers</th>
+              <th>GlassCoder + MCP</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>Model</b></td>
+              <td>Frontier (Opus, GPT, …)</td>
+              <td>Small–mid local or API</td>
+              <td>Local Qwen-class on Spark, or any OpenAI-compatible role</td>
+            </tr>
+            <tr>
+              <td><b>Harness</b></td>
+              <td>Strong, often opaque</td>
+              <td>Medium–strong; often shell-heavy</td>
+              <td>Very strong for .NET; measurable; refuse-by-default</td>
+            </tr>
+            <tr>
+              <td><b>Context</b></td>
+              <td>Cloud index, web, MCP ecosystem</td>
+              <td>Repo + optional web/MCP</td>
+              <td>Repo tools + gated Learn + <code>gh_symbol_exists</code></td>
+            </tr>
+            <tr>
+              <td><b>Task fit</b></td>
+              <td>Polyglot product work</td>
+              <td>Polyglot, IDE-centric</td>
+              <td>.NET / C# / WPF / tests first</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        MCP mainly raises <b>context quality</b> (and harness discipline around knowledge).
+        It does not close the <b>model</b> gap versus Claude or GPT on hard open-ended reasoning.
+      </p>
+    </section>
+
+    <!-- ========== 3 ========== -->
+    <section class="part" id="features">
+      <div class="part-head"><span class="num">03</span><h2>Feature matrix</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead>
+            <tr>
+              <th>Capability</th>
+              <th>Frontier</th>
+              <th>Local peers</th>
+              <th>GlassCoder + MCP</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Edit / search files</td>
+              <td>Excellent</td>
+              <td>Excellent</td>
+              <td>Excellent (structured observations)</td>
+            </tr>
+            <tr>
+              <td>Shell / arbitrary commands</td>
+              <td>Usually yes</td>
+              <td>Often yes</td>
+              <td>Opt-in <code>bash</code>; prefers structured tools</td>
+            </tr>
+            <tr>
+              <td>Compile / test oracles</td>
+              <td>Varies</td>
+              <td>Varies</td>
+              <td><b>First-class</b> build / run_tests + ladder + Roslyn pre-write</td>
+            </tr>
+            <tr>
+              <td>.NET project scaffolding</td>
+              <td>Generic</td>
+              <td>Generic</td>
+              <td><code>dotnet_project</code>, TFM align, list_projects</td>
+            </tr>
+            <tr>
+              <td>External Microsoft docs</td>
+              <td>Broad / free-form</td>
+              <td>Mixed</td>
+              <td><code>learn_search</code> / <code>learn_fetch</code> (trusted framing)</td>
+            </tr>
+            <tr>
+              <td>“Does this API exist?”</td>
+              <td>Memory + web</td>
+              <td>Web / search</td>
+              <td><code>gh_symbol_exists</code> (untrusted framing)</td>
+            </tr>
+            <tr>
+              <td>Critics / multi-opinion</td>
+              <td>Product features</td>
+              <td>Rare</td>
+              <td>Critic panel, optional remote critic, post-run review</td>
+            </tr>
+            <tr>
+              <td>Transcripts + metrics</td>
+              <td>Partial / proprietary</td>
+              <td>Weak–medium</td>
+              <td><b>Core product</b></td>
+            </tr>
+            <tr>
+              <td>Hermetic ablation / Lab</td>
+              <td>Almost never</td>
+              <td>Almost never</td>
+              <td><b>Core</b> — MCP Replay keeps arms comparable</td>
+            </tr>
+            <tr>
+              <td>Data leaves the machine</td>
+              <td>Usually yes</td>
+              <td>Optional</td>
+              <td>Can stay fully local</td>
+            </tr>
+            <tr>
+              <td>Python / polyglot depth</td>
+              <td>High</td>
+              <td>High</td>
+              <td>Low as first-class target</td>
+            </tr>
+            <tr>
+              <td>“Vibe a whole product”</td>
+              <td>Best-in-class</td>
+              <td>Good with big models</td>
+              <td>Weaker unless model is strong and task is .NET-shaped</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== 4 ========== -->
+    <section class="part" id="mcp">
+      <div class="part-head"><span class="num">04</span><h2>What MCP changes</h2></div>
+
+      <h3>Before MCP</h3>
+      <ul class="prose">
+        <li>Local models invent APIs and packages; the ladder often catches only after wasted steps.</li>
+        <li>Frontier agents effectively “know” more public surface and can search freely.</li>
+        <li>GlassCoder context was almost entirely workspace tools, not authoritative external surface.</li>
+      </ul>
+
+      <h3>With working MCP</h3>
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Gained</th><th>How</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Authoritative .NET / Azure surface</td>
+              <td>Learn when compile names non-workspace symbols</td>
+            </tr>
+            <tr>
+              <td>Hallucination check</td>
+              <td>GitHub code search as existence, marked untrusted</td>
+            </tr>
+            <tr>
+              <td>Still scientific</td>
+              <td>Record/Replay corpus; miss is loud; tools absent when off</td>
+            </tr>
+            <tr>
+              <td>Still budgeted</td>
+              <td>Max calls, max result chars, anti-search loop</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Not gained</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Match Claude/Cursor on open-ended product coding</td>
+              <td>Model + general tool breadth + polish</td>
+            </tr>
+            <tr>
+              <td>Fix UI layout / “visible in dialog”</td>
+              <td>Needs Run app / layout harness, not docs</td>
+            </tr>
+            <tr>
+              <td>Free browsing like a general agent</td>
+              <td><code>AllowProactive=false</code> by default; tight budgets</td>
+            </tr>
+            <tr>
+              <td>Polyglot excellence</td>
+              <td>Still .NET-oracle-centric</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        <b>Net:</b> MCP moves GlassCoder from “local .NET harness with blind spots on external APIs”
+        toward “local .NET harness with <b>controlled, measurable</b> external knowledge.”
+        Meaningful upgrade versus other local agents on .NET; only a partial catch-up to frontier
+        on knowledge — not on general agency.
+      </p>
+    </section>
+
+    <!-- ========== 5 ========== -->
+    <section class="part" id="narratives">
+      <div class="part-head"><span class="num">05</span><h2>Head-to-head</h2></div>
+
+      <h3>Vs other local agents</h3>
+      <p>
+        GlassCoder usually wins on .NET verification depth, Lab/metrics, safety defaults, and
+        external Microsoft docs without wrecking science. Local peers usually win on polyglot
+        speed, ecosystem size, and install-and-go lightness.
+      </p>
+      <p>
+        With MCP, GlassCoder is among the <b>more serious local options for .NET shops</b> that
+        care about sovereignty and measurement — not the best generic local Copilot clone.
+      </p>
+
+      <h3>Vs frontier cloud agents</h3>
+      <p>
+        Frontier wins raw task success, speed of greenfield “anything,” and broad web knowledge.
+        GlassCoder wins privacy/air-gap, bill control on own GPUs, auditability of agent behaviour,
+        and comparing harness configurations.
+      </p>
+      <p>
+        With MCP, the gap on <b>Microsoft-ecosystem factuality</b> shrinks; the gap on
+        <b>open-ended software engineering</b> barely moves. GlassCoder remains a complement or
+        alternative for constrained environments, not a drop-in Claude Code replacement.
+      </p>
+
+      <h3>Hybrid: frontier model + GlassCoder harness</h3>
+<pre><code><span class="c"># Often the strongest combo for serious .NET shops</span>
+hosted Opus/GPT as worker
+  + GlassCoder tools / ladder / MCP Replay
+  + optional local or remote critic</code></pre>
+      <p>
+        Frontier model quality, GlassCoder oracles and measurement, optional Learn with a recorded
+        corpus so Lab arms stay fair.
+      </p>
+    </section>
+
+    <!-- ========== 6 ========== -->
+    <section class="part" id="choose">
+      <div class="part-head"><span class="num">06</span><h2>When to choose what</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Situation</th><th>Prefer</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Air-gapped / regulated .NET shop</td>
+              <td><span class="pill pass">GlassCoder</span> (local models; Learn Record only on a controlled box)</td>
+            </tr>
+            <tr>
+              <td>Measure “did this harness change help?”</td>
+              <td><span class="pill pass">GlassCoder Lab</span> (+ MCP Replay arms)</td>
+            </tr>
+            <tr>
+              <td>Day-to-day polyglot feature factory</td>
+              <td>Frontier agent</td>
+            </tr>
+            <tr>
+              <td>Cheap local pair-programming, any language</td>
+              <td>Local peer or frontier light</td>
+            </tr>
+            <tr>
+              <td>Hard API-correct .NET on a weaker local model</td>
+              <td><span class="pill pass">GlassCoder + Learn MCP</span></td>
+            </tr>
+            <tr>
+              <td>WPF “does it look right?”</td>
+              <td>Human <b>Run app</b> + GlassCoder edit loop — MCP does not replace this</td>
+            </tr>
+            <tr>
+              <td>Cut cloud spend on bulk mechanical .NET work</td>
+              <td>GlassCoder + local Qwen; frontier for hard slices only</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== 7 ========== -->
+    <section class="part" id="weak">
+      <div class="part-head"><span class="num">07</span><h2>Residual weaknesses</h2></div>
+
+      <ol class="prose">
+        <li><b>Model-bound.</b> Qwen FP4 on Spark is not Opus on hard multi-file design.</li>
+        <li><b>UI / runtime evidence.</b> Critics can still refute without Run app; MCP will not fix that.</li>
+        <li><b>Python and other languages</b> remain second-class without tool packs.</li>
+        <li><b>MCP effectiveness</b> on the suite is still unproven until external-doc fixtures exist.</li>
+        <li><b>Proactive Live MCP</b> without budgets reintroduces thrash.</li>
+        <li><b>Product polish and ecosystem</b> remain far behind Cursor / Claude Code.</li>
+      </ol>
+
+      <p>
+        One sentence summary before the rankings: with MCP working, GlassCoder is a
+        <b>state-of-the-art local/.NET agent harness</b> with measurable, hermetic external
+        knowledge — still behind frontier models on open-ended coding, and ahead of most local
+        agents on verification, governance, and experiment design.
+      </p>
+    </section>
+
+    <!-- ========== 8 RANKING (last chapter) ========== -->
+    <section class="part" id="ranking">
+      <div class="part-head"><span class="num">08</span><h2>Ranking</h2></div>
+
+      <p>
+        Rankings assume MCP retrieval works as designed. They are not SWE-bench scores; they are
+        product rankings for the missions named below.
+      </p>
+
+      <h3>Overall — general software engineering</h3>
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th></th><th>Agent class</th><th>Score</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="rank">1</td>
+              <td><b>Frontier cloud agents</b><br><span class="pill">Claude Code · Cursor · Codex · …</span></td>
+              <td class="m">9</td>
+              <td>Best models + broad tools + product polish</td>
+            </tr>
+            <tr>
+              <td class="rank">2</td>
+              <td><b>Strong local / general agents</b><br><span class="pill">Cline · OpenHands · Aider · Continue · …</span></td>
+              <td class="m">6–7</td>
+              <td>Flexible; weaker oracles and measurement</td>
+            </tr>
+            <tr class="highlight">
+              <td class="rank">3</td>
+              <td><b>GlassCoder + working MCP</b></td>
+              <td class="m">6</td>
+              <td>Elite .NET harness; narrower task fit; model often local</td>
+            </tr>
+            <tr>
+              <td class="rank">4</td>
+              <td><b>Lightweight local assistants</b></td>
+              <td class="m">4</td>
+              <td>Chat + light tools without a real verification loop</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p><b>Overall:</b> GlassCoder ≈ top local tier, still below frontier generalists.</p>
+
+      <h3>By job</h3>
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Job</th><th>1st</th><th>2nd</th><th>3rd</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Hard multi-stack work</td>
+              <td>Frontier</td>
+              <td>Local general</td>
+              <td>GlassCoder + MCP</td>
+            </tr>
+            <tr>
+              <td>Air-gapped / source stays local</td>
+              <td><b>GlassCoder + MCP</b></td>
+              <td>Local general</td>
+              <td>Frontier</td>
+            </tr>
+            <tr>
+              <td>.NET build / test / scaffold</td>
+              <td><b>GlassCoder + MCP</b></td>
+              <td>Frontier</td>
+              <td>Local general</td>
+            </tr>
+            <tr>
+              <td>Microsoft / .NET docs &amp; “API exists?”</td>
+              <td>Frontier</td>
+              <td><b>GlassCoder + MCP</b></td>
+              <td>Local general</td>
+            </tr>
+            <tr>
+              <td>Ablation / hermetic metrics</td>
+              <td><b>GlassCoder + MCP</b></td>
+              <td colspan="2">— everyone else far behind</td>
+            </tr>
+            <tr>
+              <td>Polyglot (e.g. Python)</td>
+              <td>Frontier</td>
+              <td>Local general</td>
+              <td>GlassCoder + MCP</td>
+            </tr>
+            <tr>
+              <td>Cost on your own GPUs</td>
+              <td><b>GlassCoder + MCP</b> ≈ local general</td>
+              <td colspan="2">Frontier (usage bills)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        MCP’s effect on rank: large lift in the <b>Microsoft docs / API existence</b> row;
+        little change to overall frontier #1.
+      </p>
+
+      <h3>If GlassCoder’s market is the scoreboard</h3>
+      <p>
+        Weighting for sovereign .NET + measurable harness (not “best vibe coding agent”):
+      </p>
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th></th><th>Agent</th><th>Weighted</th></tr></thead>
+          <tbody>
+            <tr class="highlight">
+              <td class="rank">1</td>
+              <td><b>GlassCoder + MCP</b></td>
+              <td class="m">8.5</td>
+            </tr>
+            <tr>
+              <td class="rank">2</td>
+              <td>Frontier agents</td>
+              <td class="m">7.0</td>
+            </tr>
+            <tr>
+              <td class="rank">3</td>
+              <td>Other local agents</td>
+              <td class="m">6.0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>If industry “best coding agent” is the scoreboard</h3>
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th></th><th>Agent</th><th>Score</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="rank">1</td>
+              <td><b>Frontier agents</b></td>
+              <td class="m">9</td>
+            </tr>
+            <tr>
+              <td class="rank">2</td>
+              <td>Local general agents</td>
+              <td class="m">6.5</td>
+            </tr>
+            <tr class="highlight">
+              <td class="rank">3</td>
+              <td>GlassCoder + MCP</td>
+              <td class="m">6</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Forced three-way lists</h3>
+
+      <p><b>General industry use</b></p>
+      <ol class="prose">
+        <li>Frontier — general power</li>
+        <li>GlassCoder + MCP — .NET / sovereignty / Lab</li>
+        <li>Typical local agents — flexible local coding without GlassCoder’s oracles</li>
+      </ol>
+
+      <p><b>Intended GlassCoder use</b> (Spark + .NET + measurement)</p>
+      <ol class="prose">
+        <li><b>GlassCoder + MCP</b></li>
+        <li>Frontier (hard slices / hybrid worker)</li>
+        <li>Other local agents</li>
+      </ol>
+
+      <div class="note">
+        <span class="tag">Bottom line</span>
+        <p>
+          <b>Frontier #1</b> for raw coding power.
+          <b>GlassCoder + MCP #1</b> for sovereign .NET and measurable harness.
+          <b>Other local agents #2</b> overall, or #1 for casual polyglot local use.
+        </p>
+        <p>
+          MCP does not put GlassCoder in the frontier generalist league. It does put GlassCoder
+          clearly ahead of most local peers on .NET knowledge <em>and</em> on harness science.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="doc-foot">
+  GlassCoder competitive ranking · 2026-08-08 · MCP treated as working · branch feature/mcp-services
+</footer>
+</body>
+</html>

@@ -819,3 +819,26 @@ The switch map is built from `GitOptions.SectionName` and `SandboxOptions.Sectio
 One state needed a shape of its own. Both switches on and the tool still absent means a cold corpus rather than a setting, so `EnabledBy` is null and `Unavailable` says *"configured, but no recorded tool list - run once with Retrieval:Mode=Record"*. Rendering that as "off" would send someone to a checkbox that is already ticked, and it keeps "inactive, no switch, no explanation" as the shape that means a defect. Twenty-two tools on a default install, thirteen active.
 
 The orphan check shipped as an assertion rather than a display state: `Every_inactive_tool_has_a_switch_that_would_enable_it` fails the build if a declared tool is reachable by no registration path. About still renders `not registered by any path` for the case, but the test means nobody has to be looking at the window to find out.
+
+## 65. The screen gets an oracle, and it is a person
+
+- [x] **Estimated time:** 0.5d
+
+Every other claim a run makes is judged by something. Compile is judged by Roslyn, tests by their own exit code, the diff by a panel of critics. What was actually *on the screen* is judged by nobody — which is how run `ea9a1f66` shipped a multiply dialog whose result field sat below the bottom of the window, past a green build, green tests and 100% tool-call validity. The refutation loops that cost `216360bf` twenty-eight steps were three critics reaching for evidence no static check can produce and no worker can supply.
+
+So the one person who can answer is asked, at the one moment they can answer honestly: when the application they launched closes.
+
+- [x] `IDesktopShell.LaunchApp` takes an optional exit callback. Detachment was always about ownership rather than ignorance — the harness still neither drives nor closes the app, it only notices that it is over. `dotnet run` outlives the build and ends when the app does, so the callback fires when the window is shut.
+- [x] A strip in the workspace pane, not a modal dialog. A box on top of whatever the operator turned to next gets answered to make it go away, and a rating given to dismiss something is worse than no rating. **Skip** is a first-class button for the same reason.
+- [x] Score 0–5, comment optional and kept verbatim. Recording is disabled until a score is chosen, so an empty answer cannot be recorded by pressing the obvious button.
+- [x] Recorded as a `Role: "human"` step through `IStepLogger`, under the tool name `operator_rating` — the precedent the manual Commit and Push buttons set. A step rather than a new record type because it then lands in the JSONL transcript and the live view with no new reader, and replays with the run it judged. It carries `rating`, `outOf`, `application` and `comment`, and `outOf` is written down so no reader has to assume the scale.
+- [x] Attributed to the run whose changes the pane is showing — a verdict on a window is a verdict on the work that built it — and to no run when the operator ran the app without one.
+- [x] Tests: the question waits for the close and is never asked after a failed launch, recording is refused without a score, the comment round-trips trimmed, an unwritten comment is null rather than blank, and Skip records nothing.
+
+Acceptance: closing a launched application asks for a rating; recording it puts an `operator_rating` step in the transcript against the right run; skipping leaves no trace. Depends on tasks 11, 39.
+
+**A test caught itself passing for the wrong reason.** The exit callback arrives on a background thread and marshals to the UI one, so the first version read the strip's state before the pane had been told and four tests went green against a question that had never been asked. They pump the dispatcher now, and the helper that does it says why.
+
+`FakeShell` moved out of `TestRunConvenienceTests` into its own file on the way: two tests drive the workspace pane, and two fakes of one seam drift apart exactly where it matters.
+
+**Not done: the rating does not reach `metrics.jsonl`.** Metrics are written when a run ends and the rating arrives afterwards, so recording it there means either rewriting a finished line or a second line per run that every reader has to join. Both are worse than a transcript entry that is already replayable and already grepped. Revisit when an arm actually wants to compare operator scores — which is task 61's problem, and it will want the fixture from task 60 first.

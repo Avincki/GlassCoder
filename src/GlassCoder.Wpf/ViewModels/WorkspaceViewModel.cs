@@ -12,6 +12,7 @@ using System.Xml.Linq;
 using GlassCoder.Core.Configuration;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
+using GlassCoder.Core.Diagnostics;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
@@ -166,6 +167,13 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private string _status = string.Empty;
     private string? _pendingRoot;
     private string? _runId;
+    private string? _ratedRunId;
+    private readonly IStepLogger? _steps;
+    private int _manualStep;
+    private bool _isRatingApp;
+    private int? _appRating;
+    private string _appComment = string.Empty;
+    private string _ratedApplication = string.Empty;
     private bool _awaitingRun;
     private bool _drainQueued;
     private bool _isLoading;
@@ -179,7 +187,8 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         IUserSettingsStore store,
         IDesktopShell shell,
         Dispatcher? dispatcher = null,
-        DropboxIgnoreMarker? dropboxMarker = null)
+        DropboxIgnoreMarker? dropboxMarker = null,
+        IStepLogger? steps = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -190,6 +199,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         _shell = shell;
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
         _dropboxMarker = dropboxMarker;
+        _steps = steps;
 
         RootPath = guard.RepoRoot;
         _rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath)) + Path.DirectorySeparatorChar;
@@ -211,6 +221,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         RefreshCommand = new RelayCommand(() => _ = RefreshAsync(), () => !_isLoading);
         CleanCommand = new RelayCommand(Clean, () => !_isLoading && !IsAgentRunning);
         RunAppCommand = new RelayCommand(RunApp, () => !_isLoading && !IsAgentRunning);
+        SubmitRatingCommand = new RelayCommand(SubmitRating, () => AppRating is not null);
+        SkipRatingCommand = new RelayCommand(() =>
+        {
+            IsRatingApp = false;
+            Status = $"{RatedApplication} closed, unrated.";
+        });
         OpenFileCommand = new RelayCommand(OpenFile, CanOpenFile);
 
         (_watcher, _watchFailure) = StartWatching();
@@ -266,6 +282,43 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 
     /// <summary>Launches the workspace's application on the desktop, live and interactive.</summary>
     public RelayCommand RunAppCommand { get; }
+
+    /// <summary>Records the rating. Disabled until a score is chosen; the comment is optional.</summary>
+    public RelayCommand SubmitRatingCommand { get; }
+
+    /// <summary>Closes the strip without recording. A rating nobody wanted to give is noise.</summary>
+    public RelayCommand SkipRatingCommand { get; }
+
+    /// <summary>The scores offered, worst first.</summary>
+    public IReadOnlyList<int> RatingScale { get; } = [0, 1, 2, 3, 4, 5];
+
+    /// <summary>Whether the strip asking how the application looked is open.</summary>
+    public bool IsRatingApp
+    {
+        get => _isRatingApp;
+        private set => SetProperty(ref _isRatingApp, value);
+    }
+
+    /// <summary>The application the open question is about.</summary>
+    public string RatedApplication
+    {
+        get => _ratedApplication;
+        private set => SetProperty(ref _ratedApplication, value);
+    }
+
+    /// <summary>The score, 0 to 5. Null until one is chosen, which is what gates recording.</summary>
+    public int? AppRating
+    {
+        get => _appRating;
+        set => SetProperty(ref _appRating, value);
+    }
+
+    /// <summary>What the operator wants to say about it. Optional, and kept verbatim.</summary>
+    public string AppComment
+    {
+        get => _appComment;
+        set => SetProperty(ref _appComment, value);
+    }
 
     /// <summary>Opens the double-clicked file in a read-only viewer window.</summary>
     public RelayCommand OpenFileCommand { get; }
@@ -610,6 +663,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     /// host desktop and never the sandbox. Detached through the shell: the app is the
     /// operator's to drive and to close.
     /// </summary>
+    /// <summary>The wire name the rating is recorded under, so a transcript can be grepped for it.</summary>
+    private const string OperatorRatingTool = "operator_rating";
+
+    /// <summary>The top of the scale, carried in the record so a reader never has to assume it.</summary>
+    private const int MaximumRating = 5;
+
     private void RunApp()
     {
         List<string> applications = FindApplicationProjects();
@@ -626,7 +685,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 
         string project = applications[0];
         string name = ToRelative(project) ?? Path.GetFileName(project);
-        string? failure = _shell.LaunchApp(project);
+
+        // The rating question is asked when the app closes, because that is the only moment the
+        // operator can honestly answer it - and because the screen is the one oracle the ladder
+        // and the critics do not have. Everything else in a run is judged by something; what the
+        // window actually looked like is judged by nobody unless a person says so.
+        string? failure = _shell.LaunchApp(project, () => _dispatcher.BeginInvoke(() => AskForRating(name)));
 
         if (failure is not null)
         {
@@ -634,11 +698,88 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        _ratedRunId = _runId;
+
         Status = applications.Count == 1
             ? $"Launched {name}. dotnet run builds first, so give it a moment."
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"Launched {name}. {applications.Count - 1} other application project(s) found; the first alphabetically is the one running.");
+    }
+
+    /// <summary>
+    /// Opens the rating strip for the application that has just closed.
+    /// <para>
+    /// A question rather than a dialog: a modal box on top of whatever the operator turned to
+    /// next would be answered to make it go away, and a rating answered to dismiss a box is
+    /// worse than no rating at all.
+    /// </para>
+    /// </summary>
+    private void AskForRating(string application)
+    {
+        RatedApplication = application;
+        AppRating = null;
+        AppComment = string.Empty;
+        IsRatingApp = true;
+        Status = $"{application} closed. How did it look?";
+    }
+
+    /// <summary>
+    /// Records the operator's verdict as a <c>human</c> step, and closes the strip.
+    /// <para>
+    /// A step rather than a new record type, for the reason the manual commit and push buttons
+    /// are steps: it lands in the JSONL transcript and the live view with no new reader, and it
+    /// replays with the run it judged. The rating is attributed to the run whose changes the
+    /// pane is showing - a verdict on a window is a verdict on the work that built it - and to
+    /// no run at all when the operator ran the app without one.
+    /// </para>
+    /// </summary>
+    private void SubmitRating()
+    {
+        if (AppRating is not { } rating)
+        {
+            return;
+        }
+
+        string comment = (AppComment ?? string.Empty).Trim();
+
+        _steps?.LogStep(new StepRecord
+        {
+            RunId = _ratedRunId ?? RunContext.Current.RunId,
+            TaskId = RunContext.Current.TaskId,
+            StepIndex = _manualStep++,
+            Role = "human",
+            StartedAt = DateTimeOffset.UtcNow,
+            Prompt = [],
+            ToolCalls =
+            [
+                new ToolCallRecord(
+                    Guid.NewGuid().ToString("n")[..12],
+                    OperatorRatingTool,
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["rating"] = rating,
+                        ["outOf"] = MaximumRating,
+                        ["application"] = RatedApplication,
+                        ["comment"] = comment.Length == 0 ? null : comment,
+                    },
+                    "Succeeded",
+                    Parsed: true,
+                    0,
+                    null,
+                    null,
+                    $"Operator rated {RatedApplication} {rating}/{MaximumRating}."),
+            ],
+            ModelLatencyMs = 0,
+            StepLatencyMs = 0,
+            Outcome = $"operator rating {rating}/{MaximumRating}",
+        });
+
+        Status = comment.Length == 0
+            ? $"Recorded {rating}/{MaximumRating} for {RatedApplication}."
+            : $"Recorded {rating}/{MaximumRating} for {RatedApplication}, with a comment.";
+
+        IsRatingApp = false;
     }
 
     /// <summary>
