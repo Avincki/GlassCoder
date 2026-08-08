@@ -61,7 +61,11 @@ public sealed class ProcessRunner : IProcessRunner
         long start = Stopwatch.GetTimestamp();
 
         using Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
-        process.OutputDataReceived += (_, e) => Append(stdout, e.Data);
+        process.OutputDataReceived += (_, e) =>
+        {
+            Append(stdout, e.Data);
+            Watch(request.OnOutputLine, e.Data);
+        };
         process.ErrorDataReceived += (_, e) => Append(stderr, e.Data);
 
         using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -110,6 +114,28 @@ public sealed class ProcessRunner : IProcessRunner
         if (line is not null)
         {
             builder.AppendLine(line);
+        }
+    }
+
+    /// <summary>
+    /// Hands one line to a watching caller. Guarded because this runs on the reader thread: an
+    /// exception escaping here would be unobserved at best and would tear down the capture at
+    /// worst, and neither is a fair price for a caller that only wanted to display progress.
+    /// </summary>
+    private void Watch(Action<string>? watcher, string? line)
+    {
+        if (watcher is null || line is null)
+        {
+            return;
+        }
+
+        try
+        {
+            watcher(line);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "An output watcher threw and was ignored");
         }
     }
 

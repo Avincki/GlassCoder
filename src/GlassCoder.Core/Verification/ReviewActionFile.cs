@@ -27,6 +27,31 @@ public sealed record ReviewActionPlan(
     string Report,
     IReadOnlyList<ReviewActionItem> Items)
 {
+    /// <summary>
+    /// What kind of document this is, which is how a reader tells a file review's work order from
+    /// a retrospective's. Defaults to <see cref="ReviewActionFile.Kind"/>.
+    /// </summary>
+    public string Kind { get; init; } = ReviewActionFile.Kind;
+
+    /// <summary>
+    /// What the accepted work is to be done to, when that is not the reviewed file itself.
+    /// <c>harness</c> for a retrospective, whose actions change GlassCoder rather than the
+    /// workspace it was pointed at (workplan task 67).
+    /// </summary>
+    public string? Target { get; init; }
+
+    /// <summary>The run these actions came out of, when they came out of one.</summary>
+    public string? RunId { get; init; }
+
+    /// <summary>The document's heading. Null takes the reviewed file's.</summary>
+    public string? Heading { get; init; }
+
+    /// <summary>
+    /// What to say after the actions - the instruction block that makes the file usable by an
+    /// agent that was not in the room. Rendered after the list and ignored by the parser.
+    /// </summary>
+    public string? Closing { get; init; }
+
     /// <summary>Just the ticked actions - the work order, as opposed to the record.</summary>
     public IEnumerable<ReviewAction> Accepted => Items.Where(i => i.Accepted).Select(i => i.Action);
 }
@@ -47,8 +72,11 @@ public sealed record ReviewActionPlan(
 /// </summary>
 public static partial class ReviewActionFile
 {
-    /// <summary>Front-matter marker identifying a file this parser wrote.</summary>
+    /// <summary>Front-matter marker identifying a file review's work order.</summary>
     public const string Kind = "review-actions";
+
+    /// <summary>Front-matter marker identifying a retrospective's work order (workplan task 67).</summary>
+    public const string RetrospectiveKind = "retrospective-actions";
 
     /// <summary>Format version, so a future reader can tell what it is looking at.</summary>
     public const int Version = 1;
@@ -60,16 +88,27 @@ public static partial class ReviewActionFile
 
         StringBuilder text = new();
         text.AppendLine("---");
-        text.AppendLine(CultureInfo.InvariantCulture, $"glasscoder: {Kind}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"glasscoder: {plan.Kind}");
         text.AppendLine(CultureInfo.InvariantCulture, $"version: {Version}");
         text.AppendLine(CultureInfo.InvariantCulture, $"file: {plan.File}");
+
+        if (!string.IsNullOrWhiteSpace(plan.Target))
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"target: {plan.Target}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(plan.RunId))
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"runId: {plan.RunId}");
+        }
+
         text.AppendLine(CultureInfo.InvariantCulture, $"reviewedAt: {plan.ReviewedAt.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}");
         text.AppendLine("via: claude-code");
         text.AppendLine(CultureInfo.InvariantCulture, $"model: {plan.Model}");
         text.AppendLine(CultureInfo.InvariantCulture, $"costUsd: {plan.CostUsd.ToString("0.0000", CultureInfo.InvariantCulture)}");
         text.AppendLine("---");
         text.AppendLine();
-        text.AppendLine(CultureInfo.InvariantCulture, $"# Review - {plan.File}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"# {plan.Heading ?? $"Review - {plan.File}"}");
         text.AppendLine();
         text.AppendLine(plan.Report.TrimEnd());
         text.AppendLine();
@@ -79,6 +118,7 @@ public static partial class ReviewActionFile
         if (plan.Items.Count == 0)
         {
             text.AppendLine("_The reviewer proposed nothing._");
+            AppendClosing(text, plan);
             return text.ToString();
         }
 
@@ -99,7 +139,19 @@ public static partial class ReviewActionFile
             }
         }
 
+        AppendClosing(text, plan);
         return text.ToString();
+    }
+
+    private static void AppendClosing(StringBuilder text, ReviewActionPlan plan)
+    {
+        if (string.IsNullOrWhiteSpace(plan.Closing))
+        {
+            return;
+        }
+
+        text.AppendLine();
+        text.AppendLine(plan.Closing.TrimEnd());
     }
 
     /// <summary>
@@ -134,7 +186,8 @@ public static partial class ReviewActionFile
 
         if (at >= lines.Length ||
             !front.TryGetValue("glasscoder", out string? kind) ||
-            !string.Equals(kind, Kind, StringComparison.OrdinalIgnoreCase))
+            !(string.Equals(kind, Kind, StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(kind, RetrospectiveKind, StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
@@ -153,6 +206,14 @@ public static partial class ReviewActionFile
             {
                 inActions = true;
                 continue;
+            }
+
+            // Any later heading ends the list. Without this, a closing instruction block would be
+            // read as more of the last item's detail - the indented-continuation rule below has
+            // no way to know that the list is over.
+            if (inActions && line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                break;
             }
 
             if (!inActions)
@@ -188,7 +249,16 @@ public static partial class ReviewActionFile
             }
         }
 
-        plan = new ReviewActionPlan(
+        plan = BuildPlan(front, reportLines, items, kind);
+        return true;
+    }
+
+    private static ReviewActionPlan BuildPlan(
+        Dictionary<string, string> front,
+        List<string> reportLines,
+        List<ReviewActionItem> items,
+        string kind) =>
+        new ReviewActionPlan(
             front.GetValueOrDefault("file", string.Empty),
             DateTimeOffset.TryParse(
                 front.GetValueOrDefault("reviewedAt"),
@@ -206,10 +276,12 @@ public static partial class ReviewActionFile
                 ? cost
                 : 0m,
             string.Join(Environment.NewLine, reportLines).Trim(),
-            items);
-
-        return true;
-    }
+            items)
+        {
+            Kind = kind,
+            Target = front.GetValueOrDefault("target"),
+            RunId = front.GetValueOrDefault("runId"),
+        };
 
     /// <summary>The file name a review is offered under: readable in the tree, and unique enough.</summary>
     public static string SuggestFileName(string displayPath, DateTimeOffset when)
@@ -225,6 +297,29 @@ public static partial class ReviewActionFile
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{name}-{when.UtcDateTime:yyyyMMdd-HHmmss}.md");
+    }
+
+    /// <summary>
+    /// The file name a retrospective's work order is offered under. The run id is shortened the
+    /// way the transcript and the log lines shorten it, so the same eight characters identify the
+    /// run everywhere a person reads it.
+    /// </summary>
+    /// <param name="runId">The run the recommendations came out of.</param>
+    /// <param name="when">When the work order was written.</param>
+    public static string SuggestRetrospectiveFileName(string runId, DateTimeOffset when)
+    {
+        ArgumentNullException.ThrowIfNull(runId);
+
+        string trimmed = runId.Trim();
+        string name = trimmed.Length == 0 ? "run" : trimmed.Length <= 8 ? trimmed : trimmed[..8];
+        foreach (char invalid in Path.GetInvalidFileNameChars())
+        {
+            name = name.Replace(invalid, '-');
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"retro-{name}-{when.UtcDateTime:yyyyMMdd-HHmmss}.md");
     }
 
     private static ReviewActionPriority ParsePriority(string value) =>

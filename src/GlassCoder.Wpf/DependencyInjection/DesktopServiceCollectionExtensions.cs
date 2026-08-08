@@ -51,6 +51,12 @@ public static class DesktopServiceCollectionExtensions
         services.AddSingleton<Func<ChangesViewModel>>(sp => sp.GetRequiredService<ChangesViewModel>);
 
         services.AddSingleton<MetricsViewModel>();
+
+        // The proposals window is opened by the surface rather than by the shell, so the dialog
+        // is a dependency of the view model - the same shape the settings and about dialogs use.
+        services.AddSingleton<IRetrospectiveResultDialog, RetrospectiveResultDialog>();
+        services.AddSingleton<RetrospectiveViewModel>();
+
         services.AddSingleton<WorkspaceViewModel>();
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<MainWindow>();

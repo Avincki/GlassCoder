@@ -51,6 +51,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         TranscriptViewModel transcript,
         ChangesViewModel changes,
         MetricsViewModel metrics,
+        RetrospectiveViewModel retrospective,
         WorkspaceViewModel workspace,
         ISettingsDialog settings,
         IAboutDialog about,
@@ -81,6 +82,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Transcript = transcript;
         Changes = changes;
         Metrics = metrics;
+        Retrospective = retrospective;
         Workspace = workspace;
         _currentView = transcript;
 
@@ -117,8 +119,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>The workspace pane on the right of the shell (workplan task 39).</summary>
     public WorkspaceViewModel Workspace { get; }
 
+    /// <summary>The look back at a finished run (workplan task 67).</summary>
+    public RetrospectiveViewModel Retrospective { get; }
+
     /// <summary>Names of the surfaces, for the navigation list.</summary>
-    public IReadOnlyList<string> Surfaces { get; } = ["Transcript", "Changes", "Metrics"];
+    public IReadOnlyList<string> Surfaces { get; } = ["Transcript", "Changes", "Metrics", "Retrospective"];
 
     /// <summary>Which surface is selected.</summary>
     public string SelectedSurface
@@ -132,6 +137,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 {
                     "Changes" => Changes,
                     "Metrics" => Metrics,
+                    "Retrospective" => Retrospective,
                     _ => Transcript,
                 };
 
@@ -177,9 +183,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 // The manual git buttons stand down mid-run: committing a tree the agent has not
                 // finished changing would record work in progress as if it were finished. Clean
                 // stands down for the twin reason - emptying folders mid-run would pull the
-                // workspace out from under the agent.
+                // workspace out from under the agent. The retrospective stands down because it
+                // judges a finished run, and the run it holds is not the one in flight.
                 Changes.IsAgentRunning = value;
                 Workspace.IsAgentRunning = value;
+                Retrospective.IsAgentRunning = value;
             }
         }
     }
@@ -386,6 +394,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()
     {
+        // The retrospective watches the transcript bus for finished runs, which outlives it.
+        Retrospective.Dispose();
+
         _cancellation?.Cancel();
         _cancellation?.Dispose();
         _cancellation = null;

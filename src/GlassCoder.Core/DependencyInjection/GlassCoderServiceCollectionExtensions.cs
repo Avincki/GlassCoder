@@ -75,6 +75,9 @@ public static class GlassCoderServiceCollectionExtensions
         services.AddOptions<FileReviewOptions>()
             .Bind(configuration.GetSection(FileReviewOptions.SectionName));
 
+        services.AddOptions<RetrospectiveOptions>()
+            .Bind(configuration.GetSection(RetrospectiveOptions.SectionName));
+
         services.AddOptions<OrchestrationOptions>()
             .Bind(configuration.GetSection(OrchestrationOptions.SectionName));
 
@@ -104,6 +107,8 @@ public static class GlassCoderServiceCollectionExtensions
         services.TryAddSingleton<IRunReviewer, RunReviewer>();
         services.TryAddSingleton<IFileReviewer, ClaudeCodeFileReviewer>();
         services.TryAddSingleton<IReviewActionWriter, ReviewActionWriter>();
+        services.TryAddSingleton<IRetrospectiveReviewer, ClaudeCodeRetrospectiveReviewer>();
+        services.TryAddSingleton<IRetrospectiveWriter, RetrospectiveWriter>();
         services.TryAddSingleton<IProvenanceStamper, ProvenanceStamper>();
         services.TryAddSingleton<Func<IAgentLoop>>(provider => provider.GetRequiredService<IAgentLoop>);
         services.TryAddSingleton<IOrchestrator, Orchestrator>();

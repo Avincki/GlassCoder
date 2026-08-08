@@ -19,6 +19,9 @@
     <DataTemplate DataType="{x:Type vm:MetricsViewModel}">
       <views:MetricsView />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:RetrospectiveViewModel}">
+      <views:RetrospectiveView />
+    </DataTemplate>
   </Window.Resources>
 
   <!-- Ctrl+Enter runs, because the goal box now accepts a plain Enter as a newline: a

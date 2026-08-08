@@ -29,6 +29,21 @@ public sealed class FakeProcessRunner : IProcessRunner
     {
         cancellationToken.ThrowIfCancellationRequested();
         Requests.Add(request);
-        return Task.FromResult(_scripted.Count > 0 ? _scripted.Dequeue() : Default);
+
+        ProcessRunResult result = _scripted.Count > 0 ? _scripted.Dequeue() : Default;
+
+        // A watching caller sees the output a line at a time before it sees the result, because
+        // that is what the real runner does - it hands each line to OnOutputLine from the reader
+        // thread and returns the buffer at exit. A fake that skipped this would let a streaming
+        // caller pass its tests and find nothing to read against the real thing.
+        if (request.OnOutputLine is { } watcher)
+        {
+            foreach (string line in result.StandardOutput.Split('\n'))
+            {
+                watcher(line.TrimEnd('\r'));
+            }
+        }
+
+        return Task.FromResult(result);
     }
 }

@@ -16,6 +16,18 @@ public sealed record ProcessRunRequest(string FileName, IReadOnlyList<string> Ar
 
     /// <summary>Text written to the child's stdin, which is then closed.</summary>
     public string? StandardInput { get; init; }
+
+    /// <summary>
+    /// Called with each line of stdout as it arrives, for a caller that wants to watch rather
+    /// than wait (workplan task 67).
+    /// <para>
+    /// The line is still captured into <see cref="ProcessRunResult.StandardOutput"/>, so a caller
+    /// that sets this loses nothing - this is an addition to the buffered result, not an
+    /// alternative to it. It is invoked on the reader thread, and a callback that throws is
+    /// swallowed: a subprocess must not die because whoever was watching it made a mistake.
+    /// </para>
+    /// </summary>
+    public Action<string>? OnOutputLine { get; init; }
 }
 
 /// <summary>What a child process did.</summary>
