@@ -53,6 +53,51 @@ public sealed class FindSymbolTool : IToolSet
         _options = options.Value;
     }
 
+    /// <summary>
+    /// Whether some source in this workspace declares <paramref name="name"/> exactly.
+    /// <para>
+    /// Not a tool - the retrieval signals ask it (workplan task 59) to tell a missing package
+    /// type from the model's own typo, which is the whole difference between a question
+    /// documentation answers and one it makes worse. The same sweep the tool runs, through the
+    /// same cached trees, and a false on any trouble: a signal that guesses "yes" would suppress
+    /// a legitimate lookup, and one that guesses "no" would invite a pointless one, so the
+    /// cheaper mistake is the one that costs a refusal.
+    /// </para>
+    /// </summary>
+    public bool Declares(string name, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (string file in WorkspaceFiles.Enumerate(
+                _guard, _guard.RepoRoot, "**/*.cs", _options.MaxFilesSearched, cancellationToken))
+            {
+                if (_analyzer.ParseFile(file, cancellationToken) is not { } tree)
+                {
+                    continue;
+                }
+
+                foreach (SourceSymbol symbol in CodeStructure.Outline(_guard.ToRelativePath(file), tree))
+                {
+                    if (string.Equals(symbol.Name, name, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     /// <summary>Finds declarations of a name across the workspace.</summary>
     [GlassCoderTool(ToolName, Order = 25)]
     [Description("Find where a C# type or member is declared, with its line range. Use this rather than "

@@ -79,7 +79,22 @@ public static class ToolsServiceCollectionExtensions
         // syntax-tree cache the pre-write compile fills rather than opening a second one.
         services.TryAddSingleton<RoslynCodeAnalyzer>();
         services.TryAddSingleton<ICodeAnalyzer>(sp => sp.GetRequiredService<RoslynCodeAnalyzer>());
-        services.TryAddSingleton<DiagnosticSummarizer>();
+        // The summariser optionally reports what it saw to the retrieval signals, which is how
+        // "a compile error names something the workspace does not declare" becomes the one thing
+        // that admits a lookup (workplan task 59). Resolved lazily and only when retrieval is
+        // registered, so a run without it constructs nothing and pays nothing.
+        services.TryAddSingleton(provider =>
+        {
+            DiagnosticRetrievalSignals? signals = provider.GetService<DiagnosticRetrievalSignals>();
+
+            return new DiagnosticSummarizer(
+                provider.GetRequiredService<IOptions<VerificationOptions>>(),
+                signals is null
+                    ? null
+                    : diagnostics => signals.Observe(
+                        diagnostics,
+                        name => provider.GetRequiredService<FindSymbolTool>().Declares(name)));
+        });
 
         // One tracker for create_file and edit_file together: run 5c071f37 alternated between
         // the two against the same file, and a per-tool count would never reach its limit.
@@ -220,9 +235,11 @@ public static class ToolsServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        // Answered by nothing until task 59 reads the verification diagnostics. TryAdd, so that
-        // task replaces it by registering first rather than by editing this line.
-        services.TryAddSingleton<IRetrievalSignals, NoRetrievalSignals>();
+        // What decides whether a call is indicated at all (workplan task 59). Registered
+        // concretely as well, because the verification path feeds it and the policy only reads
+        // it - two different needs of one object.
+        services.TryAddSingleton<DiagnosticRetrievalSignals>();
+        services.TryAddSingleton<IRetrievalSignals>(sp => sp.GetRequiredService<DiagnosticRetrievalSignals>());
         services.TryAddSingleton<IRetrievalPolicy, RetrievalPolicy>();
 
         services.TryAddSingleton<McpRetrievalUpstream>();
@@ -266,6 +283,19 @@ public static class ToolsServiceCollectionExtensions
         ILogger? logger = provider.GetService<ILogger<RetrievalToolSource>>();
 
         List<Microsoft.Extensions.AI.AIFunction> functions = [];
+
+        // Untrusted text reaching an agent that can create and edit files is the risk public
+        // code search brings and Learn does not. The approval gate is the backstop, so a run
+        // that switches GitHub on without it is told once, at startup, rather than never
+        // (workplan task 62).
+        if (options.GitHub.Enabled &&
+            !provider.GetRequiredService<IOptions<ApprovalOptions>>().Value.RequireApprovalForWrites)
+        {
+            logger?.LogWarning(
+                "GitHub retrieval is enabled and Approval:RequireApprovalForWrites is false. Public " +
+                "repository text is attacker-controllable and reaches an agent that can write files; " +
+                "the verification ladder still gates every change, but a human gate is the backstop.");
+        }
 
         foreach (RetrievalServer server in options.EnabledServers())
         {

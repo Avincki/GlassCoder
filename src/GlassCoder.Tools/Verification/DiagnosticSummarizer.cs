@@ -44,12 +44,23 @@ public sealed record DiagnosticSummary(
 public sealed class DiagnosticSummarizer
 {
     private readonly VerificationOptions _options;
+    private readonly Action<IReadOnlyList<CodeDiagnostic>>? _observer;
 
     /// <summary>Creates the summariser.</summary>
-    public DiagnosticSummarizer(IOptions<VerificationOptions> options)
+    /// <param name="options">Cap, ordering and warning policy.</param>
+    /// <param name="observer">
+    /// Told about every diagnostic on its way to the model, if anything is listening. This is
+    /// the one place all of them pass - the pre-write gate, the build tool and the ladder all
+    /// summarise here before a model sees anything (CLAUDE.md §8.2) - so a single hook sees the
+    /// lot without three call sites having to remember to report (workplan task 59).
+    /// </param>
+    public DiagnosticSummarizer(
+        IOptions<VerificationOptions> options,
+        Action<IReadOnlyList<CodeDiagnostic>>? observer = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;
+        _observer = observer;
     }
 
     /// <summary>Summarises a rung's report.</summary>
@@ -66,6 +77,11 @@ public sealed class DiagnosticSummarizer
         string? failureReason = null)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
+
+        // Before anything is filtered: the observer wants what the compiler said, not the ten
+        // entries the model is shown. A CS0246 that fell off the cap is still the reason the
+        // run needs documentation.
+        _observer?.Invoke(diagnostics);
 
         int totalErrors = 0;
         int totalWarnings = 0;

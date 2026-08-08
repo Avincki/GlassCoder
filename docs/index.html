@@ -913,6 +913,16 @@ glasscoder run --config config/phase1.json --goal "..."</code></pre>
           your machine. To accept that risk deliberately, set
           <code>Sandbox:AllowUnsandboxedExecution</code> to <code>true</code>.
         </p>
+        <p>
+          <b>That setting governs repository code, not the harness.</b> The retrieval tools
+          reach Microsoft Learn and GitHub from the GlassCoder process itself, so their traffic
+          does not pass the sandbox seam and <code>Sandbox:AllowNetwork: false</code> does not
+          cover it. The guarantee it does make stays true — untrusted repository code still
+          cannot phone home — but reading it as “this run touched nothing external” would be
+          wrong whenever <code>Retrieval:Enabled</code> is on. In
+          <code>Replay</code>, the mode the suite and the ablation runner use, nothing is
+          reached at all: the tools and their answers both come from the recorded corpus.
+        </p>
       </div>
 
       <div class="note refuse">
@@ -1444,7 +1454,10 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
               <td><a href="NewFeatures/mcp-retrieval.html">Retrieval over MCP</a></td>
               <td>Microsoft Learn and GitHub code search as tools, with the record/replay cache the
                   ablation harness needs before either can be measured.</td>
-              <td>Package pinned, referenced by nothing.</td>
+              <td>Built, and off by default. One switch per server, an admission policy, and a
+                  corpus that answers both the tool list and every call — so a
+                  <code>Replay</code> run opens no socket at startup or during a step. The arms
+                  and the fixture that would prove it helps are not written yet.</td>
             </tr>
             <tr>
               <td><a href="NewFeatures/harness-advisor.html">The harness advisor</a></td>

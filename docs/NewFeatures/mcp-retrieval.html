@@ -603,7 +603,7 @@
 <body>
 <header class="masthead">
   <div class="masthead-inner">
-    <div class="eyebrow">Proposal · not built</div>
+    <div class="eyebrow">Built · off by default</div>
     <h1>Retrieval over MCP</h1>
     <p class="standfirst">
       Giving the agent Microsoft Learn and GitHub code search as tools — and the record/replay
@@ -611,9 +611,9 @@
       one property the ablation harness depends on.
     </p>
     <div class="specstrip">
-      <div><b>Status</b> proposal</div>
+      <div><b>Status</b> shipped, disabled</div>
       <div><b>Touches</b> Tools · Lab · Context</div>
-      <div><b>Package</b> already pinned, unreferenced</div>
+      <div><b>Package</b> ModelContextProtocol 1.4.1, referenced</div>
       <div><b>Risk</b> hermeticity, context budget, injection</div>
     </div>
     <div class="backlinks">
@@ -644,10 +644,24 @@
   <main>
 
     <div class="note refuse">
-      <span class="tag">This describes something that does not exist</span>
+      <span class="tag">What shipped, and what did not</span>
       <p>
-        Nothing here is implemented. Configuration keys shown are proposed unless marked
-        otherwise. Where this page quotes the repository, that is current code.
+        This page was written as a proposal and the proposal was built — workplan tasks 54&ndash;63,
+        on <code>feature/mcp-services</code>. The configuration keys shown below are real, the
+        record/replay design is the one that landed, and <code>Retrieval:Enabled</code> is
+        <code>false</code>, so all of it is dormant until an arm switches it on.
+      </p>
+      <p>
+        Two things the page argues for are <b>not</b> built. There is no suite task whose answer
+        lies outside the repository, so a perfect retrieval tool still scores exactly zero on the
+        eight fixtures that exist; and the four arms in &sect;07 are not written. Until both land,
+        nothing here has been shown to help — only shown to work.
+      </p>
+      <p>
+        One design point changed in construction. The page treats the tool list as something the
+        harness learns by connecting. It is an exchange like any other, so it is recorded like any
+        other — which is what lets a <code>Replay</code> run register its tools from the corpus and
+        open no socket at startup either, not only during a call.
       </p>
     </div>
 

@@ -9,6 +9,66 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (mcp) — Retrieval, built and switched off
+
+**Shipped** on `feature/mcp-services`: workplan tasks 54-59 and 62-63, reversing task 53's
+"not yet". Microsoft Learn and GitHub reach the agent as tools behind one switch each, an
+admission policy, and a corpus that answers the tool list as well as every call. 758 tests
+green, +34. `Retrieval:Enabled` ships false, so all of it is dormant.
+
+**Why the reversal.** Task 53 declined on two grounds. The structural one - hermeticity is not
+negotiable and record/replay is most of the work - stands, and is honoured by building the
+corpus before the client. The measured one was schema rent, and it does not survive this
+hardware: the worker's token prices are both zero and the Spark serves `--max-model-len
+131072`, against which the whole tool block is 2.7% of the window. The priority argument was
+also spent - the harness fixes those reviews deferred to had shipped, and run `17f5fa36`
+finished the desktop goal in 20 steps and 135k tokens, the cheapest of its nine.
+
+**Decided**
+
+- **Off means absent from the schema, not present and refusing.** A tool the model can see is a
+  tool it can pick, so a switch that only blocked execution would measure nothing - and
+  `learn-tools-only` would be indistinguishable from `with-learn`.
+- **The tool list is an exchange, so it is recorded like one.** That is what lets a Replay run
+  register from the corpus and open no socket at startup either, not only during a call.
+  Without it the mode that promises hermeticity would have connected before step zero.
+- **The name and description are ours, the schema is the server's.** Measured why: Learn
+  advertises three tools at 900 characters of schema and 2,675 of description, prose written to
+  sell them to a general agent. Locally authored, its two tools cost 917 on the wire. GitHub is
+  the reverse - 23,852 of schema across 27 tools - and a schema cannot be rewritten, so only
+  subsetting helps. Exactly one of its tools is configured.
+- **`McpClientTool` is an `AIFunction` and is deliberately not used as one.** It would drop
+  straight into the registry and reach the server directly, which is the path the policy and the
+  corpus exist to stand in.
+- **The budget asserts four profiles, not one union.** The old single ceiling measured git-on,
+  which the operator's settings switch off, so it guarded a configuration nobody ran while the
+  one everybody runs had 2,438 characters of unwatched slack.
+- **The client's indentation is measured rather than fixed** - 25.7% of every request, and not
+  reachable without hand-writing the tool payload, which would put the schema back under our
+  control in the way §7 forbids.
+- **Admission keys on whether this workspace declares the name.** `CS0246` on a package type is
+  a question documentation answers; `CS0103` on a class the model wrote four steps ago is one it
+  makes worse. Fed from `DiagnosticSummarizer`, the single point every diagnostic already passes.
+- **GitHub text is framed as untrusted where it enters the window**, and carries a `Trusted`
+  flag into the transcript. The structural defence is unchanged and is the real one: nothing a
+  search returned can satisfy the ladder.
+- **No Retrieval tab in the settings dialog, on purpose.** An arm is a configuration file; the
+  dialog writes user settings, which sit above `appsettings.json` and below `--config`. A saved
+  preference would ride along with every arm that did not override it.
+
+**Open**
+
+- **Nothing has been shown to help, only shown to work.** All eight fixtures are self-contained,
+  so a perfect retrieval tool scores exactly zero on them. Task 60 - a fixture whose answer is
+  outside the repository - and task 61's arms are both unbuilt, and the second depends on the
+  first. Two candidates are down: `System.Threading.Channels` used correctly, and
+  `IAsyncEnumerable` consumed with cancellation. Pick by running the goal with retrieval off and
+  seeing which the worker actually gets wrong; a fixture it passes unaided measures nothing.
+- The gate that replaces the character ceiling is `toolCallValidityRate` at 0.90, and it lands
+  with the arms. On free hardware it is the only cost left worth gating on.
+
+---
+
 ## 2026-08-08 (last) — The tool list moves to where it can say what a tool is for
 
 **Shipped.** Workplan task 64, done ahead of the retrieval branch because that branch adds tool
