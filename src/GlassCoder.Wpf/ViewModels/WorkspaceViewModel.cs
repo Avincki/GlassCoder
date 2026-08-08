@@ -141,6 +141,13 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     /// </summary>
     private const string DirectoryProbe = "§probe§";
 
+    /// <summary>
+    /// How long the sweep waits between its two passes: long enough for a sync client to work
+    /// through the delete storm the first pass raised, short enough that a clean never feels
+    /// stuck. Off the UI thread, so the wait costs a status line and nothing else.
+    /// </summary>
+    private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(1.5);
+
     private readonly IChangeLog _changes;
     private readonly IConfiguration _configuration;
     private readonly IUserSettingsStore _store;
@@ -403,31 +410,36 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        int removed = 0;
-        List<string> failures = [];
+        _ = CleanAsync(names);
+    }
 
-        foreach (string root in _writableRoots)
+    /// <summary>
+    /// The sweep, off the UI thread, then the refresh, then the summary put back. Off the UI
+    /// thread because outlasting a held handle takes patience, and patience on the UI thread
+    /// is a frozen window. The summary goes back last because the refresh reports its own
+    /// progress and file count into <see cref="Status"/>, and "2 could not be" is not a line
+    /// to lose. A failed read keeps its error instead: a pane that cannot see the workspace
+    /// outranks a tidy summary.
+    /// </summary>
+    private async Task CleanAsync(string names)
+    {
+        if (_isLoading)
         {
-            string full = Path.GetFullPath(Path.Combine(RootPath, root));
-            if (!IsInsideRoot(full))
-            {
-                // "." or an absolute path elsewhere. Emptying it would reach the workspace's own
-                // .git or another project entirely, and this button only deletes what a run
-                // could have made.
-                failures.Add($"'{root}' skipped: it is not strictly inside the workspace");
-                continue;
-            }
+            return;
+        }
 
-            try
-            {
-                // Recreated when missing, so a clean always leaves the roots the guard promises.
-                Directory.CreateDirectory(full);
-                removed += Sweep(new DirectoryInfo(full), failures);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                failures.Add($"{root}: {ex.Message}");
-            }
+        _isLoading = true;
+        Status = "Cleaning…";
+
+        int removed;
+        List<string> failures;
+        try
+        {
+            (removed, failures) = await Task.Run(SweepRoots).ConfigureAwait(true);
+        }
+        finally
+        {
+            _isLoading = false;
         }
 
         string summary = failures.Count == 0
@@ -436,22 +448,72 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
                 $"Cleaned {names}: {removed} item(s) removed, {failures.Count} could not be. {failures[0]}");
         Status = summary;
 
-        _ = FinishCleanAsync(summary);
-    }
-
-    /// <summary>
-    /// Re-reads the tree, then puts the clean's summary back. The refresh reports its own
-    /// progress and file count into <see cref="Status"/>, which used to overwrite the one line
-    /// saying what the clean actually did - and "2 could not be" is not a line to lose. A
-    /// failed read keeps its error instead: a pane that cannot see the workspace outranks a
-    /// tidy summary.
-    /// </summary>
-    private async Task FinishCleanAsync(string summary)
-    {
         if (await RefreshAsync().ConfigureAwait(true))
         {
             Status = summary;
         }
+    }
+
+    /// <summary>
+    /// Sweeps every writable root, in up to two passes. Two, because the first pass raises the
+    /// storm it then loses to: a mass delete makes the sync client open every folder it just
+    /// watched empty, and the folders' own deletions fail against handles the clean itself
+    /// provoked - files gone, husks left. So when a pass leaves failures, the sweep waits for
+    /// the dust to settle and goes once more; the husks are empty by then and go quietly.
+    /// What the second pass still cannot remove is genuinely held, and is reported as such.
+    /// </summary>
+    private (int Removed, List<string> Failures) SweepRoots()
+    {
+        int removed = 0;
+        List<string> skipped = [];
+        List<string> failures = [];
+
+        for (int pass = 1; ; pass++)
+        {
+            failures = [];
+
+            foreach (string root in _writableRoots)
+            {
+                string full = Path.GetFullPath(Path.Combine(RootPath, root));
+                if (!IsInsideRoot(full))
+                {
+                    // "." or an absolute path elsewhere. Emptying it would reach the
+                    // workspace's own .git or another project entirely, and this button only
+                    // deletes what a run could have made. No second pass changes that.
+                    if (pass == 1)
+                    {
+                        skipped.Add($"'{root}' skipped: it is not strictly inside the workspace");
+                    }
+
+                    continue;
+                }
+
+                try
+                {
+                    // Recreated when missing, so a clean always leaves the roots the guard
+                    // promises.
+                    Directory.CreateDirectory(full);
+                    removed += Sweep(new DirectoryInfo(full), failures);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failures.Add($"{root}: {ex.Message}");
+                }
+            }
+
+            if (failures.Count == 0 || pass == 2)
+            {
+                break;
+            }
+
+            // A property set is safe from here: bindings marshal PropertyChanged themselves,
+            // and narrating the wait beats a pane that looks hung for the duration.
+            Status = "Cleaning… some items are still held by another program; waiting for them to be let go.";
+            Thread.Sleep(SettleDelay);
+        }
+
+        skipped.AddRange(failures);
+        return (removed, skipped);
     }
 
     /// <summary>

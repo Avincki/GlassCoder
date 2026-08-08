@@ -37,9 +37,9 @@ public sealed class TestRunConvenienceTests
         workspace.WriteFile("README.md", "keep me");
         FakeShell shell = new();
 
-        (bool srcEmpty, bool testsEmpty, bool readmeKept) = OverPane(workspace, shell, pane =>
+        (bool srcEmpty, bool testsEmpty, bool readmeKept) = OverPane(workspace, shell, (dispatcher, pane) =>
         {
-            pane.CleanCommand.Execute(null);
+            CleanAndWait(dispatcher, pane);
 
             return (
                 Directory.EnumerateFileSystemEntries(Path.Combine(workspace.Root, "src")).Any() == false,
@@ -64,13 +64,50 @@ public sealed class TestRunConvenienceTests
         File.SetAttributes(
             Path.Combine(workspace.Root, "src", "App", "obj", "App.dll"), FileAttributes.ReadOnly);
 
-        bool srcEmpty = OverPane(workspace, new FakeShell(), pane =>
+        bool srcEmpty = OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
         {
-            pane.CleanCommand.Execute(null);
+            CleanAndWait(dispatcher, pane);
             return Directory.EnumerateFileSystemEntries(Path.Combine(workspace.Root, "src")).Any() == false;
         });
 
         srcEmpty.ShouldBeTrue("read-only is an attribute, not an occupant");
+    }
+
+    [Fact]
+    public void A_lock_that_lets_go_between_passes_costs_nothing()
+    {
+        // The sync client's actual behaviour: held during the delete storm the first pass
+        // raises, free once the dust settles. The second pass must find nothing left to fail on.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/obj/held.tmp", "held");
+        string heldPath = Path.Combine(workspace.Root, "src", "App", "obj", "held.tmp");
+        FileStream hold = new(heldPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        try
+        {
+            (bool srcEmpty, string status) = OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
+            {
+                pane.CleanCommand.Execute(null);
+
+                UiThread.Pump(dispatcher, () => pane.Status.Contains("waiting"), TimeSpan.FromSeconds(15))
+                    .ShouldBeTrue("the sweep never said it was waiting out the held item");
+                hold.Dispose();
+
+                UiThread.Pump(dispatcher, () => pane.Status.Contains("Cleaned"), TimeSpan.FromSeconds(15))
+                    .ShouldBeTrue("the clean never finished");
+
+                return (
+                    Directory.EnumerateFileSystemEntries(Path.Combine(workspace.Root, "src")).Any() == false,
+                    pane.Status);
+            });
+
+            srcEmpty.ShouldBeTrue("what let go between passes should be gone after the second");
+            status.ShouldNotContain("could not be");
+        }
+        finally
+        {
+            hold.Dispose();
+        }
     }
 
     [Fact]
@@ -89,12 +126,9 @@ public sealed class TestRunConvenienceTests
         (bool siblingGone, bool otherGone, bool lockedKept, string status) =
             OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
             {
-                pane.CleanCommand.Execute(null);
-
-                // The refresh that follows a clean narrates into Status too; the summary - with
-                // its honest "could not be" - has to be what survives it.
-                UiThread.Pump(dispatcher, () => pane.Status.Contains("Cleaned"), TimeSpan.FromSeconds(15))
-                    .ShouldBeTrue("the clean's summary never came back after the refresh");
+                // Held throughout, so both passes fail on it - and the summary, with its honest
+                // "could not be", has to be what survives the refresh that follows.
+                CleanAndWait(dispatcher, pane);
 
                 return (
                     !File.Exists(Path.Combine(workspace.Root, "src", "App", "Program.cs")),
@@ -147,9 +181,9 @@ public sealed class TestRunConvenienceTests
         using TempWorkspace workspace = new();
         workspace.WriteFile("src/App/Program.cs", "class P { }");
 
-        (bool srcExists, bool testsExists) = OverPane(workspace, new FakeShell(), pane =>
+        (bool srcExists, bool testsExists) = OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
         {
-            pane.CleanCommand.Execute(null);
+            CleanAndWait(dispatcher, pane);
             return (
                 Directory.Exists(Path.Combine(workspace.Root, "src")),
                 Directory.Exists(Path.Combine(workspace.Root, "tests")));
@@ -303,6 +337,14 @@ public sealed class TestRunConvenienceTests
     }
 
     // ── Scaffolding ──
+
+    /// <summary>Presses Clean and pumps until its summary lands - the sweep is asynchronous.</summary>
+    private static void CleanAndWait(Dispatcher dispatcher, WorkspaceViewModel pane)
+    {
+        pane.CleanCommand.Execute(null);
+        UiThread.Pump(dispatcher, () => pane.Status.Contains("Cleaned"), TimeSpan.FromSeconds(15))
+            .ShouldBeTrue("the clean never reported finishing");
+    }
 
     /// <summary>Builds the workspace pane over the throwaway root, with the writable roots set.</summary>
     private static T OverPane<T>(TempWorkspace workspace, FakeShell shell, Func<WorkspaceViewModel, T> assert) =>
