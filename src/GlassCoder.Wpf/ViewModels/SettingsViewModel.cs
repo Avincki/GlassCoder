@@ -8,6 +8,7 @@ using GlassCoder.Core.Configuration;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Execution;
+using GlassCoder.Tools.Retrieval;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
 using Microsoft.Extensions.Configuration;
@@ -97,6 +98,16 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>The wire formats a role's endpoint can speak (workplan task 37).</summary>
     public IReadOnlyList<ModelTransport> Transports { get; } = [ModelTransport.OpenAI, ModelTransport.Anthropic];
+
+    /// <summary>
+    /// How a retrieval call reaches its upstream (workplan tasks 56, 63).
+    /// <para>
+    /// Replay first because it is the safe one and the one the Lab runs: it serves from the
+    /// recorded corpus and fails loudly on a miss rather than quietly reaching the network.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<RetrievalMode> RetrievalModes { get; } =
+        [RetrievalMode.Replay, RetrievalMode.Record, RetrievalMode.Live];
 
     /// <summary>Serilog levels, lowest first.</summary>
     public IReadOnlyList<string> LogLevels { get; } =

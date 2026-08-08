@@ -11,6 +11,7 @@ using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Guardrails;
+using GlassCoder.Tools.Retrieval;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -62,6 +63,9 @@ public sealed class GlassCoderSettings
     /// <summary>Version control (<c>GlassCoder:Git</c>).</summary>
     public GitOptions Git { get; init; } = new();
 
+    /// <summary>Retrieval over MCP (<c>GlassCoder:Retrieval</c>).</summary>
+    public RetrievalOptions Retrieval { get; init; } = new();
+
     /// <summary>Critic panel (<c>GlassCoder:Critique</c>).</summary>
     public CritiqueOptions Critique { get; init; } = new();
 
@@ -104,6 +108,7 @@ public sealed class GlassCoderSettings
             Sandbox = Section<SandboxOptions>(configuration, SandboxOptions.SectionName),
             Approval = Section<ApprovalOptions>(configuration, ApprovalOptions.SectionName),
             Git = Section<GitOptions>(configuration, GitOptions.SectionName),
+            Retrieval = Section<RetrievalOptions>(configuration, RetrievalOptions.SectionName),
             Critique = Section<CritiqueOptions>(configuration, CritiqueOptions.SectionName),
             Orchestration = Section<OrchestrationOptions>(configuration, OrchestrationOptions.SectionName),
             Provenance = Section<ProvenanceOptions>(configuration, ProvenanceOptions.SectionName),
@@ -143,6 +148,14 @@ public sealed class GlassCoderSettings
         if (Critique.Enabled && !Models.Roles.ContainsKey(Critique.Role))
         {
             failures.Add($"{CritiqueOptions.SectionName}:Role '{Critique.Role}' is not a configured role.");
+        }
+
+        // The same validator the startup path runs, so the dialog refuses what the harness would
+        // refuse rather than saving a configuration that fails on the next launch.
+        ValidateOptionsResult retrieval = new RetrievalOptionsValidator().Validate(Options.DefaultName, Retrieval);
+        if (retrieval.Failed && retrieval.Failures is not null)
+        {
+            failures.AddRange(retrieval.Failures);
         }
 
         if (Context.CompactionThreshold is <= 0 or > 1)

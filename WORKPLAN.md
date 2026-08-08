@@ -777,7 +777,13 @@ Acceptance: no document claims the sandbox covers retrieval traffic, and the shi
 
 `mcp-retrieval.html` is a description rather than a proposal, and says plainly what did **not** ship: no fixture whose answer is outside the repository, and no arms, so the feature has been shown to work and not shown to help. `docs/index.html`'s proposal table says the same.
 
-**The settings dialog did not get a Retrieval tab, and that is a decision rather than an omission.** An arm is a configuration file; the dialog writes user settings, which sit *above* `appsettings.json` and *below* `--config`. A saved retrieval preference would therefore ride along with every arm that did not explicitly override it, which is precisely the "a saved preference never quietly redefines what an arm means" property the layering exists to protect. Retrieval is configured per arm, in the file that defines the arm. Revisit if interactive use turns out to want it.
+**The settings dialog got a Retrieval tab after all — the argument against it did not survive being looked at.** It was that an arm is a configuration file and a saved preference would ride along with arms that did not override it. True, but `Git` and `Sandbox` have had tabs since tasks 40 and 34, and `Git:Enabled` is exactly the same kind of switch: one that decides whether a set of tools reaches the model's schema. A rule that disqualifies retrieval disqualifies those too. The layering claim was also half backwards — a `--config` arm wins *over* saved settings, so an arm that names retrieval was never at risk.
+
+The residual risk is real and belongs somewhere else: an arm that says *nothing* about a lever inherits whatever is saved. That is true of git today. **The fix is `StandardArms` naming its levers, not the UI hiding one** — `Baseline` now pins Critique, Orchestration, bash, both retrieval servers and `Mode=Replay` explicitly, every other arm is built from it by moving one key, and `Every_standard_arm_changes_exactly_one_lever` measures the difference from baseline rather than counting dictionary entries. `with-learn`, `with-code-search` and `with-retrieval` join the catalogue as a `retrieval` set.
+
+The tab is deliberately minimal: switches, mode, corpus folder and budgets. The per-server tool allow-lists stay in configuration files, because which two of a server's tools to register — and what to tell the model they are for — is arm-shaped rather than preference-shaped.
+
+Fixed on the way, and not only in the new tab: a `CheckBox` whose `Content` is a string parses it for access-key mnemonics, so the Git tab had been rendering *"Advertise gitstatus, gitcommit, gitsync, gitpush and create_pull_request"* since task 40. Four labels moved to a `TextBlock`.
 
 ## 64. The tool inventory belongs in About, with what each one is for
 

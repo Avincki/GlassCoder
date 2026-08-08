@@ -110,14 +110,81 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
     [Fact]
     public void Every_standard_arm_changes_exactly_one_lever()
     {
-        // An arm that moves two things at once measures neither.
+        // An arm that moves two things at once measures neither - but "one lever" is a
+        // difference from the baseline, not a count of keys. Every arm now states the optional
+        // capabilities explicitly, because an arm is a layer over whatever is already there and
+        // that includes the settings the desktop dialog saves: an operator who switched
+        // retrieval on to try it would otherwise have made every arm a retrieval arm.
         foreach (AblationArm arm in StandardArms.Default.Where(a => a.Name != StandardArms.Baseline.Name))
         {
-            arm.Settings.Count.ShouldBe(1, arm.Name);
+            DifferencesFromBaseline(arm).Count.ShouldBe(1, arm.Name);
             arm.Description.ShouldNotBeNullOrWhiteSpace();
         }
+    }
 
-        StandardArms.Baseline.Settings.ShouldBeEmpty();
+    /// <summary>
+    /// The baseline pins every optional capability rather than staying silent about it. A lever
+    /// an arm does not name is a lever the arm does not control.
+    /// </summary>
+    [Fact]
+    public void The_baseline_states_every_optional_capability_rather_than_inheriting_it()
+    {
+        IReadOnlyDictionary<string, string?> baseline = StandardArms.Baseline.Settings;
+
+        foreach (string key in new[]
+        {
+            "GlassCoder:Critique:Enabled",
+            "GlassCoder:Orchestration:Enabled",
+            "GlassCoder:Sandbox:EnableBashTool",
+            "GlassCoder:Retrieval:Enabled",
+            "GlassCoder:Retrieval:Learn:Enabled",
+            "GlassCoder:Retrieval:GitHub:Enabled",
+        })
+        {
+            baseline.ContainsKey(key).ShouldBeTrue(key);
+            baseline[key].ShouldBe("false", key);
+        }
+
+        // Pinned as well as off: an arm that reached the network would stop being comparable
+        // with the one beside it.
+        baseline["GlassCoder:Retrieval:Mode"].ShouldBe("Replay");
+    }
+
+    /// <summary>Each retrieval arm moves its own server and nothing else.</summary>
+    [Fact]
+    public void Each_retrieval_arm_enables_exactly_the_servers_it_names()
+    {
+        DifferencesFromBaseline(StandardArms.WithLearn).Keys
+            .ShouldBe(["GlassCoder:Retrieval:Enabled", "GlassCoder:Retrieval:Learn:Enabled"], ignoreOrder: true);
+
+        DifferencesFromBaseline(StandardArms.WithCodeSearch).Keys
+            .ShouldBe(["GlassCoder:Retrieval:Enabled", "GlassCoder:Retrieval:GitHub:Enabled"], ignoreOrder: true);
+
+        DifferencesFromBaseline(StandardArms.WithRetrieval).Keys.ShouldBe(
+            [
+                "GlassCoder:Retrieval:Enabled",
+                "GlassCoder:Retrieval:Learn:Enabled",
+                "GlassCoder:Retrieval:GitHub:Enabled",
+            ],
+            ignoreOrder: true);
+    }
+
+    /// <summary>What an arm actually moves: the keys where it disagrees with the baseline.</summary>
+    private static Dictionary<string, string?> DifferencesFromBaseline(AblationArm arm)
+    {
+        IReadOnlyDictionary<string, string?> baseline = StandardArms.Baseline.Settings;
+        Dictionary<string, string?> moved = new(StringComparer.Ordinal);
+
+        foreach ((string key, string? value) in arm.Settings)
+        {
+            if (!baseline.TryGetValue(key, out string? pinned) ||
+                !string.Equals(pinned, value, StringComparison.Ordinal))
+            {
+                moved[key] = value;
+            }
+        }
+
+        return moved;
     }
 
     [Fact]
@@ -145,8 +212,9 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
         foreach (AblationArm arm in StandardArms.Capabilities.Where(a =>
             a.Name != StandardArms.Baseline.Name && a.Name != StandardArms.AllCapabilities.Name))
         {
-            arm.Settings.Count.ShouldBe(1, arm.Name);
-            arm.Settings.Values.ShouldAllBe(v => v == "true");
+            Dictionary<string, string?> moved = DifferencesFromBaseline(arm);
+            moved.Count.ShouldBe(1, arm.Name);
+            moved.Values.ShouldAllBe(v => v == "true");
         }
     }
 
@@ -158,13 +226,15 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
         // other stops meaning anything.
         Dictionary<string, string?> union = StandardArms.Capabilities
             .Where(a => a.Name != StandardArms.Baseline.Name && a.Name != StandardArms.AllCapabilities.Name)
-            .SelectMany(a => a.Settings)
+            .SelectMany(DifferencesFromBaseline)
             .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
 
-        StandardArms.AllCapabilities.Settings.Count.ShouldBe(union.Count);
+        Dictionary<string, string?> combined = DifferencesFromBaseline(StandardArms.AllCapabilities);
+
+        combined.Count.ShouldBe(union.Count);
         foreach ((string key, string? value) in union)
         {
-            StandardArms.AllCapabilities.Settings.ShouldContainKeyAndValue(key, value);
+            combined.ShouldContainKeyAndValue(key, value);
         }
     }
 

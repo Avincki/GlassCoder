@@ -316,8 +316,11 @@
                     </DockPanel>
                     <DockPanel Style="{StaticResource Field}">
                       <TextBlock Style="{StaticResource Label}" Text="Also send response_format" />
-                      <CheckBox Content="Express the guided schema as response_format too"
-                                IsChecked="{Binding Options.ConstrainedDecoding.ApplyGuidedJsonAsResponseFormat}" />
+                      <CheckBox IsChecked="{Binding Options.ConstrainedDecoding.ApplyGuidedJsonAsResponseFormat}">
+                                <!-- A string Content is parsed for access-key mnemonics, so git_status would
+                                     render as "gitstatus". A TextBlock is not. -->
+                                <TextBlock Text="Express the guided schema as response_format too" />
+                              </CheckBox>
                     </DockPanel>
                     <DockPanel Style="{StaticResource Field}">
                       <TextBlock Style="{StaticResource Label}" Text="response_format schema name" />
@@ -750,6 +753,109 @@
       </TabItem>
 
       <!-- ============================== Git ============================== -->
+      <!-- Retrieval over MCP (workplan tasks 54-63). Deliberately minimal: the switches, the
+           mode and the budgets - the things you toggle while using the app. The per-server tool
+           allow-lists stay in configuration files, because which two of a server's tools to
+           register, and what to tell the model they are for, is arm-shaped rather than
+           preference-shaped and is edited about once. -->
+      <TabItem Header="Retrieval">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+            <GroupBox Header="Documentation and code search">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Enable" />
+                  <CheckBox Content="Let the agent look things up over MCP"
+                            IsChecked="{Binding Settings.Retrieval.Enabled}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default, and off means absent from the schema rather than present and refusing - a tool the model can see is a tool it can pick. This is the master switch; each server below has its own, so an experiment can move exactly one." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Microsoft Learn" />
+                  <CheckBox IsChecked="{Binding Settings.Retrieval.Learn.Enabled}">
+                            <!-- A string Content is parsed for access-key mnemonics, so git_status would
+                                 render as "gitstatus". A TextBlock is not. -->
+                            <TextBlock Text="Register learn_search and learn_fetch" />
+                          </CheckBox>
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Learn endpoint" />
+                  <TextBox Text="{Binding Settings.Retrieval.Learn.Endpoint}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A trusted publisher with one versioned answer, and no authentication." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="GitHub" />
+                  <CheckBox IsChecked="{Binding Settings.Retrieval.GitHub.Enabled}">
+                            <!-- A string Content is parsed for access-key mnemonics, so git_status would
+                                 render as "gitstatus". A TextBlock is not. -->
+                            <TextBlock Text="Register gh_symbol_exists" />
+                          </CheckBox>
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="GitHub endpoint" />
+                  <TextBox Text="{Binding Settings.Retrieval.GitHub.Endpoint}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Token variable" />
+                  <TextBox Text="{Binding Settings.Retrieval.GitHub.ApiKeyEnvironmentVariable}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Public GitHub is not a publisher: anything a search returns is text somebody could have written to be found, reaching an agent that can write files. It arrives marked untrusted, it can never on its own justify a change, and the name here is an environment variable - the token itself never enters a settings file. Turning this on is a good reason to require approval for writes." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Reproducibility">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Mode" />
+                  <ComboBox ItemsSource="{Binding RetrievalModes}"
+                            SelectedItem="{Binding Settings.Retrieval.Mode}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Replay serves from the recorded corpus and never calls out; a question with no recording fails loudly rather than quietly reaching the network. Record calls out and writes what comes back. Live calls out and records nothing. The suite and the ablation runner use Replay, because two arms are only comparable when they were told the same thing." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Corpus folder" />
+                  <TextBox Text="{Binding Settings.Retrieval.CacheDirectory}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Empty puts it under the application data folder, beside the logs. A relative path anchors there too." />
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A server's tool list is recorded like any other answer, so a Replay run registers its tools from the corpus and opens no connection at startup either. That also means a cold corpus registers nothing: run once in Record before switching an arm to Replay." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Budgets">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Calls per run" />
+                  <TextBox Text="{Binding Settings.Retrieval.MaxCallsPerRun}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Characters per answer" />
+                  <TextBox Text="{Binding Settings.Retrieval.MaxResultChars}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Calls without a change" />
+                  <TextBox Text="{Binding Settings.Retrieval.MaxCallsWithoutAppliedChange}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A run that looks things up twice and writes nothing is stalling rather than researching, so retrieval stands down until something has been applied. Zero switches the check off." />
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Allow unprompted" />
+                  <CheckBox Content="Let the agent look things up with nothing indicating it needs to"
+                            IsChecked="{Binding Settings.Retrieval.AllowProactive}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off by default. Normally a call is admitted only when a compile error names something no file here declares - a missing package type is a question documentation answers, and a typo in the agent's own class is one it makes worse. Switch this on to try retrieval by hand without waiting for the right error." />
+              </StackPanel>
+            </GroupBox>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <TabItem Header="Git">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="12">
@@ -757,8 +863,11 @@
               <StackPanel>
                 <DockPanel Style="{StaticResource Field}">
                   <TextBlock Style="{StaticResource Label}" Text="Enable" />
-                  <CheckBox Content="Advertise git_status, git_commit, git_sync, git_push and create_pull_request"
-                            IsChecked="{Binding Settings.Git.Enabled}" />
+                  <CheckBox IsChecked="{Binding Settings.Git.Enabled}">
+                            <!-- A string Content is parsed for access-key mnemonics, so git_status would
+                                 render as "gitstatus". A TextBlock is not. -->
+                            <TextBlock Text="Advertise git_status, git_commit, git_sync, git_push and create_pull_request" />
+                          </CheckBox>
                 </DockPanel>
                 <TextBlock Style="{StaticResource Hint}"
                            Text="Off by default. Git runs on this machine rather than in the sandbox, because the container has neither the network nor the credentials a push needs. GlassCoder holds no token of its own: authentication stays with the credential manager you already signed in to." />
