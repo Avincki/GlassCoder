@@ -9,6 +9,77 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (mcp, later) — The switches become visible, and the screen gets a judge
+
+**Shipped** on `feature/mcp-services`, all from operator reports rather than from the plan: the
+About list accounts for switched-off MCP tools, the settings dialog gets a Retrieval tab and a
+button that makes it work, retrieval steps read blue in the transcript, and a person can rate
+what the application looked like. Workplan task 65 added. 777 tests green, +19 since the
+retrieval entry below.
+
+**What the reports found.** Three of these were defects in what had just shipped, and each one
+was invisible from inside the code.
+
+- **The MCP tools appeared nowhere in About.** The two sources the catalogue had cannot see
+  them: reflection finds `[GlassCoderTool]` methods and an adapted tool is not one; the registry
+  holds what was registered, and being off is what keeps them out. On a default install every
+  MCP tool is off, which is exactly when someone opens that window. `RetrievalOptions` is now a
+  third source.
+- **Switching a server on did nothing, and the reason was right there in dim grey.** About said
+  "configured, but no recorded tool list" - correct, and useless, because acting on it meant six
+  steps through Record mode and back. The tab now has a button that records the lists in one
+  press. The diagnosis was never wrong; the affordance was missing.
+- **A `CheckBox` whose `Content` is a string eats underscores as access keys.** The Git tab had
+  been offering "Advertise gitstatus, gitcommit, gitsync, gitpush" since task 40. Every unit
+  test passed through both the broken and the fixed version; only rendering the window showed
+  it.
+
+**Decided**
+
+- **The settings dialog gets Retrieval after all, and the earlier argument against it was
+  wrong.** It said an arm is a configuration file and a saved preference would ride along - but
+  `Git` and `Sandbox` have had tabs for tasks, and `Git:Enabled` is the same kind of switch. The
+  layering claim was also half backwards: a `--config` arm wins *over* saved settings. What is
+  genuinely at risk is an arm that says nothing about a lever, and **the fix belongs in the arms
+  rather than in a UI that hides one**: `Baseline` now pins Critique, Orchestration, bash, both
+  retrieval servers and `Mode=Replay` explicitly, every other arm moves one key from it, and the
+  "exactly one lever" test measures the difference from baseline instead of counting keys.
+- **The tab is minimal on purpose.** Switches, mode, corpus folder, budgets. The per-server tool
+  allow-lists stay in configuration: which two of a server's tools to register, and what to tell
+  the model they are for, is arm-shaped rather than preference-shaped.
+- **Retrieval steps read blue, and blue is not a severity.** Reaching outside this machine is a
+  fact about a step, not a complaint about it, so the severity filter is untouched and error
+  still wins where both apply. Marked from the configured names rather than a `learn_*` prefix,
+  and read from configuration rather than the registry so a replayed transcript is still right.
+- **The screen gets an oracle, and it is a person** (task 65). Compile is judged by Roslyn, tests
+  by their exit code, the diff by critics; what was on screen was judged by nobody, which is how
+  `ea9a1f66` shipped a clipped result field past every green light. Closing a launched
+  application now asks for 0-5 and an optional comment, recorded as a `Role: "human"` step named
+  `operator_rating` - a step rather than a new record type, so it reaches the JSONL transcript
+  and the live view with no new reader and replays with the run it judged.
+- **A rating is asked on close and can be skipped.** A modal box over whatever the operator
+  turned to next gets answered to make it go away, and a rating given to dismiss something is
+  worse than none.
+
+**Validated** by run `122e11c6`: 26 steps, 211k tokens, 1.00 validity, refuted 3/3 at step 20,
+recovered in four steps, accepted 1/3 at step 25 and 3/3 by the post-run review - **and rated
+5/5, "great result", by the operator**. The first run in this project's history whose screen was
+judged by anyone. That is now three consecutive clean runs of the desktop goal at 211k / 234k /
+135k tokens.
+
+**Open**
+
+- **The manual step index starts at zero.** The rating landed as `StepIndex: 0` beside the
+  worker's own step 0. It appears last in the transcript because rows arrive in order, but the
+  `#` column reads 0. The manual Commit and Push buttons have always done this; the rating makes
+  it visible. Seed the counter from the highest step seen, or number human steps separately.
+- Run `122e11c6` spent steps 9-12 on the XAML-before-handler class again, then two `edit_file`
+  refusals reporting *"None of its lines appear in the file"* - the model quoting text that is
+  not there - before escaping with `create_file`. Two wasted steps, self-recovered, one
+  occurrence. Watch rather than fix.
+
+---
+
 ## 2026-08-08 (mcp) — Retrieval, built and switched off
 
 **Shipped** on `feature/mcp-services`: workplan tasks 54-59 and 62-63, reversing task 53's
