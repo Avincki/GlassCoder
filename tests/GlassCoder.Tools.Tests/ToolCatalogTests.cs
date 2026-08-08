@@ -3,6 +3,7 @@ using GlassCoder.Tools.DependencyInjection;
 using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Retrieval;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -136,6 +137,97 @@ public sealed class ToolCatalogTests : IDisposable
         ];
 
         orphaned.ShouldBeEmpty("a tool no registration path adds is declared and unreachable");
+    }
+
+    /// <summary>
+    /// The case neither of the other two sources can cover: a retrieval tool that is configured
+    /// and switched off. Reflection cannot see it because it is not a method, and the registry
+    /// cannot list it because being off is precisely what keeps it out - so on a default install,
+    /// where every MCP tool is inactive, the list would show none of them at all.
+    /// </summary>
+    [Fact]
+    public void A_configured_retrieval_tool_is_listed_even_with_retrieval_switched_off()
+    {
+        using ServiceProvider provider = Build(git: false, bash: false);
+
+        IReadOnlyList<ToolCatalogEntry> catalogue = ToolCatalog.Describe(
+            provider.GetRequiredService<IToolRegistry>(), Configured(enabled: false, learn: false));
+
+        ToolCatalogEntry search = catalogue.Single(e => e.Name == "learn_search");
+        search.Active.ShouldBeFalse();
+        search.EnabledBy.ShouldBe("GlassCoder:Retrieval:Enabled");
+        search.Description.ShouldBe("Official docs for a type or member.");
+    }
+
+    /// <summary>With the master on, the server's own switch is the one worth naming.</summary>
+    [Fact]
+    public void With_the_master_on_the_server_switch_is_what_is_named()
+    {
+        using ServiceProvider provider = Build(git: false, bash: false);
+
+        ToolCatalogEntry search = ToolCatalog
+            .Describe(provider.GetRequiredService<IToolRegistry>(), Configured(enabled: true, learn: false))
+            .Single(e => e.Name == "learn_search");
+
+        search.EnabledBy.ShouldBe("GlassCoder:Retrieval:Learn:Enabled");
+    }
+
+    /// <summary>
+    /// Both switches on and the tool still absent means a cold corpus, not a setting - so saying
+    /// "off" would send someone to a checkbox that is already ticked.
+    /// </summary>
+    [Fact]
+    public void A_switched_on_tool_with_no_corpus_explains_itself_rather_than_blaming_a_setting()
+    {
+        using ServiceProvider provider = Build(git: false, bash: false);
+
+        ToolCatalogEntry search = ToolCatalog
+            .Describe(provider.GetRequiredService<IToolRegistry>(), Configured(enabled: true, learn: true))
+            .Single(e => e.Name == "learn_search");
+
+        search.Active.ShouldBeFalse();
+        search.EnabledBy.ShouldBeNull();
+        search.Unavailable.ShouldContain("Record");
+    }
+
+    /// <summary>A registered retrieval tool is active and is not duplicated by the configuration.</summary>
+    [Fact]
+    public void A_registered_retrieval_tool_is_not_listed_twice()
+    {
+        using ServiceProvider provider = Build(git: false, bash: false);
+        RetrievalOptions configured = Configured(enabled: true, learn: true);
+
+        IToolRegistry registry = new ToolRegistry(
+            provider.GetRequiredService<IEnumerable<IToolSet>>(),
+            [new StubSource("learn_search", "Official docs for a type or member.")]);
+
+        ToolCatalogEntry[] found = [.. ToolCatalog.Describe(registry, configured).Where(e => e.Name == "learn_search")];
+
+        found.Length.ShouldBe(1);
+        found[0].Active.ShouldBeTrue();
+    }
+
+    private static RetrievalOptions Configured(bool enabled, bool learn)
+    {
+        RetrievalOptions options = new() { Enabled = enabled };
+        options.Learn.Enabled = learn;
+        options.Learn.Tools.Add(new RetrievalToolOptions
+        {
+            ServerTool = "microsoft_docs_search",
+            Name = "learn_search",
+            Description = "Official docs for a type or member.",
+        });
+
+        return options;
+    }
+
+    private sealed class StubSource(string name, string description) : IToolFunctionSource
+    {
+        public IReadOnlyList<AIFunction> Functions { get; } =
+        [
+            AIFunctionFactory.Create(
+                () => "answer", new AIFunctionFactoryOptions { Name = name, Description = description }),
+        ];
     }
 
     /// <summary>The real registration path, over a throwaway root, with the opt-in sets as asked.</summary>

@@ -45,7 +45,15 @@ public static class ToolCatalog
     /// The catalogue, in advertised order, with the tools this session registered marked active.
     /// </summary>
     /// <param name="registry">The live registry - what the model is actually offered.</param>
-    public static IReadOnlyList<ToolCatalogEntry> Describe(IToolRegistry registry)
+    /// <param name="retrieval">
+    /// Configured retrieval, so the MCP tools appear when they are switched off as well as when
+    /// they are on. They are adapted from a server at run time rather than declared as
+    /// <see cref="GlassCoderToolAttribute"/> methods, so the type sweep cannot see them and the
+    /// registry only holds them once something registered them - which is exactly the case this
+    /// list exists to explain. Null when the harness has no retrieval configuration at all.
+    /// </param>
+    public static IReadOnlyList<ToolCatalogEntry> Describe(
+        IToolRegistry registry, Retrieval.RetrievalOptions? retrieval = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
 
@@ -105,8 +113,70 @@ public static class ToolCatalog
             }
         }
 
+        // And the retrieval tools that are configured but not registered - the case the first two
+        // sources structurally cannot cover. Reflection cannot see them because they are not
+        // methods, and the registry cannot list them because being switched off is precisely what
+        // keeps them out of it. Without this, the default install shows no MCP tool at all and the
+        // list quietly stops being an inventory of what the build can do.
+        if (retrieval is not null)
+        {
+            foreach (Retrieval.RetrievalServer server in
+                (Retrieval.RetrievalServer[])Enum.GetValues(typeof(Retrieval.RetrievalServer)))
+            {
+                Retrieval.RetrievalServerOptions settings = retrieval.For(server);
+
+                foreach (Retrieval.RetrievalToolOptions tool in settings.Tools)
+                {
+                    if (string.IsNullOrWhiteSpace(tool.Name) || !seen.Add(tool.Name))
+                    {
+                        continue;
+                    }
+
+                    entries.Add(new ToolCatalogEntry(
+                        tool.Name,
+                        tool.Description,
+                        Order: int.MaxValue,
+                        Active: false,
+                        SchemaCharacters: null,
+                        EnabledBy: Switch(retrieval, settings, server),
+                        Unavailable: Unavailable(retrieval, settings)));
+                }
+            }
+        }
+
         return entries;
     }
+
+    /// <summary>
+    /// The setting to change to get a configured retrieval tool registered - the master switch
+    /// when that is what is off, the server's own when it is not. Null when both are already on
+    /// and the reason is something a setting cannot fix.
+    /// </summary>
+    private static string? Switch(
+        Retrieval.RetrievalOptions retrieval,
+        Retrieval.RetrievalServerOptions settings,
+        Retrieval.RetrievalServer server)
+    {
+        if (!retrieval.Enabled)
+        {
+            return $"{Retrieval.RetrievalOptions.SectionName}:{nameof(Retrieval.RetrievalOptions.Enabled)}";
+        }
+
+        return settings.Enabled
+            ? null
+            : $"{Retrieval.RetrievalOptions.SectionName}:{server}:{nameof(Retrieval.RetrievalServerOptions.Enabled)}";
+    }
+
+    /// <summary>
+    /// Why a switched-on retrieval tool is still absent. Always the corpus: registration reads
+    /// the recorded tool list so that a Replay run opens no socket, and a cold corpus therefore
+    /// has nothing to register.
+    /// </summary>
+    private static string? Unavailable(
+        Retrieval.RetrievalOptions retrieval, Retrieval.RetrievalServerOptions settings) =>
+        retrieval.Enabled && settings.Enabled
+            ? $"configured, but no recorded tool list - run once with Retrieval:Mode=Record"
+            : null;
 
     /// <summary>
     /// The tool set types in this assembly. Concrete classes only - the interface is a marker and
@@ -129,8 +199,12 @@ public static class ToolCatalog
 /// </param>
 /// <param name="EnabledBy">
 /// The configuration key that would switch an inactive tool on. Null when the tool is active, and
-/// also null when it is inactive with no known switch - which is not a configuration choice but a
-/// tool registered by no path at all, and worth noticing.
+/// also null when it is inactive with no known switch - which is either a tool registered by no
+/// path at all, worth noticing, or one whose absence <paramref name="Unavailable"/> explains.
+/// </param>
+/// <param name="Unavailable">
+/// Why an inactive tool is absent for a reason no setting fixes. Null in every other case, so
+/// "inactive, no switch, no explanation" stays the shape that means a defect.
 /// </param>
 public sealed record ToolCatalogEntry(
     string Name,
@@ -138,4 +212,5 @@ public sealed record ToolCatalogEntry(
     int Order,
     bool Active,
     int? SchemaCharacters,
-    string? EnabledBy);
+    string? EnabledBy,
+    string? Unavailable = null);

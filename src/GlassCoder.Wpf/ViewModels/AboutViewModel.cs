@@ -6,8 +6,10 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using GlassCoder.Core.Configuration;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Retrieval;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Wpf.ViewModels;
 
@@ -22,7 +24,11 @@ public sealed class AboutViewModel : ViewModelBase
     private readonly IDesktopShell _shell;
 
     /// <summary>Creates the view model.</summary>
-    public AboutViewModel(IToolRegistry tools, IUserSettingsStore settings, IDesktopShell shell)
+    public AboutViewModel(
+        IToolRegistry tools,
+        IUserSettingsStore settings,
+        IDesktopShell shell,
+        IOptions<RetrievalOptions>? retrieval = null)
     {
         ArgumentNullException.ThrowIfNull(tools);
 
@@ -30,7 +36,12 @@ public sealed class AboutViewModel : ViewModelBase
         _shell = shell;
 
         ToolCount = tools.Functions.Count;
-        Tools = [.. ToolCatalog.Describe(tools).Select(ToolRow.From)];
+
+        // Retrieval is passed in so the MCP tools appear when they are switched off too. They are
+        // adapted from a server rather than declared as methods, so neither the type sweep nor
+        // the registry can account for them while they are inactive - and a default install has
+        // them all inactive, which is exactly when someone opens this window to ask what exists.
+        Tools = [.. ToolCatalog.Describe(tools, retrieval?.Value).Select(ToolRow.From)];
         OpenSettingsFolderCommand = new RelayCommand(() => _shell.OpenFolder(_settings.DirectoryPath));
     }
 
@@ -141,9 +152,14 @@ public sealed class AboutViewModel : ViewModelBase
             }
 
             // The "GlassCoder:" every key starts with says nothing a reader of this window needs.
-            return entry.EnabledBy is { } key
-                ? "off · " + key.Replace("GlassCoder:", string.Empty, StringComparison.Ordinal)
-                : "not registered by any path";
+            if (entry.EnabledBy is { } key)
+            {
+                return "off · " + key.Replace("GlassCoder:", string.Empty, StringComparison.Ordinal);
+            }
+
+            // Switched on and still absent: a setting is not what is missing, so saying "off"
+            // would send someone to a checkbox that is already ticked.
+            return entry.Unavailable ?? "not registered by any path";
         }
     }
 }
