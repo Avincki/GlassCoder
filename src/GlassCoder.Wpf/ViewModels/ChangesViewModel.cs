@@ -111,6 +111,11 @@ public sealed class ChangesViewModel : ViewModelBase
     /// The transcript logger, so a button-initiated git action lands in the record exactly as
     /// the model's own call would (workplan task 42).
     /// </param>
+    /// <param name="transcript">
+    /// The live transcript, asked what number a manual step should carry (workplan task 65).
+    /// Null numbers them from zero, which collides with the loop's own step 0 - so the shipping
+    /// composition root has to pass it, and a test in <c>DesktopCompositionTests</c> asserts it.
+    /// </param>
     public ChangesViewModel(
         IChangeLog changes,
         Dispatcher? dispatcher = null,

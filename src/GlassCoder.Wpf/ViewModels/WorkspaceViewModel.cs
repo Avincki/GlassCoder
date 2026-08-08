@@ -168,6 +168,8 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private string? _pendingRoot;
     private string? _runId;
     private string? _ratedRunId;
+    private string? _ratedTaskId;
+    private string? _taskId;
     private readonly IStepLogger? _steps;
     private readonly ITranscriptBus? _transcript;
     private bool _isRatingApp;
@@ -354,6 +356,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         }
 
         _runId = null;
+        _taskId = null;
         _awaitingRun = true;
     }
 
@@ -701,6 +704,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         }
 
         _ratedRunId = _runId;
+        _ratedTaskId = _taskId;
 
         Status = applications.Count == 1
             ? $"Launched {name}. dotnet run builds first, so give it a moment."
@@ -749,7 +753,11 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         _steps?.LogStep(new StepRecord
         {
             RunId = rated,
-            TaskId = RunContext.Current.TaskId,
+
+            // The task the rated run was attempting, latched from its first change. Not
+            // RunContext: that is an AsyncLocal the loop sets, and it does not flow to this
+            // thread - so it reads "no-task" and every per-task join silently drops the rating.
+            TaskId = _ratedTaskId ?? RunContext.Current.TaskId,
 
             // One past whatever the run reached, which is what the post-run review row already
             // does. The caller cannot know that number; the bus saw every step.
@@ -1120,6 +1128,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         if (_awaitingRun)
         {
             _runId = change.RunId;
+
+            // Latched with the run id, from the same change, because the alternative is
+            // RunContext - and that is an AsyncLocal set inside the loop, so on this thread it
+            // reads the "no-task" placeholder. A rating naming a real run and a nonexistent task
+            // is dropped by every per-task join that would want it.
+            _taskId = change.TaskId;
             _awaitingRun = false;
         }
         else if (_runId is not null && !string.Equals(change.RunId, _runId, StringComparison.Ordinal))

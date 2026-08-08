@@ -82,6 +82,45 @@ public sealed class TranscriptNumberingTests
         bus.NextStepIndex("run-1").ShouldBe(first + 1);
     }
 
+    /// <summary>
+    /// Clearing the pane empties what the operator is looking at. It does not delete the durable
+    /// transcript, so a step numbered afterwards still has to come after everything already
+    /// written for that run - otherwise the JSONL gains a second record claiming step 0, which is
+    /// the collision this whole mechanism exists to prevent.
+    /// </summary>
+    [Fact]
+    public void Clearing_the_view_does_not_renumber_the_log()
+    {
+        TranscriptBus bus = new(new RecordingStepLogger());
+        for (int index = 0; index <= 25; index++)
+        {
+            bus.LogStep(Step("run-1", index));
+        }
+
+        bus.Clear();
+
+        bus.Steps.ShouldBeEmpty("the pane is what Clear empties");
+        bus.NextStepIndex("run-1").ShouldBe(26, "the log still holds steps 0 to 25");
+    }
+
+    /// <summary>
+    /// The same hazard without a Clear: the bus keeps a bounded window in memory, so a long
+    /// session evicts an earlier run's steps entirely. A manual action filed against that run
+    /// must still be numbered after it.
+    /// </summary>
+    [Fact]
+    public void Evicting_the_oldest_steps_does_not_renumber_them_either()
+    {
+        TranscriptBus bus = new(new RecordingStepLogger(), maxSteps: 4);
+        for (int index = 0; index <= 5; index++)
+        {
+            bus.LogStep(Step("run-1", index));
+        }
+
+        bus.Steps.Count.ShouldBe(4, "the window is what is bounded");
+        bus.NextStepIndex("run-1").ShouldBe(6);
+    }
+
     private static StepRecord Step(string runId, int index) => new()
     {
         RunId = runId,

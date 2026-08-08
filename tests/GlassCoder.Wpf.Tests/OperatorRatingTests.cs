@@ -165,6 +165,56 @@ public sealed class OperatorRatingTests
         }
     }
 
+    /// <summary>
+    /// A rating names the task its run was attempting, and gets it from the run rather than from
+    /// the ambient context.
+    /// <para>
+    /// <c>RunContext</c> is an <see cref="AsyncLocal{T}"/> the loop sets on its own execution
+    /// context. The UI thread is created at startup, long before any run exists, so it never sees
+    /// one and reads the <c>no-task</c> placeholder - a record naming a real run and a nonexistent
+    /// task, which every per-task join then silently drops. This test deliberately leaves the
+    /// context unset at rating time, which is the state the real application is always in.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_rating_names_the_task_its_run_was_attempting()
+    {
+        using TempWorkspace workspace = new();
+        WriteApp(workspace);
+        FakeShell shell = new();
+        RecordingStepLogger steps = new();
+
+        OverPane(workspace, shell, steps, (dispatcher, pane, provider) =>
+        {
+            pane.BeginRun();
+
+            // The loop's own context, in force only while the change is made - exactly as long
+            // as it is in force in the real thing.
+            RunContext.Set(new RunContext("run-7", "desktop"));
+            try
+            {
+                IChangeLog changes = provider.GetRequiredService<IChangeLog>();
+                changes.Propose("src/App.cs", "edit_file", "before", "after");
+            }
+            finally
+            {
+                RunContext.Clear();
+            }
+
+            UiThread.Pump(dispatcher, () => pane.RunAppCommand.CanExecute(null));
+
+            pane.RunAppCommand.Execute(null);
+            CloseApp(dispatcher, pane, shell);
+            pane.AppRating = 4;
+            pane.SubmitRatingCommand.Execute(null);
+            return 0;
+        });
+
+        StepRecord rating = steps.Steps.Single(s => s.Role == "human");
+        rating.RunId.ShouldBe("run-7");
+        rating.TaskId.ShouldBe("desktop", "not the no-task placeholder the UI thread would read");
+    }
+
     private static StepRecord Step(string runId, int index) => new()
     {
         RunId = runId,
@@ -250,6 +300,14 @@ public sealed class OperatorRatingTests
     /// </summary>
     private static T OverPane<T>(
         TempWorkspace workspace, FakeShell shell, IStepLogger steps, Func<Dispatcher, WorkspaceViewModel, T> assert) =>
+        OverPane(workspace, shell, steps, (dispatcher, pane, _) => assert(dispatcher, pane));
+
+    /// <summary>The same, for a test that also needs something else out of the container.</summary>
+    private static T OverPane<T>(
+        TempWorkspace workspace,
+        FakeShell shell,
+        IStepLogger steps,
+        Func<Dispatcher, WorkspaceViewModel, IServiceProvider, T> assert) =>
         UiThread.Run(dispatcher =>
         {
             IConfiguration configuration = new ConfigurationBuilder()
@@ -282,6 +340,6 @@ public sealed class OperatorRatingTests
             UiThread.Pump(dispatcher, () => pane.Loaded.IsCompleted, TimeSpan.FromSeconds(15))
                 .ShouldBeTrue("the pane never finished its first read of the workspace");
 
-            return assert(dispatcher, pane);
+            return assert(dispatcher, pane, provider);
         });
 }

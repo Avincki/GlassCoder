@@ -43,7 +43,12 @@ public static class DesktopServiceCollectionExtensions
             sp.GetRequiredService<IChangeLog>(),
             sp.GetRequiredService<Dispatcher>(),
             sp.GetService<GlassCoder.Tools.Git.GitTool>(),
-            sp.GetService<GlassCoder.Core.Diagnostics.IStepLogger>()));
+            sp.GetService<GlassCoder.Core.Diagnostics.IStepLogger>(),
+            // The bus numbers a human step after everything the run reached (workplan task 65).
+            // A hand-built registration is where a new optional parameter goes unnoticed: this one
+            // was added and never passed, so every manual commit and push was logged as step 0 -
+            // worse than the counter it replaced, and silent because the default hid it.
+            sp.GetService<GlassCoder.Core.Diagnostics.ITranscriptBus>()));
 
         // The approval gate asks the change view for a decision, and the change view holds the
         // git tool, which holds the gate. Handing the gate an accessor rather than the view

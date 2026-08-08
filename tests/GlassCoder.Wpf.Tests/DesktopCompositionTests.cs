@@ -102,6 +102,58 @@ public sealed class DesktopCompositionTests
         enabled.ShouldBeTrue();
     }
 
+    /// <summary>
+    /// Every optional dependency the container could supply is actually supplied.
+    /// <para>
+    /// The defect this exists for: <c>ChangesViewModel</c> gained an <c>ITranscriptBus</c>
+    /// parameter so a manual commit could be numbered after the run (workplan task 65), and its
+    /// hand-built registration was never updated - so `_transcript` was null in the shipping
+    /// application and every commit and push was logged as step 0. Nothing failed, nothing was
+    /// logged, and the optional parameter's own default is what hid it.
+    /// </para>
+    /// <para>
+    /// Asserted over the constructed instances rather than over one call site, because the class
+    /// of bug is "a hand-built registration goes stale", and the next one will be in a different
+    /// factory. Reflection because the fields are private and there is no public path to a manual
+    /// commit that does not run git.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void No_view_model_is_missing_a_dependency_the_container_could_have_given_it()
+    {
+        IReadOnlyList<string> missing = Resolve(gitEnabled: true, provider =>
+        {
+            List<string> gaps = [];
+
+            foreach (object model in (object[])
+            [
+                provider.GetRequiredService<ChangesViewModel>(),
+                provider.GetRequiredService<WorkspaceViewModel>(),
+                provider.GetRequiredService<RetrospectiveViewModel>(),
+                provider.GetRequiredService<TranscriptViewModel>(),
+            ])
+            {
+                foreach (System.Reflection.FieldInfo field in model.GetType().GetFields(
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic))
+                {
+                    // Only interfaces, and only ones this container knows how to build. A null
+                    // GitTool with git switched off is a decision; a null ITranscriptBus when the
+                    // container holds one is an omission.
+                    if (field.FieldType.IsInterface &&
+                        provider.GetService(field.FieldType) is not null &&
+                        field.GetValue(model) is null)
+                    {
+                        gaps.Add($"{model.GetType().Name}.{field.Name} ({field.FieldType.Name})");
+                    }
+                }
+            }
+
+            return (IReadOnlyList<string>)gaps;
+        });
+
+        missing.ShouldBeEmpty();
+    }
+
     /// <summary>The workspace pane roots itself where the guard is rooted, not where the app runs.</summary>
     [Fact]
     public void The_workspace_pane_is_rooted_where_the_guard_is()

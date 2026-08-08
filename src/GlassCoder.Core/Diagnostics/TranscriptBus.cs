@@ -55,6 +55,23 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     private readonly Lock _gate = new();
     private readonly List<StepRecord> _steps = [];
     private readonly List<ReviewRecord> _reviews = [];
+
+    /// <summary>
+    /// The highest step index ever seen for a run, and how many reviews it has had - kept apart
+    /// from <see cref="_steps"/> because they answer a different question.
+    /// <para>
+    /// <see cref="_steps"/> is what the UI is showing and is therefore emptied by
+    /// <see cref="Clear"/> and trimmed by <c>maxSteps</c>. The numbering must not be: the durable
+    /// log keeps every record either way, so a high-water mark derived from what happens to be in
+    /// memory would hand out step 0 again after a Clear and collide with the run's real step 0 in
+    /// the JSONL - which is the very thing this method exists to prevent (CLAUDE.md §9).
+    /// </para>
+    /// <para>
+    /// One entry per run id for the life of the process, which is a few dozen integers.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<string, (int Highest, int Reviews)> _numbering = new(StringComparer.Ordinal);
+
     private readonly int _maxSteps;
 
     /// <summary>Wraps a durable step logger.</summary>
@@ -97,24 +114,9 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
 
         lock (_gate)
         {
-            int highest = -1;
-            int reviews = 0;
-
-            foreach (StepRecord step in _steps)
-            {
-                if (string.Equals(step.RunId, runId, StringComparison.Ordinal) && step.StepIndex > highest)
-                {
-                    highest = step.StepIndex;
-                }
-            }
-
-            foreach (ReviewRecord review in _reviews)
-            {
-                if (string.Equals(review.RunId, runId, StringComparison.Ordinal))
-                {
-                    reviews++;
-                }
-            }
+            (int highest, int reviews) = _numbering.TryGetValue(runId, out (int, int) seen)
+                ? seen
+                : (-1, 0);
 
             // Reviews are counted although they are not steps, because the transcript numbers
             // each one "one past the run's last step" and a review is not in _steps to push this
@@ -137,6 +139,8 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     /// <inheritdoc />
     public void LogStep(StepRecord record)
     {
+        ArgumentNullException.ThrowIfNull(record);
+
         _inner.LogStep(record);
 
         lock (_gate)
@@ -146,6 +150,8 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
             {
                 _steps.RemoveRange(0, _steps.Count - _maxSteps);
             }
+
+            Remember(record.RunId, highest: record.StepIndex);
         }
 
         StepRecorded?.Invoke(this, record);
@@ -161,14 +167,24 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     /// <inheritdoc />
     public void LogReview(ReviewRecord record)
     {
+        ArgumentNullException.ThrowIfNull(record);
+
         _inner.LogReview(record);
 
         lock (_gate)
         {
             _reviews.Add(record);
+            Remember(record.RunId, reviews: 1);
         }
 
         ReviewRecorded?.Invoke(this, record);
+    }
+
+    /// <summary>Advances a run's high-water mark. Called under <see cref="_gate"/>.</summary>
+    private void Remember(string runId, int highest = int.MinValue, int reviews = 0)
+    {
+        (int Highest, int Reviews) seen = _numbering.GetValueOrDefault(runId, (-1, 0));
+        _numbering[runId] = (Math.Max(seen.Highest, highest), seen.Reviews + reviews);
     }
 
     /// <inheritdoc />
@@ -178,6 +194,10 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
         {
             _steps.Clear();
             _reviews.Clear();
+
+            // _numbering deliberately survives. Clear empties what the operator is looking at;
+            // it does not delete the durable transcript, so a step numbered after this must
+            // still come after everything already written for that run.
         }
     }
 }
