@@ -6,7 +6,9 @@ using System.Linq;
 using System.Windows.Data;
 using System.Windows.Threading;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Tools.Retrieval;
 using GlassCoder.Wpf.Mvvm;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Wpf.ViewModels;
 
@@ -20,10 +22,22 @@ public sealed class StepRowViewModel
     /// <param name="runStartedAt">
     /// When the run this step belongs to began - the origin the elapsed column counts from.
     /// </param>
-    public StepRowViewModel(StepRecord record, DateTimeOffset runStartedAt)
+    /// <param name="retrievalTools">
+    /// The registered names of the retrieval tools, so a step that reached outside the machine
+    /// can be told apart at a glance. Empty when retrieval is configured with none.
+    /// </param>
+    public StepRowViewModel(
+        StepRecord record, DateTimeOffset runStartedAt, IReadOnlySet<string>? retrievalTools = null)
     {
         Record = record;
         _runStartedAt = runStartedAt;
+
+        // A retrieval call is the only thing in a transcript that left this machine, and that is
+        // worth seeing without reading the row. Keyed on the configured names rather than on a
+        // prefix, because what the tools are called is a configuration choice - a guess at
+        // "learn_*" would stop being true the first time somebody renamed one.
+        IsRetrieval = retrievalTools is { Count: > 0 } &&
+            record.ToolCalls.Any(call => retrievalTools.Contains(call.Name));
 
         // Every entry names its actor. The prefix looks redundant while the worker is the only
         // one calling tools, but this column also carries the actors that never call any - the
@@ -117,6 +131,13 @@ public sealed class StepRowViewModel
 
     /// <summary>info, warning or error - what the severity filter matches on.</summary>
     public string Severity { get; }
+
+    /// <summary>
+    /// Whether this step called a retrieval tool - the one thing in a transcript that reached a
+    /// server outside this machine. Colours the row and its detail, and does not affect the
+    /// severity filter: reaching outside is a fact about the step, not a complaint about it.
+    /// </summary>
+    public bool IsRetrieval { get; }
 
     /// <summary>One line describing the step.</summary>
     public string Summary { get; }
@@ -225,6 +246,7 @@ public sealed class TranscriptViewModel : ViewModelBase
     private readonly ITranscriptBus _bus;
     private readonly Dispatcher _dispatcher;
     private readonly Dictionary<string, DateTimeOffset> _runStarts = [];
+    private readonly IReadOnlySet<string> _retrievalTools;
     private string _toolFilter = "All";
     private string _severityFilter = "All";
     private string _search = string.Empty;
@@ -232,10 +254,20 @@ public sealed class TranscriptViewModel : ViewModelBase
     private StepRowViewModel? _selected;
 
     /// <summary>Creates the view model and subscribes to the bus.</summary>
-    public TranscriptViewModel(ITranscriptBus bus, Dispatcher? dispatcher = null)
+    /// <param name="retrieval">
+    /// Configured retrieval, for the names that mark a step as having reached outside this
+    /// machine. Taken from configuration rather than from the registry so the colouring is right
+    /// for a replayed transcript too - a log read back after the switch was turned off still
+    /// describes a run in which those calls happened.
+    /// </param>
+    public TranscriptViewModel(
+        ITranscriptBus bus,
+        Dispatcher? dispatcher = null,
+        IOptions<RetrievalOptions>? retrieval = null)
     {
         _bus = bus;
         _dispatcher = dispatcher ?? Dispatcher.CurrentDispatcher;
+        _retrievalTools = RetrievalToolNames(retrieval?.Value);
 
         foreach (StepRecord record in bus.Steps)
         {
@@ -260,6 +292,29 @@ public sealed class TranscriptViewModel : ViewModelBase
             Steps.Clear();
             _runStarts.Clear();
         });
+    }
+
+    /// <summary>The registered names of every configured retrieval tool, enabled or not.</summary>
+    private static IReadOnlySet<string> RetrievalToolNames(RetrievalOptions? options)
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+        if (options is null)
+        {
+            return names;
+        }
+
+        foreach (RetrievalServer server in Enum.GetValues<RetrievalServer>())
+        {
+            foreach (RetrievalToolOptions tool in options.For(server).Tools)
+            {
+                if (!string.IsNullOrWhiteSpace(tool.Name))
+                {
+                    names.Add(tool.Name);
+                }
+            }
+        }
+
+        return names;
     }
 
     /// <summary>Every step, newest last.</summary>
@@ -363,7 +418,7 @@ public sealed class TranscriptViewModel : ViewModelBase
             _runStarts[record.RunId] = runStartedAt;
         }
 
-        return new StepRowViewModel(record, runStartedAt);
+        return new StepRowViewModel(record, runStartedAt, _retrievalTools);
     }
 
     private void OnStepRecorded(object? sender, StepRecord record)

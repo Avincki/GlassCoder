@@ -54,6 +54,16 @@
       <DataGrid.RowStyle>
         <Style TargetType="DataGridRow">
           <Style.Triggers>
+            <!--
+              Retrieval first, so severity still wins where both apply: a lookup that failed is
+              an error before it is a lookup, and a transcript that coloured it blue would hide
+              the one thing worth noticing. Blue rather than a new severity because reaching a
+              server outside this machine is a fact about the step, not a complaint about it -
+              it must not move the severity filter.
+            -->
+            <DataTrigger Binding="{Binding IsRetrieval}" Value="True">
+              <Setter Property="Foreground" Value="#1565C0" />
+            </DataTrigger>
             <DataTrigger Binding="{Binding Severity}" Value="error">
               <Setter Property="Foreground" Value="#B00020" />
             </DataTrigger>
@@ -70,7 +80,20 @@
     <ScrollViewer x:Name="DetailScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto">
       <TextBox Text="{Binding Selected.Detail, Mode=OneWay}" IsReadOnly="True"
                FontFamily="Cascadia Mono, Consolas" FontSize="12"
-               TextWrapping="Wrap" BorderThickness="0" Background="Transparent" />
+               TextWrapping="Wrap" BorderThickness="0" Background="Transparent">
+        <TextBox.Style>
+          <Style TargetType="TextBox">
+            <!-- Matches the row, so a blue line in the list opens as blue detail rather than
+                 leaving the reader to check which row they clicked. -->
+            <Setter Property="Foreground" Value="#263238" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Selected.IsRetrieval}" Value="True">
+                <Setter Property="Foreground" Value="#1565C0" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </TextBox.Style>
+      </TextBox>
     </ScrollViewer>
   </Grid>
 </UserControl>
