@@ -29,7 +29,7 @@ public sealed class FileViewerWindowTests
 
         (string Title, bool Reviewing, Visibility Splitter) shown = UiThread.Run(_ =>
         {
-            EnsureApplication();
+            TestApplication.Ensure();
             FileViewerViewModel model = FileViewerViewModel.Load(file, "src/A.cs");
             FileViewerWindow window = new(model);
 
@@ -51,7 +51,7 @@ public sealed class FileViewerWindowTests
 
         string? message = UiThread.Run(dispatcher =>
         {
-            EnsureApplication();
+            TestApplication.Ensure();
             FileViewerViewModel model = FileViewerViewModel.Load(file, "assets/logo.png");
             FileViewerWindow window = new(model);
             window.ShouldNotBeNull();
@@ -74,7 +74,7 @@ public sealed class FileViewerWindowTests
                 // The view model marshals its continuations back onto whatever context started
                 // them, which on the real UI thread is the dispatcher's.
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
-                EnsureApplication();
+                TestApplication.Ensure();
 
                 FileViewerViewModel model = FileViewerViewModel.Load(file, "src/A.cs", new StubReviewer(Review()));
                 FileViewerWindow window = new(model);
@@ -145,20 +145,6 @@ public sealed class FileViewerWindowTests
             new ReviewAction("tidy", "Rename the probe", string.Empty, ReviewActionPriority.Optional),
         ],
     };
-
-    /// <summary>
-    /// The window's brushes live in <c>App.xaml</c>, so a <c>StaticResource</c> only resolves
-    /// once an application owns them. One per test host: WPF allows a single
-    /// <see cref="Application"/>, and creating a second throws.
-    /// </summary>
-    private static void EnsureApplication()
-    {
-        if (Application.Current is null)
-        {
-            App application = new();
-            application.InitializeComponent();
-        }
-    }
 
     /// <summary>An <see cref="IFileReviewer"/> that answers immediately with a canned review.</summary>
     private sealed class StubReviewer : IFileReviewer

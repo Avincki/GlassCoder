@@ -61,34 +61,18 @@ public interface IRetrospectiveReviewer
 public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 {
     /// <summary>The shape stages 1 and 2 answer in: prose, and nothing to tick.</summary>
-    private const string ReportSchema = """
-        {"type":"object","additionalProperties":false,
-         "required":["report"],
-         "properties":{
-           "report":{"type":"string","description":"The review, as Markdown."}}}
-        """;
+    private const string ReportSchema =
+        """{"type":"object","additionalProperties":false,"required":["report"],"properties":{"report":{"type":"string","description":"The review, as Markdown."}}}""";
+
 
     /// <summary>
     /// The shape stage 3 answers in. The item shape is task 43's, deliberately: a recommendation
     /// and a review action are the same thing seen from two distances, and one shape means one
     /// renderer, one parser and one row template.
     /// </summary>
-    private const string RecommendationSchema = """
-        {"type":"object","additionalProperties":false,
-         "required":["report","recommendations"],
-         "properties":{
-           "report":{"type":"string",
-             "description":"What the harness should learn, as Markdown."},
-           "recommendations":{"type":"array",
-             "description":"Improvements to GlassCoder and its tools, most important first.",
-             "items":{"type":"object","additionalProperties":false,
-               "required":["id","title","detail","priority"],
-               "properties":{
-                 "id":{"type":"string","description":"Short kebab-case slug."},
-                 "title":{"type":"string","description":"What to do, in a few words."},
-                 "detail":{"type":"string","description":"Why, where, and how it would be verified."},
-                 "priority":{"enum":["High","Medium","Low","Optional"]}}}}}}
-        """;
+    private const string RecommendationSchema =
+        """{"type":"object","additionalProperties":false,"required":["report","recommendations"],"properties":{"report":{"type":"string","description":"What the harness should learn, as Markdown."},"recommendations":{"type":"array","description":"Improvements to GlassCoder and its tools, most important first.","items":{"type":"object","additionalProperties":false,"required":["id","title","detail","priority"],"properties":{"id":{"type":"string","description":"Short kebab-case slug."},"title":{"type":"string","description":"What to do, in a few words."},"detail":{"type":"string","description":"Why, where, and how it would be verified."},"priority":{"enum":["High","Medium","Low","Optional"]}}}}}}""";
+
 
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
 

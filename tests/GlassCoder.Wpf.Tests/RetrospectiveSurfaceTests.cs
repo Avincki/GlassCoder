@@ -222,7 +222,7 @@ public sealed class RetrospectiveSurfaceTests
         // panel for its size.
         (int Stages, int Rows) built = UiThread.Run(dispatcher =>
         {
-            EnsureApplication();
+            TestApplication.Ensure();
 
             StubReviewer reviewer = new() { OnDisk = Result() };
             RetrospectiveViewModel model = Model(dispatcher, reviewer);
@@ -292,19 +292,6 @@ public sealed class RetrospectiveSurfaceTests
         DurationMs = 41_000,
         CostUsd = 0.5m,
     };
-
-    /// <summary>
-    /// The window's brushes live in App.xaml, so a StaticResource only resolves once an
-    /// application owns them. One per test host: WPF allows a single Application.
-    /// </summary>
-    private static void EnsureApplication()
-    {
-        if (Application.Current is null)
-        {
-            App application = new();
-            application.InitializeComponent();
-        }
-    }
 
     /// <summary>An <see cref="IRetrospectiveReviewer"/> that answers immediately from a script.</summary>
     private sealed class StubReviewer : IRetrospectiveReviewer

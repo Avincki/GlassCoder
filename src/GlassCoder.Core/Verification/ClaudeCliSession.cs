@@ -33,8 +33,78 @@ public sealed record ClaudeCliProfile(
     bool Bare,
     string? ApiKeyEnvironmentVariable)
 {
-    /// <summary>The executable to launch, defaulted.</summary>
+    /// <summary>The executable as configured, before it is resolved against PATH.</summary>
     public string Executable => string.IsNullOrWhiteSpace(CliPath) ? "claude" : CliPath;
+}
+
+/// <summary>
+/// Finds the executable a bare command name refers to.
+/// <para>
+/// Necessary because <c>Process.Start</c> with <c>UseShellExecute = false</c> goes through
+/// <c>CreateProcess</c>, which appends <c>.exe</c> and nothing else - it does not consult
+/// <c>PATHEXT</c> the way a shell does. Claude Code installs through npm, and npm's Windows
+/// install is a set of shims: <c>claude</c>, <c>claude.cmd</c> and <c>claude.ps1</c>, with no
+/// <c>claude.exe</c> anywhere. So the harness looked for a file that is never there, every
+/// availability probe failed, and both the file review and the retrospective greyed out their
+/// buttons on a machine where typing <c>claude</c> in a terminal works perfectly.
+/// </para>
+/// </summary>
+public static class ExecutableResolver
+{
+    /// <summary>
+    /// Extensions to try, in order of preference. A native executable first because its arguments
+    /// reach it unmangled; a batch shim second because on Windows that is usually all there is.
+    /// </summary>
+    private static readonly string[] Extensions =
+        OperatingSystem.IsWindows() ? [".exe", ".cmd", ".bat", string.Empty] : [string.Empty];
+
+    /// <summary>
+    /// The path to launch for <paramref name="command"/>, or <paramref name="command"/> itself
+    /// when it is already a path or nothing matches - in which case the launch fails and says so,
+    /// which is better than guessing.
+    /// </summary>
+    /// <param name="command">A bare command name, or a path the caller configured.</param>
+    public static string Resolve(string command)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
+
+        // A configured path is the operator's decision and is used as given.
+        if (Path.IsPathRooted(command) || command.Contains(Path.DirectorySeparatorChar) ||
+            command.Contains(Path.AltDirectorySeparatorChar))
+        {
+            return command;
+        }
+
+        string? paths = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(paths))
+        {
+            return command;
+        }
+
+        foreach (string directory in paths.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (string extension in Extensions)
+            {
+                string candidate;
+                try
+                {
+                    candidate = Path.Combine(directory.Trim('"'), command + extension);
+                }
+                catch (ArgumentException)
+                {
+                    // A malformed PATH entry is not worth failing over; skip it.
+                    break;
+                }
+
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return command;
+    }
 }
 
 /// <summary>One headless call: what to ask, what shape to answer in, and how long it may take.</summary>
@@ -139,6 +209,7 @@ public sealed class ClaudeCliSession
 {
     private readonly IProcessRunner _processes;
     private readonly ClaudeCliProfile _profile;
+    private readonly string _executable;
     private readonly ILogger _logger;
     private readonly Lock _probeGate = new();
     private Task<ReviewerAvailability>? _probe;
@@ -153,6 +224,7 @@ public sealed class ClaudeCliSession
 
         _processes = processes;
         _profile = profile;
+        _executable = ExecutableResolver.Resolve(profile.Executable);
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     }
 
@@ -181,27 +253,32 @@ public sealed class ClaudeCliSession
         try
         {
             ProcessRunResult result = await _processes.RunAsync(
-                new ProcessRunRequest(_profile.Executable, ["--version"]) { Timeout = TimeSpan.FromSeconds(20) },
+                new ProcessRunRequest(_executable, ["--version"]) { Timeout = TimeSpan.FromSeconds(20) },
                 CancellationToken.None).ConfigureAwait(false);
 
             if (result.TimedOut)
             {
-                return ReviewerAvailability.Unavailable($"'{_profile.Executable} --version' did not answer in time.");
+                return ReviewerAvailability.Unavailable($"'{_executable} --version' did not answer in time.");
             }
 
             if (result.ExitCode != 0)
             {
                 return ReviewerAvailability.Unavailable(
-                    $"'{_profile.Executable}' returned exit {result.ExitCode}: {Scrub(result.StandardError)}");
+                    $"'{_executable}' returned exit {result.ExitCode}: {Scrub(result.StandardError)}");
             }
 
             return ReviewerAvailability.Available(result.StandardOutput.Trim());
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Almost always "not on PATH". Said in those terms rather than as a Win32 code.
+            // Logged as well as returned. The reason used to reach only a tooltip, so a greyed
+            // button left nothing behind to diagnose from afterwards.
+            _logger.LogWarning(
+                ex, "Could not launch '{Executable}' (configured as '{Configured}')",
+                _executable, _profile.Executable);
+
             return ReviewerAvailability.Unavailable(
-                $"Could not launch '{_profile.Executable}'. Install Claude Code, or set the CliPath " +
+                $"Could not launch '{_executable}'. Install Claude Code, or set the CliPath " +
                 $"setting to its full path. ({ex.Message})");
         }
     }
@@ -244,7 +321,7 @@ public sealed class ClaudeCliSession
 
         _logger.LogInformation(
             "Running {Cli} on model {Model} (tools {Tools}, mode {Mode}, streaming {Streaming})",
-            _profile.Executable, _profile.Model, string.Join(",", _profile.AllowedTools),
+            _executable, _profile.Model, string.Join(",", _profile.AllowedTools),
             _profile.PermissionMode, streaming);
 
         long start = Stopwatch.GetTimestamp();
@@ -375,7 +452,7 @@ public sealed class ClaudeCliSession
             }
         }
 
-        return new ProcessRunRequest(_profile.Executable, arguments)
+        return new ProcessRunRequest(_executable, arguments)
         {
             WorkingDirectory = request.WorkingDirectory,
             Timeout = request.Timeout,

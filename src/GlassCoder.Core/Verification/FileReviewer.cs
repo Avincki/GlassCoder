@@ -146,10 +146,19 @@ public sealed class FileReviewOptions
     public int TimeoutSeconds { get; set; } = 600;
 
     /// <summary>
-    /// Whether to run the CLI in its minimal mode - no hooks, no plugins, no skills. On by
-    /// default so a review is the same review on every machine.
+    /// Whether to run the CLI in its minimal mode - no hooks, no plugins, no skills.
+    /// <para>
+    /// Off by default, which is not what it looks like it should be. <c>--bare</c> skips the
+    /// user's configuration, and the subscription login lives there, so a bare session answers
+    /// <c>"Not logged in · Please run /login"</c> and every review fails. Measured, not guessed:
+    /// the same call succeeded the moment the flag came off.
+    /// </para>
+    /// <para>
+    /// Worth switching on only alongside <see cref="ApiKeyEnvironmentVariable"/>, where the
+    /// credential arrives through the environment instead and the isolation is free.
+    /// </para>
     /// </summary>
-    public bool Bare { get; set; } = true;
+    public bool Bare { get; set; }
 
     /// <summary>Extra read-only roots, for a file whose callers live in a sibling repository.</summary>
     public IList<string> AddDirectories { get; set; } = new List<string>();
@@ -228,22 +237,9 @@ public sealed class ClaudeCodeFileReviewer : IFileReviewer
     /// The shape the CLI is told to return. Two fields, because that is what the viewer shows:
     /// prose to read, and proposals to tick.
     /// </summary>
-    private const string ResponseSchema = """
-        {"type":"object","additionalProperties":false,
-         "required":["report","actions"],
-         "properties":{
-           "report":{"type":"string",
-             "description":"The code review, as Markdown."},
-           "actions":{"type":"array",
-             "description":"Recommended changes, most important first.",
-             "items":{"type":"object","additionalProperties":false,
-               "required":["id","title","detail","priority"],
-               "properties":{
-                 "id":{"type":"string","description":"Short kebab-case slug."},
-                 "title":{"type":"string","description":"What to do, in a few words."},
-                 "detail":{"type":"string","description":"Why, and where."},
-                 "priority":{"enum":["High","Medium","Low","Optional"]}}}}}}
-        """;
+    private const string ResponseSchema =
+        """{"type":"object","additionalProperties":false,"required":["report","actions"],"properties":{"report":{"type":"string","description":"The code review, as Markdown."},"actions":{"type":"array","description":"Recommended changes, most important first.","items":{"type":"object","additionalProperties":false,"required":["id","title","detail","priority"],"properties":{"id":{"type":"string","description":"Short kebab-case slug."},"title":{"type":"string","description":"What to do, in a few words."},"detail":{"type":"string","description":"Why, and where."},"priority":{"enum":["High","Medium","Low","Optional"]}}}}}}""";
+
 
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
 

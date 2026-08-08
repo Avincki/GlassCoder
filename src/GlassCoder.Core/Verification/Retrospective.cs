@@ -57,8 +57,12 @@ public sealed class RetrospectiveOptions
     /// </summary>
     public int TimeoutSeconds { get; set; } = 900;
 
-    /// <summary>Whether to run the CLI without hooks, plugins or skills.</summary>
-    public bool Bare { get; set; } = true;
+    /// <summary>
+    /// Whether to run the CLI without hooks, plugins or skills. Off by default, and for a
+    /// non-obvious reason - see <see cref="FileReviewOptions.Bare"/>: <c>--bare</c> also skips
+    /// the configuration the subscription login lives in, so a bare session cannot authenticate.
+    /// </summary>
+    public bool Bare { get; set; }
 
     /// <summary>Most recommendations to keep from the harness stage.</summary>
     public int MaxRecommendations { get; set; } = 12;
