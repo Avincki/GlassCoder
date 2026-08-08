@@ -86,7 +86,19 @@ public interface IRetrievalPolicy
     /// <summary>Records an admitted call and what it returned, against this run's budget.</summary>
     void RecordCall(RetrievalRequest request, int charsReturned);
 
-    /// <summary>Records a refusal, so blocked-by-code reaches the metrics.</summary>
+    /// <summary>
+    /// Records an admitted call that failed upstream: it counts against the budget and is
+    /// reported as a refusal.
+    /// <para>
+    /// Distinct from <see cref="RecordDenial"/>, which is for a call this policy never let out.
+    /// A call that reached the network and came back empty has spent everything a successful one
+    /// spends except the answer, so charging it nothing is how an unusable server turns a
+    /// three-call budget into one call per step for the length of the run.
+    /// </para>
+    /// </summary>
+    void RecordFailedCall(RetrievalRequest request, RetrievalDenial denial);
+
+    /// <summary>Records a refusal this policy made, so blocked-by-code reaches the metrics.</summary>
     void RecordDenial(RetrievalDenial denial);
 
     /// <summary>What this run has spent so far.</summary>

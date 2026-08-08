@@ -1,6 +1,7 @@
 using GlassCoder.Lab.Ablation;
 using GlassCoder.Lab.TaskSuite;
 using GlassCoder.TestSupport;
+using GlassCoder.Tools.Retrieval;
 
 namespace GlassCoder.Lab.Tests;
 
@@ -148,6 +149,44 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
         // Pinned as well as off: an arm that reached the network would stop being comparable
         // with the one beside it.
         baseline["GlassCoder:Retrieval:Mode"].ShouldBe("Replay");
+    }
+
+    /// <summary>
+    /// Every retrieval lever is named, including ones added after this was written.
+    /// <para>
+    /// The list above and <c>DifferencesFromBaseline</c> can both only check keys somebody
+    /// remembered to write down - an omitted key is invisible to both, and is inherited from
+    /// <c>%APPDATA%\GlassCoder\settings.json</c> instead. That is how <c>AllowProactive</c>,
+    /// the single lever deciding whether a retrieval call may be admitted at all, came to be
+    /// unpinned: a machine where the operator had ticked "Allow unprompted" to try the feature
+    /// ran the retrieval arms unrestricted, and one where they had not admitted nothing, with
+    /// both reports looking the same.
+    /// </para>
+    /// <para>
+    /// So the question is asked of the options type rather than of a list: a new scalar setting
+    /// fails this until somebody decides whether an experiment should pin it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_baseline_pins_every_retrieval_lever_the_options_declare()
+    {
+        // Not levers: where the corpus lives on this machine, and the per-server sections, whose
+        // own Enabled keys the baseline pins individually above.
+        string[] notLevers = ["CacheDirectory", "Learn", "GitHub"];
+
+        IReadOnlyDictionary<string, string?> baseline = StandardArms.Baseline.Settings;
+
+        foreach (System.Reflection.PropertyInfo property in typeof(RetrievalOptions).GetProperties())
+        {
+            if (notLevers.Contains(property.Name, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            baseline.ContainsKey($"GlassCoder:Retrieval:{property.Name}").ShouldBeTrue(
+                $"GlassCoder:Retrieval:{property.Name} is a retrieval setting no arm pins, so every " +
+                "arm inherits it from whatever this machine has saved");
+        }
     }
 
     /// <summary>Each retrieval arm moves its own server and nothing else.</summary>

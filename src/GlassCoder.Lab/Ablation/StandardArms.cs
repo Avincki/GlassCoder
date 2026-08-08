@@ -120,6 +120,17 @@ public static class StandardArms
             [$"{RetrievalOptions.SectionName}:Learn:Enabled"] = "false",
             [$"{RetrievalOptions.SectionName}:GitHub:Enabled"] = "false",
             [$"{RetrievalOptions.SectionName}:Mode"] = nameof(RetrievalMode.Replay),
+
+            // The four levers that decide whether an admitted call happens and how much it may
+            // bring back. Every one of them is editable on the Retrieval settings tab, so leaving
+            // any unnamed means an arm measures the operator's saved preferences: a machine where
+            // "Allow unprompted" was ticked to try the feature by hand runs unrestricted
+            // retrieval, and one where it was not admits nothing at all, with the two comparisons
+            // looking identical in the report.
+            [$"{RetrievalOptions.SectionName}:AllowProactive"] = "false",
+            [$"{RetrievalOptions.SectionName}:MaxCallsPerRun"] = "3",
+            [$"{RetrievalOptions.SectionName}:MaxResultChars"] = "3000",
+            [$"{RetrievalOptions.SectionName}:MaxCallsWithoutAppliedChange"] = "2",
         };
 
     /// <summary>The explicit baseline with one key moved - which is what "one lever" means.</summary>

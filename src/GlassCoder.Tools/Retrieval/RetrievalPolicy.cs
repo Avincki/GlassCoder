@@ -15,17 +15,31 @@ namespace GlassCoder.Tools.Retrieval;
 /// </summary>
 public sealed class RetrievalPolicy : IRetrievalPolicy
 {
+    /// <summary>
+    /// How many runs' budgets to keep. A desktop session holds a handful; the orchestrator's
+    /// fan-out holds one per sub-agent. Well above either, and bounded so a long-lived host does
+    /// not accumulate one entry per run for ever.
+    /// </summary>
+    private const int MaximumTrackedRuns = 64;
+
     private readonly IOptionsMonitor<RetrievalOptions> _options;
     private readonly IRetrievalSignals _signals;
     private readonly IChangeLog _changes;
     private readonly Lock _gate = new();
 
-    private string _runId = string.Empty;
-    private int _allowed;
-    private int _charsReturned;
-    private int _callsSinceApplied;
-    private int _appliedAtLastCall;
-    private Dictionary<string, int> _blocked = new(StringComparer.Ordinal);
+    /// <summary>
+    /// One budget per run, rather than one budget belonging to whichever run asked last.
+    /// <para>
+    /// The single-slot version reset itself the moment it saw a different run id, which is
+    /// correct for the desktop - runs are sequential there - and wrong for the orchestrator,
+    /// whose fan-out interleaves sub-agents. Two of them alternating calls reset each other's
+    /// counters on every call, so <see cref="RetrievalOptions.MaxCallsPerRun"/> never fired and
+    /// the fan-out could make unbounded upstream calls.
+    /// </para>
+    /// </summary>
+    private readonly Dictionary<string, RunBudget> _runs = new(StringComparer.Ordinal);
+
+    private readonly List<string> _order = [];
 
     /// <summary>Creates the policy.</summary>
     public RetrievalPolicy(
@@ -45,8 +59,9 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
         {
             lock (_gate)
             {
-                Sync();
-                return new RetrievalStats(_allowed, new Dictionary<string, int>(_blocked, StringComparer.Ordinal), _charsReturned);
+                RunBudget run = Current();
+                return new RetrievalStats(
+                    run.Allowed, new Dictionary<string, int>(run.Blocked, StringComparer.Ordinal), run.CharsReturned);
             }
         }
     }
@@ -59,12 +74,12 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
 
         lock (_gate)
         {
-            Sync();
+            RunBudget run = Current();
 
-            denial = Judge(request, options);
+            denial = Judge(request, options, run);
             if (denial is not null)
             {
-                Block(denial);
+                Block(run, denial);
                 return false;
             }
 
@@ -79,16 +94,26 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
 
         lock (_gate)
         {
-            Sync();
+            Spend(Current(), charsReturned);
+        }
+    }
 
-            _allowed++;
-            _charsReturned += Math.Max(0, charsReturned);
+    /// <inheritdoc />
+    public void RecordFailedCall(RetrievalRequest request, RetrievalDenial denial)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(denial);
 
-            // The anti-loop counter measures calls that bought nothing. A call made after work
-            // landed starts the count again; one made after another call did not.
-            int applied = AppliedThisRun();
-            _callsSinceApplied = applied > _appliedAtLastCall ? 1 : _callsSinceApplied + 1;
-            _appliedAtLastCall = applied;
+        lock (_gate)
+        {
+            RunBudget run = Current();
+
+            // Both, and that is the point. An admitted call that failed upstream has still been
+            // made - it opened a socket, spent a step and returned nothing - so it consumes the
+            // budget exactly as a successful one does. Counting only the refusal is what let an
+            // expired GitHub token produce twenty-five live round-trips in a run capped at three.
+            Spend(run, charsReturned: 0);
+            Block(run, denial);
         }
     }
 
@@ -99,13 +124,25 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
 
         lock (_gate)
         {
-            Sync();
-            Block(denial);
+            Block(Current(), denial);
         }
     }
 
+    /// <summary>Charges one admitted call against a run. Called under <see cref="_gate"/>.</summary>
+    private void Spend(RunBudget run, int charsReturned)
+    {
+        run.Allowed++;
+        run.CharsReturned += Math.Max(0, charsReturned);
+
+        // The anti-loop counter measures calls that bought nothing. A call made after work
+        // landed starts the count again; one made after another call did not.
+        int applied = AppliedThisRun();
+        run.CallsSinceApplied = applied > run.AppliedAtLastCall ? 1 : run.CallsSinceApplied + 1;
+        run.AppliedAtLastCall = applied;
+    }
+
     /// <summary>The first reason this call cannot run, or null when it may.</summary>
-    private RetrievalDenial? Judge(RetrievalRequest request, RetrievalOptions options)
+    private RetrievalDenial? Judge(RetrievalRequest request, RetrievalOptions options, RunBudget run)
     {
         if (!options.Enabled || !options.For(request.Server).Enabled)
         {
@@ -117,7 +154,7 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
                 "Answer from the workspace: grep, find_symbol and read_file, then build.");
         }
 
-        if (options.MaxCallsPerRun > 0 && _allowed >= options.MaxCallsPerRun)
+        if (options.MaxCallsPerRun > 0 && run.Allowed >= options.MaxCallsPerRun)
         {
             return new RetrievalDenial(
                 ToolErrorCodes.RetrievalBudgetExhausted,
@@ -125,11 +162,17 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
                 "Use what you have already been told, and verify it with build.");
         }
 
-        if (_charsReturned >= options.MaxResultChars * Math.Max(1, options.MaxCallsPerRun))
+        // The character budget is the call cap's worth of full-size answers, so it only exists
+        // when there is a call cap. It used to read Math.Max(1, MaxCallsPerRun), which turned
+        // MaxCallsPerRun = 0 - the documented way to lift the call limit - into a budget of one
+        // answer, refusing every call after the first with a message about a limit nobody set.
+        if (options.MaxCallsPerRun > 0 &&
+            run.CharsReturned >= options.MaxResultChars * options.MaxCallsPerRun)
         {
             return new RetrievalDenial(
                 ToolErrorCodes.RetrievalBudgetExhausted,
-                "This run has used its retrieval result budget.",
+                $"This run has returned {run.CharsReturned:N0} characters of retrieval, which is its " +
+                $"budget of {options.MaxCallsPerRun} answers at {options.MaxResultChars:N0} characters.",
                 "Use what you have already been told, and verify it with build.");
         }
 
@@ -143,12 +186,12 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
         }
 
         if (options.MaxCallsWithoutAppliedChange > 0 &&
-            _callsSinceApplied >= options.MaxCallsWithoutAppliedChange &&
-            AppliedThisRun() == _appliedAtLastCall)
+            run.CallsSinceApplied >= options.MaxCallsWithoutAppliedChange &&
+            AppliedThisRun() == run.AppliedAtLastCall)
         {
             return new RetrievalDenial(
                 ToolErrorCodes.RetrievalBudgetExhausted,
-                $"{_callsSinceApplied} retrieval calls have produced no change to the workspace.",
+                $"{run.CallsSinceApplied} retrieval calls have produced no change to the workspace.",
                 "Write the change you already have the answer for. Retrieval will be available " +
                 "again once something has been applied.");
         }
@@ -173,23 +216,48 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
         return applied;
     }
 
-    /// <summary>Drops the previous run's totals the first time a new run asks anything.</summary>
-    private void Sync()
+    /// <summary>
+    /// This run's budget, created on first sight. Called under <see cref="_gate"/>.
+    /// <para>
+    /// The oldest is evicted past <see cref="MaximumTrackedRuns"/>. A run whose budget is evicted
+    /// starts again, which is the same behaviour the single-slot version had for every run and is
+    /// acceptable here only because it takes sixty-four concurrent runs to reach.
+    /// </para>
+    /// </summary>
+    private RunBudget Current()
     {
         string runId = RunContext.Current.RunId;
-        if (string.Equals(runId, _runId, StringComparison.Ordinal))
+        if (_runs.TryGetValue(runId, out RunBudget? existing))
         {
-            return;
+            return existing;
         }
 
-        _runId = runId;
-        _allowed = 0;
-        _charsReturned = 0;
-        _callsSinceApplied = 0;
-        _appliedAtLastCall = AppliedThisRun();
-        _blocked = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (_order.Count >= MaximumTrackedRuns)
+        {
+            _runs.Remove(_order[0]);
+            _order.RemoveAt(0);
+        }
+
+        RunBudget fresh = new() { AppliedAtLastCall = AppliedThisRun() };
+        _runs[runId] = fresh;
+        _order.Add(runId);
+        return fresh;
     }
 
-    private void Block(RetrievalDenial denial) =>
-        _blocked[denial.Code] = _blocked.GetValueOrDefault(denial.Code) + 1;
+    private static void Block(RunBudget run, RetrievalDenial denial) =>
+        run.Blocked[denial.Code] = run.Blocked.GetValueOrDefault(denial.Code) + 1;
+
+    /// <summary>What one run has spent.</summary>
+    private sealed class RunBudget
+    {
+        public int Allowed { get; set; }
+
+        public int CharsReturned { get; set; }
+
+        public int CallsSinceApplied { get; set; }
+
+        public int AppliedAtLastCall { get; set; }
+
+        public Dictionary<string, int> Blocked { get; } = new(StringComparer.Ordinal);
+    }
 }

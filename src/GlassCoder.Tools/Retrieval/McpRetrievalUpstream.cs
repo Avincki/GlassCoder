@@ -117,9 +117,8 @@ public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable,
     /// </summary>
     public void Dispose()
     {
-        if (_disposed || _sessions.Count == 0)
+        if (_disposed)
         {
-            _disposed = true;
             return;
         }
 
@@ -139,7 +138,31 @@ public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable,
 
         _disposed = true;
 
-        foreach (McpClient client in _sessions.Values)
+        // Under the gate, like every other reader of _sessions. Without it this enumerated the
+        // dictionary while a connecting call inserted into it - "collection was modified" out of
+        // provider.DisposeAsync(), or, on the other interleaving, a freshly opened session left
+        // behind for the server to time out, which is the leak this class exists to prevent.
+        List<McpClient> closing;
+        try
+        {
+            await _gate.WaitAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            closing = [.. _sessions.Values];
+            _sessions.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        foreach (McpClient client in closing)
         {
             try
             {
@@ -151,7 +174,8 @@ public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable,
             }
         }
 
-        _sessions.Clear();
+        // Disposed on every path, including the Replay one where no session was ever opened -
+        // the early return there used to leak the semaphore.
         _gate.Dispose();
     }
 
@@ -162,6 +186,10 @@ public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable,
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // Again, now that the gate is held: a caller that passed the check above and then
+            // waited behind a disposal would otherwise connect a session nothing will ever close.
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
             if (_sessions.TryGetValue(server, out McpClient? existing))
             {
                 return existing;
@@ -286,6 +314,13 @@ public sealed class RetrievalCatalog
     /// </summary>
     public const string ToolListKey = "__tools__";
 
+    /// <summary>
+    /// How long registration will wait for a server to list its tools. Shorter than the
+    /// transport's own connection timeout on purpose: this wait happens on the UI thread, and a
+    /// tool list is not worth a frozen window.
+    /// </summary>
+    private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(10);
+
     private static readonly JsonSerializerOptions Serializer = new() { WriteIndented = true };
 
     /// <summary>Renders descriptors for the corpus, in the shape <see cref="Describe"/> reads.</summary>
@@ -312,14 +347,15 @@ public sealed class RetrievalCatalog
     {
         RetrievalCacheKey key = RetrievalCacheKey.From(server, ToolListKey, null);
 
-        if (_cache.Get(key) is { } recorded &&
-            Deserialize(recorded.Payload) is { Count: > 0 } fromCorpus)
-        {
-            return fromCorpus;
-        }
-
         if (mode == RetrievalMode.Replay || _upstream is null)
         {
+            // Replay's only source, and it must never connect.
+            if (_cache.Get(key) is { } recorded &&
+                Deserialize(recorded.Payload) is { Count: > 0 } fromCorpus)
+            {
+                return fromCorpus;
+            }
+
             _logger.LogWarning(
                 "No recorded tool list for the {Server} MCP server, and Replay does not connect. " +
                 "Its tools are not registered this run; record a corpus with Retrieval:Mode=Record.",
@@ -327,12 +363,31 @@ public sealed class RetrievalCatalog
             return [];
         }
 
-        // Record and Live are opt-in, interactive modes, so a bounded blocking connect at
-        // registration is acceptable where it would not be in Replay.
-        IReadOnlyList<RetrievalToolDescriptor> live = _upstream
-            .ListToolsAsync(server)
-            .GetAwaiter()
-            .GetResult();
+        // Record and Live ask the server, even when a list is already recorded. Preferring the
+        // recording here was a trap with no way out: a server that renames a tool leaves the
+        // operator switching to Record - which is what the About window tells them to do - and
+        // Record returning the same stale list, for ever.
+        //
+        // The blocking wait is bounded. This runs inside the DI factory for IToolRegistry, which
+        // the desktop resolves on the UI thread, so an unbounded one is a frozen application with
+        // nothing on screen to say why.
+        IReadOnlyList<RetrievalToolDescriptor> live;
+        try
+        {
+            live = _upstream.ListToolsAsync(server).WaitAsync(ListTimeout).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning(
+                "The {Server} MCP server did not list its tools within {Timeout}. Its tools are not " +
+                "registered this run; set Retrieval:{Server}:Enabled to false, or use " +
+                "Retrieval:Mode=Replay against a recorded corpus.",
+                server, ListTimeout);
+
+            // Fall back to whatever was recorded rather than to nothing: a stale list beats no
+            // retrieval at all when the network is what failed.
+            return _cache.Get(key) is { } fallback ? Deserialize(fallback.Payload) : [];
+        }
 
         if (live.Count > 0 && mode == RetrievalMode.Record)
         {

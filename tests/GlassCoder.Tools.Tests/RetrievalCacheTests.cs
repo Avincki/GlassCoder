@@ -1,4 +1,5 @@
 using GlassCoder.TestSupport;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Retrieval;
 
 namespace GlassCoder.Tools.Tests;
@@ -194,6 +195,77 @@ public sealed class RetrievalCacheTests : IDisposable
 
         read.Select(d => d.ServerTool).ShouldBe(["microsoft_docs_search", "microsoft_docs_fetch"]);
         read[0].Schema.GetProperty("properties").TryGetProperty("query", out _).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Live means what it says. The corpus used to be consulted before the mode was, so an
+    /// operator who once ran Record and then switched to Live silently kept getting a page
+    /// captured weeks earlier - for an API that may have changed since - with no indication it
+    /// was cached and no way to refresh but deleting files by hand.
+    /// </summary>
+    [Fact]
+    public void Live_calls_out_even_when_the_corpus_has_an_answer()
+    {
+        RetrievalCache cache = new(Root);
+        CountingUpstream upstream = new("the answer as it is today");
+
+        new CachingRetrievalUpstream(new CountingUpstream("the answer as it was"), cache)
+            .CallAsync(RetrievalMode.Record, RetrievalServer.Learn, "microsoft_docs_search",
+                new Dictionary<string, object?> { ["query"] = "IAsyncEnumerable" }).GetAwaiter().GetResult();
+
+        // A second wrapper, because the first now holds this run's answer in memory.
+        RetrievalResult result = Call(new CachingRetrievalUpstream(upstream, cache), RetrievalMode.Live);
+
+        upstream.Calls.ShouldBe(1);
+        result.Payload.ShouldBe("the answer as it is today");
+    }
+
+    /// <summary>
+    /// Record is the documented way to refresh a corpus - the About window says so - which it can
+    /// only be if it overwrites what it already holds.
+    /// </summary>
+    [Fact]
+    public void Record_replaces_a_recording_it_already_has()
+    {
+        RetrievalCache cache = new(Root);
+
+        new CachingRetrievalUpstream(new CountingUpstream("stale"), cache)
+            .CallAsync(RetrievalMode.Record, RetrievalServer.Learn, "microsoft_docs_search",
+                new Dictionary<string, object?> { ["query"] = "IAsyncEnumerable" }).GetAwaiter().GetResult();
+
+        Call(new CachingRetrievalUpstream(new CountingUpstream("fresh"), cache), RetrievalMode.Record);
+
+        // And what Replay serves afterwards is the fresh one.
+        Call(new CachingRetrievalUpstream(new ThrowingUpstream(), cache), RetrievalMode.Replay)
+            .Payload.ShouldBe("fresh");
+    }
+
+    /// <summary>
+    /// The reason the corpus was being consulted in every mode, kept without the staleness: one
+    /// run asking the same question twice pays once, and it expires with the run rather than
+    /// living on disk for ever.
+    /// </summary>
+    [Fact]
+    public void One_run_asking_twice_calls_out_once()
+    {
+        CountingUpstream upstream = new("the answer");
+        CachingRetrievalUpstream caching = new(upstream, new RetrievalCache(Root));
+
+        RunContext.Set(new RunContext("run-1", "task-1"));
+        try
+        {
+            Call(caching, RetrievalMode.Live);
+            Call(caching, RetrievalMode.Live);
+            upstream.Calls.ShouldBe(1);
+
+            RunContext.Set(new RunContext("run-2", "task-1"));
+            Call(caching, RetrievalMode.Live);
+            upstream.Calls.ShouldBe(2, "another run asks for itself");
+        }
+        finally
+        {
+            RunContext.Clear();
+        }
     }
 
     private static System.Text.Json.JsonElement Schema(string parameter) => System.Text.Json.JsonDocument

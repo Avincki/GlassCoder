@@ -78,12 +78,24 @@ public sealed class ToolRegistry : IToolRegistry
         IEnumerable<IToolSet> toolSets,
         IEnumerable<IToolFunctionSource> sources,
         ILogger<ToolRegistry>? logger = null)
-        : this(Combine(toolSets, sources), logger)
+        : this(Combine(toolSets, sources, logger), logger)
     {
     }
 
+    /// <summary>
+    /// The declared tools, then the adapted ones.
+    /// <para>
+    /// A declared tool that breaks its contract is still fatal - that is the harness's own code,
+    /// and a build is where it should be caught. An <em>adapted</em> one is configuration, and is
+    /// dropped with a warning instead: this runs inside the DI factory for the registry, which
+    /// the desktop resolves on the UI thread with no unhandled-exception handler behind it, so a
+    /// bad name in a settings file used to kill the application before the operator could reach
+    /// the dialog to undo it. It is also what the retrieval builder already does one layer up for
+    /// a tool the server does not advertise, and the two had no business disagreeing.
+    /// </para>
+    /// </summary>
     private static IReadOnlyList<AIFunction> Combine(
-        IEnumerable<IToolSet> toolSets, IEnumerable<IToolFunctionSource> sources)
+        IEnumerable<IToolSet> toolSets, IEnumerable<IToolFunctionSource> sources, ILogger? logger)
     {
         ArgumentNullException.ThrowIfNull(sources);
 
@@ -94,12 +106,28 @@ public sealed class ToolRegistry : IToolRegistry
         {
             if (!names.Add(function.Name))
             {
-                throw new ToolContractException(
-                    $"Adapted tool '{function.Name}' collides with a tool the harness already declares. " +
-                    "Rename it in Retrieval configuration - a duplicate name would shadow a real tool.");
+                logger?.LogError(
+                    "Adapted tool '{Name}' collides with a tool the harness already declares and is " +
+                    "not registered. Rename it in Retrieval configuration - a duplicate name would " +
+                    "shadow a real tool.",
+                    function.Name);
+                continue;
             }
 
-            ToolFunctionFactory.ValidateSchema(function);
+            try
+            {
+                ToolFunctionFactory.ValidateSchema(function);
+            }
+            catch (ToolContractException ex)
+            {
+                names.Remove(function.Name);
+                logger?.LogError(
+                    ex,
+                    "Adapted tool '{Name}' does not describe a usable schema and is not registered",
+                    function.Name);
+                continue;
+            }
+
             functions.Add(function);
         }
 

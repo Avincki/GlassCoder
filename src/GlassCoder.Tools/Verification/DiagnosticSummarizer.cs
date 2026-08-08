@@ -44,7 +44,7 @@ public sealed record DiagnosticSummary(
 public sealed class DiagnosticSummarizer
 {
     private readonly VerificationOptions _options;
-    private readonly Action<IReadOnlyList<CodeDiagnostic>>? _observer;
+    private readonly Action<IReadOnlyList<CodeDiagnostic>, bool>? _observer;
 
     /// <summary>Creates the summariser.</summary>
     /// <param name="options">Cap, ordering and warning policy.</param>
@@ -53,35 +53,49 @@ public sealed class DiagnosticSummarizer
     /// the one place all of them pass - the pre-write gate, the build tool and the ladder all
     /// summarise here before a model sees anything (CLAUDE.md §8.2) - so a single hook sees the
     /// lot without three call sites having to remember to report (workplan task 59).
+    /// <para>
+    /// The second argument says whether the batch is <em>everything</em> the compiler had to say
+    /// - a report from a rung - or a narrow set: one file's syntax, or the errors a single edit
+    /// introduced. An observer that treats the two alike will read "no errors in these two
+    /// diagnostics" as "the build is green", which is how the retrieval signal came to erase
+    /// itself on the way through an unrelated refusal.
+    /// </para>
     /// </param>
     public DiagnosticSummarizer(
         IOptions<VerificationOptions> options,
-        Action<IReadOnlyList<CodeDiagnostic>>? observer = null)
+        Action<IReadOnlyList<CodeDiagnostic>, bool>? observer = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;
         _observer = observer;
     }
 
-    /// <summary>Summarises a rung's report.</summary>
+    /// <summary>
+    /// Summarises a rung's report - a whole compile or build, which is the complete picture the
+    /// observer is entitled to draw conclusions from.
+    /// </summary>
     public DiagnosticSummary Summarise(DiagnosticReport report, string? title = null)
     {
         ArgumentNullException.ThrowIfNull(report);
-        return Summarise(report.Diagnostics, title, report.FailureReason);
+        return Summarise(report.Diagnostics, title, report.FailureReason, complete: true);
     }
 
-    /// <summary>Summarises a diagnostic list.</summary>
+    /// <summary>
+    /// Summarises a diagnostic list. Partial unless the caller says otherwise, because the
+    /// callers that pass a bare list are the ones holding a fragment.
+    /// </summary>
     public DiagnosticSummary Summarise(
         IReadOnlyList<CodeDiagnostic> diagnostics,
         string? title = null,
-        string? failureReason = null)
+        string? failureReason = null,
+        bool complete = false)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         // Before anything is filtered: the observer wants what the compiler said, not the ten
         // entries the model is shown. A CS0246 that fell off the cap is still the reason the
         // run needs documentation.
-        _observer?.Invoke(diagnostics);
+        _observer?.Invoke(diagnostics, complete);
 
         int totalErrors = 0;
         int totalWarnings = 0;

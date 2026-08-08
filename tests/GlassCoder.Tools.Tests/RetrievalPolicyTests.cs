@@ -301,6 +301,111 @@ public sealed class RetrievalPolicyTests : IDisposable
     private static RetrievalToolOptions Tool(string serverTool, string name) =>
         new() { ServerTool = serverTool, Name = name, Description = "why it exists" };
 
+    /// <summary>
+    /// Zero is the documented way to lift the call cap, and the character budget was derived
+    /// from it with <c>Math.Max(1, MaxCallsPerRun)</c> - so lifting the cap collapsed the budget
+    /// to a single answer and every call after the first was refused for exhausting a limit
+    /// nobody had set.
+    /// </summary>
+    [Fact]
+    public void Lifting_the_call_cap_lifts_the_character_budget_with_it()
+    {
+        IRetrievalPolicy policy = Policy(
+            options =>
+            {
+                options.Enabled = true;
+                options.Learn.Enabled = true;
+                options.AllowProactive = true;
+                options.MaxCallsPerRun = 0;
+                options.MaxCallsWithoutAppliedChange = 0;
+                options.MaxResultChars = 3000;
+            });
+
+        RetrievalRequest request = new(RetrievalServer.Learn, "learn_search", RetrievalReason.UnknownApi);
+
+        for (int call = 0; call < 6; call++)
+        {
+            policy.TryAdmit(request, out RetrievalDenial? denial)
+                .ShouldBeTrue($"call {call} was refused: {denial?.Message}");
+            policy.RecordCall(request, 3000);
+        }
+    }
+
+    /// <summary>
+    /// An admitted call that failed upstream has still been made. Charging it nothing is how an
+    /// expired token turns a three-call budget into one call on every step of the run.
+    /// </summary>
+    [Fact]
+    public void A_call_that_failed_upstream_still_consumes_the_budget()
+    {
+        IRetrievalPolicy policy = Policy(
+            options =>
+            {
+                options.Enabled = true;
+                options.GitHub.Enabled = true;
+                options.AllowProactive = true;
+                options.MaxCallsPerRun = 3;
+                options.MaxCallsWithoutAppliedChange = 0;
+            });
+
+        RetrievalRequest request = new(RetrievalServer.GitHub, "gh_symbol_exists", RetrievalReason.SymbolExists);
+        RetrievalDenial upstream = new(ToolErrorCodes.UpstreamUnavailable, "401 from the server.");
+
+        for (int call = 0; call < 3; call++)
+        {
+            policy.TryAdmit(request, out _).ShouldBeTrue();
+            policy.RecordFailedCall(request, upstream);
+        }
+
+        policy.TryAdmit(request, out RetrievalDenial? denial).ShouldBeFalse(
+            "three attempts have been made, whatever the server said");
+        denial!.Code.ShouldBe(ToolErrorCodes.RetrievalBudgetExhausted);
+
+        // And the failure is still reported as what it was, so the metrics can tell an unusable
+        // server apart from a run that talked too much.
+        policy.Stats.Blocked[ToolErrorCodes.UpstreamUnavailable].ShouldBe(3);
+    }
+
+    /// <summary>
+    /// Budgets belong to runs, not to whichever run asked last. The single-slot version zeroed
+    /// everything on every run switch, so an orchestrator fan-out of two sub-agents alternating
+    /// calls reset each other's counters and the cap never fired.
+    /// </summary>
+    [Fact]
+    public void Two_runs_in_flight_do_not_reset_each_other()
+    {
+        IRetrievalPolicy policy = Policy(
+            options =>
+            {
+                options.Enabled = true;
+                options.Learn.Enabled = true;
+                options.AllowProactive = true;
+                options.MaxCallsPerRun = 2;
+                options.MaxCallsWithoutAppliedChange = 0;
+            });
+
+        RetrievalRequest request = new(RetrievalServer.Learn, "learn_search", RetrievalReason.UnknownApi);
+
+        // Interleaved, the way a fan-out interleaves them.
+        for (int round = 0; round < 2; round++)
+        {
+            foreach (string runId in (string[])["run-a", "run-b"])
+            {
+                RunContext.Set(new RunContext(runId, "task-1"));
+                policy.TryAdmit(request, out _).ShouldBeTrue();
+                policy.RecordCall(request, 10);
+            }
+        }
+
+        foreach (string runId in (string[])["run-a", "run-b"])
+        {
+            RunContext.Set(new RunContext(runId, "task-1"));
+            policy.TryAdmit(request, out RetrievalDenial? denial).ShouldBeFalse(
+                $"{runId} has had its two calls");
+            denial!.Code.ShouldBe(ToolErrorCodes.RetrievalBudgetExhausted);
+        }
+    }
+
     private static IRetrievalPolicy Policy(
         Action<RetrievalOptions> configure, IRetrievalSignals? signals = null) =>
         PolicyWithLog(configure, signals).Policy;

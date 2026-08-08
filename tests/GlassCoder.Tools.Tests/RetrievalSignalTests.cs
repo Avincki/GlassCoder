@@ -1,3 +1,4 @@
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Retrieval;
 using GlassCoder.Tools.Verification;
 
@@ -34,8 +35,26 @@ public sealed class RetrievalSignalTests
         DiagnosticRetrievalSignals signals = new();
 
         signals.Observe(
-            [Error("CS0103", "The name 'MultiplyViewModel' does not exist in the current context")],
+            [Error("CS0246", "The type or namespace name 'MultiplyViewModel' could not be found")],
             declaredInWorkspace: name => name == "MultiplyViewModel");
+
+        signals.ExternalKnowledgeIndicated.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A mistyped local is not a question for the documentation, and the guard that was supposed
+    /// to establish that could not: <c>declaredInWorkspace</c> is answered from the outline,
+    /// which holds member declarations only - so every local, parameter and using-alias reads as
+    /// "not declared here". CS0103 is therefore not a signal at all.
+    /// </summary>
+    [Fact]
+    public void A_mistyped_local_does_not_indicate_retrieval()
+    {
+        DiagnosticRetrievalSignals signals = new();
+
+        signals.Observe(
+            [Error("CS0103", "The name 'result' does not exist in the current context")],
+            declaredInWorkspace: _ => false);
 
         signals.ExternalKnowledgeIndicated.ShouldBeFalse();
     }
@@ -78,15 +97,69 @@ public sealed class RetrievalSignalTests
 
     /// <summary>A run whose build is green has no unanswered external question.</summary>
     [Fact]
-    public void A_clean_verification_clears_the_signal()
+    public void A_clean_build_clears_the_signal()
     {
         DiagnosticRetrievalSignals signals = new();
 
         signals.Observe([Error("CS0246", "The type or namespace name 'Widget' could not be found")], _ => false);
         signals.ExternalKnowledgeIndicated.ShouldBeTrue();
 
-        signals.Observe([], _ => false);
+        signals.Observe([], _ => false, complete: true);
         signals.ExternalKnowledgeIndicated.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The defect that made the whole feature close to unreachable. Every batch used to clear the
+    /// signal, and the pre-write gate produces narrow ones constantly: build raises CS0246, the
+    /// next edit is refused for an unrelated CS1002, that two-diagnostic batch clears the
+    /// admission, and the retrieval call the CS0246 justified is refused as not indicated. With
+    /// AllowProactive false by default there was no other way in.
+    /// </summary>
+    [Fact]
+    public void An_unrelated_pre_write_refusal_does_not_clear_the_signal()
+    {
+        DiagnosticRetrievalSignals signals = new();
+
+        signals.Observe(
+            [Error("CS0246", "The type or namespace name 'ChannelReader' could not be found")],
+            _ => false,
+            complete: true);
+        signals.ExternalKnowledgeIndicated.ShouldBeTrue();
+
+        // What EditFileTool hands over when a write is refused: the errors that edit introduced,
+        // and nothing about the CS0246 still sitting in the project.
+        signals.Observe([Error("CS1002", "; expected")], _ => false);
+
+        signals.ExternalKnowledgeIndicated.ShouldBeTrue("the missing type is still missing");
+        signals.Indication.ShouldContain("ChannelReader");
+    }
+
+    /// <summary>
+    /// One signal per run. This is a singleton, and a single field let one sub-agent's diagnostic
+    /// admit retrieval for another whose build was green - the gate silently stops holding, and
+    /// the metrics record no refusal because none happened.
+    /// </summary>
+    [Fact]
+    public void One_run_cannot_admit_retrieval_for_another()
+    {
+        DiagnosticRetrievalSignals signals = new();
+
+        RunContext.Set(new RunContext("run-a", "task"));
+        signals.Observe([Error("CS0246", "The type or namespace name 'Widget' could not be found")], _ => false);
+        signals.ExternalKnowledgeIndicated.ShouldBeTrue();
+
+        try
+        {
+            RunContext.Set(new RunContext("run-b", "task"));
+            signals.ExternalKnowledgeIndicated.ShouldBeFalse("run-b's build said nothing");
+
+            RunContext.Set(new RunContext("run-a", "task"));
+            signals.ExternalKnowledgeIndicated.ShouldBeTrue("run-a's question is still open");
+        }
+        finally
+        {
+            RunContext.Clear();
+        }
     }
 
     /// <summary>

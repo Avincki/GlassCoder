@@ -91,9 +91,10 @@ public static class ToolsServiceCollectionExtensions
                 provider.GetRequiredService<IOptions<VerificationOptions>>(),
                 signals is null
                     ? null
-                    : diagnostics => signals.Observe(
+                    : (diagnostics, complete) => signals.Observe(
                         diagnostics,
-                        name => provider.GetRequiredService<FindSymbolTool>().Declares(name)));
+                        name => provider.GetRequiredService<FindSymbolTool>().Declares(name),
+                        complete));
         });
 
         // One tracker for create_file and edit_file together: run 5c071f37 alternated between

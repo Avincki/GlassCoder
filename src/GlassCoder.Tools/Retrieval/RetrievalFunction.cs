@@ -106,7 +106,11 @@ public sealed class RetrievalFunction : AIFunction
                     ? "Record the corpus before running this arm, or answer from the workspace."
                     : "Answer from the workspace and verify with build.");
 
-            _policy.RecordDenial(failure);
+            // The call was admitted and made; it is the answer that is missing. Recorded as a
+            // spent call rather than a plain denial so an upstream that can never answer - an
+            // expired token, a cold corpus - exhausts the budget instead of being retried on
+            // every step of the run.
+            _policy.RecordFailedCall(request, failure);
             return Refused(failure);
         }
 
