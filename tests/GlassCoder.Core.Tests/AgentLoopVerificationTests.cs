@@ -453,7 +453,12 @@ public sealed class AgentLoopVerificationTests
 
         result.StopReason.ShouldBe(AgentStopReason.Completed);
         result.FinalText.ShouldBe("done for real");
-        result.Error.ShouldBeNull("advisory mode invited finish-as-is, so finishing as-is is no caveat");
+
+        // Advisory mode still allows finishing as-is - but the record says the panel was never
+        // convinced. Run 216360bf finished as plain "Completed" while its review read REFUTED,
+        // and a record that disagrees with its own review is a green that defers the real fix.
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("second critique refutation");
 
         // Two panels, no more: the claim and the recovery each get judged; a third claim would
         // complete without another round of critics.
@@ -465,6 +470,7 @@ public sealed class AgentLoopVerificationTests
         advisory.ShouldContain("Advisory review");
         advisory.ShouldContain("finish as-is if you disagree");
         advisory.ShouldContain("not package references alone", customMessage: "run f4ed50e0's package theater is named in the recovery instruction");
+        advisory.ShouldContain("Run app confirms what shows", customMessage: "run 216360bf's XAML-parsing test spiral is steered away from");
         advisory.ShouldContain("[...]", customMessage: "two thousand characters of critic prose must not reach the worker");
 
         // The full verdict is in the transcript, on the step that was challenged.

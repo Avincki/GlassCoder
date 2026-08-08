@@ -161,10 +161,19 @@ public sealed class RunTestsTool : IToolSet
             (false, 0) =>
                 $"The test run failed before any test executed (exit code {result.ExitCode}). The output " +
                 $"ends:\n{Tail(result.CombinedOutput)}",
-            _ => $"{outcome.Failed} of {outcome.Total} tests failed.",
+
+            // Named, because runs ea9a1f66 and 216360bf each looped on "N of M tests failed"
+            // for five and four cycles - a count the model had to dig past to learn which test
+            // kept refusing its fixes. The first line is also what the sentry keys repeated
+            // failures on, and names make one recurring failure distinguishable from a new one.
+            _ => $"{outcome.Failed} of {outcome.Total} tests failed: " +
+                 string.Join(", ", outcome.FailedTests.Take(3)) +
+                 (outcome.FailedTests.Count > 3 ? $" (+{outcome.FailedTests.Count - 3} more)." : "."),
         };
 
-        return Observation.Ok(ToolName, payload, summary);
+        // A red suite is information to the model and a failure to the progress machinery,
+        // same contract as a refused dotnet command.
+        return Observation.Ok(ToolName, payload, summary, outcomeOk: payload.Ok);
     }
 
     /// <summary>

@@ -495,6 +495,65 @@ public sealed class RepeatedFailureTests
                 "read_file", "content", $"Read lines {startLine}-{startLine + 24} of 133 from {path}.");
     }
 
+    /// <summary>
+    /// Runs ea9a1f66 and 216360bf edited between every one of their identical "N of M tests
+    /// failed" results, and each edit honestly reset every other counter while fixing nothing.
+    /// The test-outcome streak survives applied changes on purpose: only a different outcome
+    /// for the same target - a green run, a different failure - ends it.
+    /// </summary>
+    [Fact]
+    public async Task The_same_failing_test_result_three_times_earns_a_nudge_despite_edits()
+    {
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(
+                FakeChatClient.ToolCall("run_tests"),
+                FakeChatClient.ToolCall("patch"),
+                FakeChatClient.ToolCall("run_tests"),
+                FakeChatClient.ToolCall("patch"),
+                FakeChatClient.ToolCall("run_tests"),
+                FakeChatClient.Text("done"))),
+            new ToolRegistry([new RedSuiteTools(changes)]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30 }),
+            changes: changes)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "make it green" });
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        transcript.Steps
+            .SelectMany(s => s.Prompt)
+            .ShouldContain(m => (m.Text ?? string.Empty).Contains("same failing result", StringComparison.Ordinal));
+    }
+
+    /// <summary>Shaped like a test payload, because the metrics collector reads run_tests
+    /// results by property name and a string payload throws it off.</summary>
+    public sealed record RedSuite(bool Ok, int Passed, int Failed, int Total);
+
+    private sealed class RedSuiteTools(IChangeLog changes) : IToolSet
+    {
+        [GlassCoderTool("run_tests")]
+        [System.ComponentModel.Description("Always reports the same red suite, for tests.")]
+        public GlassCoder.Tools.ToolObservation<RedSuite> RunTests(
+            [System.ComponentModel.Description("Target.")] string path = "tests") =>
+            GlassCoder.Tools.Observation.Ok(
+                "run_tests", new RedSuite(false, 6, 1, 7), "1 of 7 tests failed: Demo.Tests.Multiply_ShouldRound.",
+                outcomeOk: false);
+
+        [GlassCoderTool("patch")]
+        [System.ComponentModel.Description("Applies one distinct change, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Patch()
+        {
+            CodeChange change = changes.Propose(
+                "src/File.cs", "patch", "before", $"after-{changes.All().Count}");
+            changes.Update(change.Id, ChangeStatus.Applied);
+            return GlassCoder.Tools.Observation.Ok("patch", "ok");
+        }
+    }
+
     private static AgentLoop Loop(RecordingStepLogger transcript, int maxIdentical, int maxSteps = 30) => new(
         new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("boom"))),
         new ToolRegistry([new FlakyTools()]),

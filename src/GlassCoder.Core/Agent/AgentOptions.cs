@@ -77,5 +77,6 @@ public sealed class AgentOptions
         "Prefer grep and glob to locate code before reading whole files. " +
         "Update todos only at phase boundaries - plan once, then mark groups of work done together, " +
         "not after every file. " +
+        "Before declaring the goal met, run build and run_tests and cite their results in your summary. " +
         "When the goal is met, reply with a short plain-text summary and no tool call.";
 }

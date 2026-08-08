@@ -114,6 +114,26 @@ public sealed class ToolRegistryTests
     }
 
     /// <summary>
+    /// Shell-shaped names are the exception: run 008007e1 sent `run` meaning `rm -rf`, run
+    /// 216360bf sent it meaning `copy`, and "did you mean run_tests?" answers neither. What
+    /// the model wants is a shell, and the honest answer names the real paths instead.
+    /// </summary>
+    [Fact]
+    public async Task A_shell_shaped_name_gets_the_no_shell_answer()
+    {
+        ToolRegistry registry = new([new WellFormedTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent(
+            "c10", "run", new Dictionary<string, object?> { ["command"] = "copy a.xaml b.xaml" }));
+
+        invocation.Status.ShouldBe(ToolCallStatus.UnknownTool);
+        invocation.ErrorMessage.ShouldContain("There is no shell");
+        invocation.ErrorMessage.ShouldContain("create_file");
+        invocation.ErrorMessage.ShouldContain("Run app button");
+        invocation.ErrorMessage.ShouldNotContain("Did you mean");
+    }
+
+    /// <summary>
     /// Run f4ed50e0 called <c>todo_write</c> twice - with byte-identical <c>update_todos</c>
     /// arguments - and the "did you mean" hint converted the first miss but not the second. A
     /// suggestion the model ignores twice is not a mechanism: a name whose intent is

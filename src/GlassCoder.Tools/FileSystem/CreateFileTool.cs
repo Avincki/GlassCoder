@@ -202,7 +202,8 @@ public sealed class CreateFileTool : IToolSet
         return Observation.Ok(
             ToolName,
             result,
-            $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines).{OrphanNotice(verdict.FullPath)}");
+            $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines)." +
+            $"{OrphanNotice(verdict.FullPath)}{XamlNotices.Describe(verdict.FullPath!, content)}");
     }
 
     /// <summary>

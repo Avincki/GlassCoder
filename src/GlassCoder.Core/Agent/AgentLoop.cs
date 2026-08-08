@@ -251,16 +251,14 @@ public sealed class AgentLoop : IAgentLoop
                         }
 
                         // A second refutation ends the argument rather than extending it: the
-                        // run completes. When the critique gates, the record says the panel was
-                        // never convinced; advisory mode invited finish-as-is, so finishing
-                        // as-is earns no caveat there - the verdict still lands in the step
-                        // record either way.
-                        if (_verification.CritiqueGates)
-                        {
-                            critiqueCaveat = Cap(
-                                $"Completed despite a second critique refutation. {review}",
-                                MaxCritiqueFeedbackCharacters);
-                        }
+                        // run completes, and the record says the panel was never convinced -
+                        // in advisory mode too. Run 216360bf finished as "Completed" while the
+                        // review banner read REFUTED, and a record that disagrees with its own
+                        // review is the kind of green that defers the real fix. The caveat is
+                        // information, not a gate; finishing as-is stays allowed.
+                        critiqueCaveat = Cap(
+                            $"Completed despite a second critique refutation. {review}",
+                            MaxCritiqueFeedbackCharacters);
                     }
                 }
 
@@ -351,6 +349,11 @@ public sealed class AgentLoop : IAgentLoop
             if (sentry.PathReadNudge() is { } pathReadNudge)
             {
                 messages.Add(new ChatMessage(ChatRole.User, pathReadNudge));
+            }
+
+            if (sentry.TestFailureNudge() is { } testFailureNudge)
+            {
+                messages.Add(new ChatMessage(ChatRole.User, testFailureNudge));
             }
 
             // Told once, when it starts to matter. A run that spends its last steps re-checking
@@ -691,17 +694,23 @@ public sealed class AgentLoop : IAgentLoop
         {
             // The recovery instruction is concrete because run f4ed50e0's was not: told the
             // evidence was thin, it added UI-test packages, wrote no test that used them, and
-            // resubmitted - motion shaped like work.
+            // resubmitted - motion shaped like work. The screen sentence is run 216360bf's
+            // scar: refuted over UI visibility, it wrote XAML-parsing layout tests that can
+            // never pass in a plain test process, burned ~28 steps, and deleted them.
+            const string screen =
+                "If the refutation concerns what is visible on screen, fix the layout in the XAML " +
+                "(SizeToContent, Height, margins) - tests that parse XAML text prove nothing about " +
+                "rendering, and only the operator's Run app confirms what shows. ";
             string reasons = Cap(critique.Summary, MaxCritiqueFeedbackCharacters);
             message = _verification.CritiqueGates
                 ? $"A critique panel refuted the finished work: {reasons}\n" +
                   "Address the refutation with substantive work - new or changed code, and tests that " +
-                  "exercise it; adding packages without tests that use them addresses nothing. Then " +
-                  "reply with your final summary to finish."
+                  "exercise it; adding packages without tests that use them addresses nothing. " +
+                  screen + "Then reply with your final summary to finish."
                 : $"Advisory review of the finished work - the compiler and test results above remain " +
                   $"the authority, and you may finish as-is if you disagree: {reasons}\n" +
                   "Address only what you agree with - with code and tests, not package references " +
-                  "alone - then reply with your final summary to finish.";
+                  "alone. " + screen + "Then reply with your final summary to finish.";
         }
 
         return new StepVerification(

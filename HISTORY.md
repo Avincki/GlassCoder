@@ -9,6 +9,67 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (late) — The screen is the one oracle the harness does not have
+
+**Shipped.** From runs `ea9a1f66` and `216360bf` and the ui-layout external review, critically
+merged: a failing test that keeps failing across edits earns a nudge no applied change can
+reset, refutation messages steer UI recoveries away from XAML-parsing tests, run_tests names
+its failing tests, XAML writes warn about clip-risk windows and test-project markup,
+shell-shaped tool names get the no-shell answer, claims are told to carry build and test
+results, the second-refutation caveat lands in advisory mode too, and the limit banner turns
+light red. 683 tests green in Tools+Core (+8).
+
+**What the runs said.** `216360bf` was refuted over UI evidence and spent ~28 steps and one
+operator token-extension writing XAML-parsing layout tests that can never pass in a plain
+test process, copying the app's markup into the test project, then deleting the lot - while
+"N of M tests failed" never named which test kept refusing its fixes, and every honest edit
+between identical failures reset every counter the sentry had. `ea9a1f66`'s operator defect
+(result field clipped by a fixed Height=300 window) survived a green build, green tests and a
+MinWidth fix that answered the wrong diagnosis. Meanwhile `e212c61c` - the goal's first clean
+run - was accepted by the first panel for one visible reason: it ran build and run_tests
+before claiming.
+
+**Decided**
+
+- **The test-outcome streak survives applied changes, on purpose.** Every other counter
+  honestly resets when the workspace moves; these two runs edited between every identical
+  failure while fixing nothing. Only a different outcome for the same target - green, or a
+  different failure - ends the streak. Nudge at three, no stop: ea9a1f66 converged on cycle
+  five, and a stop would have stolen its finish.
+- **The external review's L1 gate was refused a third time, its own §3 the grounds:** critics
+  demand runtime proof "the worker cannot produce", so blocking completion on their approval
+  converts good deliverables into stopped runs. The fair half - the record disagreeing with
+  its own review - ships instead: the completed-despite-second-refutation caveat now lands
+  regardless of CritiqueGates.
+- **Rendering advice is notices, never refusals.** The clip-risk and test-project-markup
+  warnings ride write summaries; a harness too sure of a rendering judgement is how the gate
+  deadlocks of 5c071f37 and a408b61b began.
+- **Shell-shaped names get the truth.** `run` meant `rm -rf` in one run and `copy` in
+  another; "did you mean run_tests?" answered neither. The reply now names the real paths -
+  and that the application is launched by the operator, never the agent.
+
+**Validated** by run `17f5fa36` (same day, goal upgraded with "fully visible;
+Height=Auto/SizeToContent or ≥450"): 20 steps and 135k tokens - the cheapest run of the goal's
+nine - with build and run_tests called before the claim, a post-refutation recovery of three
+XAML-editing steps and zero proxy tests (the same refutation shape cost 216360bf twenty-eight),
+the advisory caveat in the run record, and the clip-risk notice correctly silent on compliant
+markup. The cost curve across the nine runs: 501k → 519k → 162k → 289k → 504k → 139k → 289k →
+641k → 135k.
+
+**Open**
+
+- **The critics misread a disjunctive goal.** The run's first version used SizeToContent
+  (compliant); the recovery switched to fixed Height=450 (also compliant, per the goal's own
+  "or ≥450"); both were refuted 3/3, the second refutation claiming fixed 450 "contradicts" a
+  goal that explicitly allows it - critic pressure moved the model from the better branch to
+  the worse-but-legal one. Once is an observation: if it recurs, one critic-prompt line - "a
+  goal offering alternatives is satisfied by any one of them" - is the candidate fix.
+- Whether "cite build and test results" converts first-panel acceptance stays unanswered:
+  this goal's own "fully visible" wording handed the critics a visibility requirement no
+  static evidence satisfies, so refutation was overdetermined.
+
+---
+
 ## 2026-08-08 (shell) — One more allotment, and a transcript that follows the run
 
 **Shipped.** Two operator conveniences: a tripped step or token ceiling can be extended by one

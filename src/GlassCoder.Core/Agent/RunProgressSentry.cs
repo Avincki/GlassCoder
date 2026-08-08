@@ -59,6 +59,13 @@ internal sealed class RunProgressSentry
     private readonly HashSet<string> _nudgedPathReads = new(StringComparer.OrdinalIgnoreCase);
     private string? _pathReadToNudge;
 
+    /// <summary>Identical failing test results before the model is told its edits are not landing.</summary>
+    private const int NudgeAfterRepeatedTestFailures = 3;
+
+    private readonly Dictionary<string, (string Line, int Count)> _testOutcomes = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _nudgedTestOutcomes = new(StringComparer.OrdinalIgnoreCase);
+    private string? _testFailureToNudge;
+
     private int _stalledSteps;
     private string? _lastRepeatedCall;
     private bool _nudgedAboutStall;
@@ -72,6 +79,14 @@ internal sealed class RunProgressSentry
     {
         _failureToNudge = null;
         _pathReadToNudge = null;
+        _testFailureToNudge = null;
+
+        // Tracked before the applied-change reset, and deliberately not reset by it: runs
+        // ea9a1f66 and 216360bf edited between every one of their identical "N of M tests
+        // failed" results, and each edit honestly reset every other counter while fixing
+        // nothing. A test outcome is only superseded by a different test outcome for the same
+        // target - a green run, or a different failure.
+        ObserveTestOutcomes(invocations);
 
         if (changesApplied)
         {
@@ -170,6 +185,54 @@ internal sealed class RunProgressSentry
               $"on either side of other work: {_failureToNudge}. Repeating it will not work. Change approach - " +
               "read the file again and quote from what it returns, use create_file with overwrite: true to " +
               "replace the whole file, or work on something else."
+            : null;
+
+    /// <summary>Feeds the test outcomes of one step into the repeated-failure tracker.</summary>
+    private void ObserveTestOutcomes(IReadOnlyList<ToolInvocation> invocations)
+    {
+        foreach (ToolInvocation invocation in invocations)
+        {
+            if (invocation.Status != ToolCallStatus.Succeeded ||
+                !string.Equals(invocation.ToolName, "run_tests", StringComparison.Ordinal) ||
+                invocation.Summary is not { } summary)
+            {
+                continue;
+            }
+
+            string key = PathOf(invocation) ?? "(default)";
+
+            // A green run ends the streak and re-arms the nudge for a later, different fight.
+            if (invocation.OutcomeOk)
+            {
+                _testOutcomes.Remove(key);
+                _nudgedTestOutcomes.Remove(key);
+                continue;
+            }
+
+            int end = summary.IndexOf('\n');
+            string line = (end < 0 ? summary : summary[..end]).TrimEnd('\r');
+
+            int count = _testOutcomes.TryGetValue(key, out (string Line, int Count) seen) &&
+                string.Equals(seen.Line, line, StringComparison.Ordinal)
+                ? seen.Count + 1
+                : 1;
+            _testOutcomes[key] = (line, count);
+
+            if (count == NudgeAfterRepeatedTestFailures && _nudgedTestOutcomes.Add(key))
+            {
+                _testFailureToNudge = line;
+            }
+        }
+    }
+
+    /// <summary>The repeated failing-test nudge, exactly once per streak.</summary>
+    public string? TestFailureNudge() =>
+        _testFailureToNudge is not null
+            ? $"run_tests has returned the same failing result {NudgeAfterRepeatedTestFailures} times in a " +
+              $"row despite your edits in between: {_testFailureToNudge} Your changes are not reaching the " +
+              "failure. Read the failing test and the code it exercises before editing again, rewrite the " +
+              "file whole with create_file overwrite: true, or delete the failing approach and solve it " +
+              "another way."
             : null;
 
     /// <summary>The same-path read nudge, exactly once per worn path.</summary>

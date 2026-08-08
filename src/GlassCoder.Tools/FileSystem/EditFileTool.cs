@@ -200,7 +200,40 @@ public sealed class EditFileTool : IToolSet
                 first.Hint);
         }
 
-        return Observation.Ok(ToolName, result, Summarise(result, outcomes));
+        return Observation.Ok(ToolName, result, Summarise(result, outcomes) + XamlNoticesFor(result));
+    }
+
+    /// <summary>
+    /// The XAML notices the applied edits earn, judged on the files as written - an edit is as
+    /// able as a create to fix a window at a height that clips (runs ea9a1f66, 216360bf).
+    /// </summary>
+    private string XamlNoticesFor(EditFileResult result)
+    {
+        string notices = string.Empty;
+        foreach (FileEditResult file in result.Files)
+        {
+            if (!file.Applied || !file.Path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            PathGuardResult verdict = _guard.Resolve(file.Path, PathAccess.Read);
+            if (!verdict.Allowed || verdict.FullPath is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                notices += XamlNotices.Describe(verdict.FullPath, File.ReadAllText(verdict.FullPath));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A file that cannot be re-read earns no notice; the edit itself already landed.
+            }
+        }
+
+        return notices;
     }
 
     /// <summary>Applies a list of replacements - the batch shape, without the flat parameters.</summary>

@@ -92,6 +92,23 @@ public sealed class BuildAndTestFeedbackTests : IDisposable
         observation.Summary.ShouldNotContain("passed.", customMessage: "reassurance is exactly what this message must not offer");
     }
 
+    [Fact]
+    public async Task A_failing_run_names_its_tests_and_reports_a_failed_outcome()
+    {
+        // Runs ea9a1f66 and 216360bf each looped for four and five cycles on "N of M tests
+        // failed" - a count the model had to dig past to learn which test kept refusing its
+        // fixes, and a success the progress machinery could not count as anything.
+        _executor.Enqueue(1,
+            "  Failed Demo.Tests.Multiply_ShouldRound [3 ms]\n" +
+            "Failed!  - Failed: 1, Passed: 6, Skipped: 0, Total: 7");
+
+        ToolObservation<TestRunResult> observation = await Tests().RunTestsAsync("src");
+
+        observation.Ok.ShouldBeTrue("a red suite is a handled outcome, not a tool fault");
+        observation.OutcomeOk.ShouldBeFalse("and a failure to the progress machinery");
+        observation.Summary.ShouldContain("1 of 7 tests failed: Demo.Tests.Multiply_ShouldRound");
+    }
+
     private BuildTool Build() => new(
         _executor,
         _workspace.Guard(),

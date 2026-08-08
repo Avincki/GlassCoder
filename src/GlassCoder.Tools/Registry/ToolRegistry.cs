@@ -43,6 +43,12 @@ public sealed class ToolRegistry : IToolRegistry
         [("read_file", "offset")] = "startLine",
     };
 
+    /// <summary>Names that mean "give me a shell" - which no alias can honour.</summary>
+    private static readonly HashSet<string> ShellNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "run", "bash", "shell", "sh", "cmd", "powershell", "exec", "terminal",
+    };
+
     private readonly Dictionary<string, AIFunction> _byName;
     private readonly ILogger<ToolRegistry> _logger;
 
@@ -101,12 +107,25 @@ public sealed class ToolRegistry : IToolRegistry
         {
             // A wrong tool name is nearly always a near-miss on a right one - `run` for
             // `run_tests` cost a step in run d18c0e57. Naming the likely intent in the message
-            // turns the retry into the call the model meant to make.
+            // turns the retry into the call the model meant to make. Shell-shaped names are
+            // the exception: run 008007e1 sent `run` meaning `rm -rf`, run 216360bf sent it
+            // meaning `copy`, and "did you mean run_tests?" answers neither - what the model
+            // wants there is a shell, and the honest answer is that there is none.
             string known = string.Join(", ", _byName.Keys);
-            string? nearest = Closest(call.Name);
-            string message = nearest is null
-                ? $"No tool named '{call.Name}'."
-                : $"No tool named '{call.Name}'. Did you mean '{nearest}'?";
+            string message;
+            if (ShellNames.Contains(call.Name))
+            {
+                message = $"There is no shell and no '{call.Name}' tool. Copy a file by reading it and " +
+                    "writing it with create_file; delete or move one with file_operation; run tests with " +
+                    "run_tests. The application is launched by the operator's Run app button, never by you.";
+            }
+            else
+            {
+                string? nearest = Closest(call.Name);
+                message = nearest is null
+                    ? $"No tool named '{call.Name}'."
+                    : $"No tool named '{call.Name}'. Did you mean '{nearest}'?";
+            }
 
             _logger.LogWarning("Model called unknown tool {ToolName}", call.Name);
             return new ToolInvocation
