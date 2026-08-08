@@ -140,6 +140,25 @@ public static class ToolErrorCodes
     /// <summary>A merge or rebase hit conflicts (used by <c>git_sync</c>).</summary>
     public const string MergeConflict = "merge_conflict";
 
+    /// <summary>Retrieval is switched off for this run, or for this server (workplan task 55).</summary>
+    public const string RetrievalDisabled = "retrieval_disabled";
+
+    /// <summary>
+    /// Nothing in the run indicates the answer is outside the workspace. The default refusal:
+    /// retrieval is admitted on evidence, not on the model deciding it is curious.
+    /// </summary>
+    public const string RetrievalNotIndicated = "retrieval_not_indicated";
+
+    /// <summary>The run's retrieval calls, result characters, or patience for calls that change
+    /// nothing, are spent.</summary>
+    public const string RetrievalBudgetExhausted = "retrieval_budget_exhausted";
+
+    /// <summary>Replay mode and the corpus has no answer for this call. Never a silent live call.</summary>
+    public const string RetrievalCacheMiss = "retrieval_cache_miss";
+
+    /// <summary>An MCP server timed out, refused, or could not be reached.</summary>
+    public const string UpstreamUnavailable = "upstream_unavailable";
+
     /// <summary>An unexpected failure. The loop turns escaped exceptions into this.</summary>
     public const string Unexpected = "unexpected";
 }

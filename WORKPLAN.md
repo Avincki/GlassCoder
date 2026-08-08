@@ -574,7 +574,7 @@ The spike lives outside the repository, in the session scratchpad; nothing from 
 
 ## 55. Retrieval options and the invocation policy, with no network at all
 
-- [ ] **Estimated time:** 1d
+- [x] **Estimated time:** 1d
 
 Two levels of switch, because they answer different questions. The master is a kill switch — off means the subsystem does not exist. The per-server flags are the levers an arm moves. `GitOptions` is the shape to copy: a record bound with `AddOptions<T>().Bind(...).ValidateOnStart()`, read at registration time.
 
@@ -593,14 +593,24 @@ Two levels of switch, because they answer different questions. The master is a k
 }
 ```
 
-- [ ] The per-server `Tools` allow-list is itself a lever. A server's advertised surface is designed for a general agent, not a C# repair loop, and there is no obligation to expose all of it — this makes the registered surface a configured, measurable quantity rather than whatever the server happens to offer.
-- [ ] `IRetrievalPolicy.TryAdmit(context, toolName, arguments, out denial)`, checked in order: server enabled, calls this run under `MaxCallsPerRun`, result budget remaining, a required signal present unless `AllowProactive`, and not more than `MaxCallsWithoutAppliedChange` retrievals since the last applied change. That last one is the anti-search-loop counter, and it exists because three transcripts show this model answering a refutation by calling optional tools rather than fixing anything — `f4ed50e0` added FlaUI and Moq without writing a test that used them.
-- [ ] New `ToolErrorCodes`: `retrieval_disabled`, `retrieval_not_indicated`, `retrieval_budget_exhausted`, `retrieval_cache_miss`, `upstream_unavailable`. Metrics group by these, so they are stable from the first commit.
+- [x] The per-server `Tools` allow-list is itself a lever. A server's advertised surface is designed for a general agent, not a C# repair loop, and there is no obligation to expose all of it — this makes the registered surface a configured, measurable quantity rather than whatever the server happens to offer.
+- [x] `IRetrievalPolicy.TryAdmit(context, toolName, arguments, out denial)`, checked in order: server enabled, calls this run under `MaxCallsPerRun`, result budget remaining, a required signal present unless `AllowProactive`, and not more than `MaxCallsWithoutAppliedChange` retrievals since the last applied change. That last one is the anti-search-loop counter, and it exists because three transcripts show this model answering a refutation by calling optional tools rather than fixing anything — `f4ed50e0` added FlaUI and Moq without writing a test that used them.
+- [x] New `ToolErrorCodes`: `retrieval_disabled`, `retrieval_not_indicated`, `retrieval_budget_exhausted`, `retrieval_cache_miss`, `upstream_unavailable`. Metrics group by these, so they are stable from the first commit.
 - [ ] **A denial is an observation with `OutcomeOk` false**, so `RunProgressSentry` counts it. The wire-shadow mechanism that carries that flag already exists; a refusal the progress machinery cannot see is how run `4b562c91` sent the same misshapen call five times.
-- [ ] Do not rely on the system prompt to hold this. "Only call when needed" is advice; `IRetrievalPolicy` is a mechanism, and the difference is the lesson of every alias and stall counter in this file.
-- [ ] Tests are a registration matrix: master off registers nothing whatever the per-server flags say; Learn on and GitHub off registers exactly the Learn names; both on registers both sets. Plus budget exhaustion, the not-indicated refusal, and the anti-loop counter resetting on an applied change.
+- [x] Do not rely on the system prompt to hold this. "Only call when needed" is advice; `IRetrievalPolicy` is a mechanism, and the difference is the lesson of every alias and stall counter in this file.
+- [x] Tests are a registration matrix: master off registers nothing whatever the per-server flags say; Learn on and GitHub off registers exactly the Learn names; both on registers both sets. Plus budget exhaustion, the not-indicated refusal, and the anti-loop counter resetting on an applied change.
 
 Acceptance: the options bind and validate, the policy refuses for each reason with its own code, and no line of this task opens a socket. Depends on tasks 7, 8.
+
+**Shipped under `src/GlassCoder.Tools/Retrieval/`**, 14 tests, no socket opened. `RetrievalOptions` binds and validates whether or not retrieval is on — a misspelled endpoint or a tool entry with no description fails at startup rather than on the first call of the first arm that switches it on — while `AddRetrieval` constructs the policy only when the master switch is true, so an off run holds nothing.
+
+**The tool allow-list carries three things per entry, not one:** `ServerTool` (what the server advertises), `Name` (what the model is shown), `Description` (what the model is told). Task 54 measured why the third is not optional — Learn's own descriptions are 2,675 characters against 900 of schema, three quarters of that server's cost being prose written to sell the tools to a general agent. It lives in configuration rather than code so wording is an ablation lever, which is what this application is for. `appsettings.json` ships two Learn entries and one GitHub entry, all switched off.
+
+**Per-run state hangs off the ambient `RunContext`, not a `BeginRun` the loop must call.** A reset nobody invokes is a budget that never resets, and that class of dormancy is exactly what this file keeps recording; keying on the run id the tools already see makes forgetting impossible. The anti-loop counter reads applied changes for the run off `IChangeLog` for the same reason — no new wiring, and no second source of truth about what landed.
+
+**One bullet is deferred to task 57, not done here.** *"A denial is an observation with `OutcomeOk` false"* needs a tool to return the observation, and there is no tool yet. `RetrievalDenial` is shaped to become one — code, message, hint, the three fields `Observation.Fail` takes — so task 57 converts rather than redesigns.
+
+Nothing is registered: `Enabling_retrieval_advertises_no_tool_yet` asserts the schema is unchanged, so the budget from task 58 is untouched until the client lands.
 
 ## 56. The cache: Live, Record, Replay — and Replay is what the Lab runs
 

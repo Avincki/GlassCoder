@@ -7,11 +7,13 @@ using GlassCoder.Tools.Git;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Retrieval;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.DependencyInjection;
 
@@ -49,6 +51,14 @@ public static class ToolsServiceCollectionExtensions
 
         services.AddOptions<GitOptions>()
             .Bind(configuration.GetSection(GitOptions.SectionName));
+
+        // Bound and validated whether or not retrieval is on: a misspelled endpoint or a tool
+        // entry with no description should fail at startup, not on the first call of the first
+        // arm that switches it on (workplan task 55).
+        services.AddOptions<RetrievalOptions>()
+            .Bind(configuration.GetSection(RetrievalOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddSingleton<IValidateOptions<RetrievalOptions>, RetrievalOptionsValidator>();
 
         services.TryAddSingleton<IPathGuard, PathGuard>();
         services.TryAddSingleton<IProcessRunner, ProcessRunner>();
@@ -98,6 +108,14 @@ public static class ToolsServiceCollectionExtensions
         if (configuration.GetValue($"{GitOptions.SectionName}:{nameof(GitOptions.Enabled)}", false))
         {
             AddGitTools(services);
+        }
+
+        // Retrieval, master switch first (workplan task 55). The per-server switches decide
+        // which tools are registered, in task 57; this decides whether the machinery exists at
+        // all, so an off run constructs no policy and holds no signals.
+        if (configuration.GetValue($"{RetrievalOptions.SectionName}:{nameof(RetrievalOptions.Enabled)}", false))
+        {
+            AddRetrieval(services);
         }
 
         services.TryAddSingleton<IToolRegistry>(provider => new ToolRegistry(
@@ -186,6 +204,25 @@ public static class ToolsServiceCollectionExtensions
 
         services.TryAddSingleton<GitTool>();
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<GitTool>());
+        return services;
+    }
+
+    /// <summary>
+    /// The retrieval gate (workplan task 55): the policy every MCP-facing call passes through,
+    /// and the signal seam that decides when one is indicated.
+    /// <para>
+    /// No tool and no client yet - those arrive in task 57 behind the per-server switches. This
+    /// is the admission machinery, and it deliberately opens no socket.
+    /// </para>
+    /// </summary>
+    public static IServiceCollection AddRetrieval(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        // Answered by nothing until task 59 reads the verification diagnostics. TryAdd, so that
+        // task replaces it by registering first rather than by editing this line.
+        services.TryAddSingleton<IRetrievalSignals, NoRetrievalSignals>();
+        services.TryAddSingleton<IRetrievalPolicy, RetrievalPolicy>();
         return services;
     }
 }
