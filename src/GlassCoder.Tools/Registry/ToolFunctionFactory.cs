@@ -108,14 +108,44 @@ public static class ToolFunctionFactory
 
     private static void ValidateSchema(Type type, MethodInfo method, GlassCoderToolAttribute attribute, AIFunction function)
     {
-        JsonElement schema = function.JsonSchema;
-        if (schema.ValueKind != JsonValueKind.Object ||
-            !schema.TryGetProperty("type", out JsonElement schemaType) ||
-            schemaType.ValueKind != JsonValueKind.String ||
-            !string.Equals(schemaType.GetString(), "object", StringComparison.Ordinal))
+        if (!IsObjectSchema(function.JsonSchema))
         {
             throw new ToolContractException(
-                $"{type.Name}.{method.Name} (tool '{attribute.Name}'): generated schema is not a JSON object schema: {schema}");
+                $"{type.Name}.{method.Name} (tool '{attribute.Name}'): generated schema is not a JSON object schema: {function.JsonSchema}");
         }
     }
+
+    /// <summary>
+    /// Checks a function the harness did not generate - an MCP server declared it, so the
+    /// schema arrives as a claim rather than as a consequence of a signature (workplan task 57).
+    /// <para>
+    /// Refused loudly at startup rather than on first use, mid-run. A server advertising an
+    /// unusable schema is a configuration problem, and a run that discovers it at step twelve
+    /// has already spent the budget that would have found it at step zero.
+    /// </para>
+    /// </summary>
+    /// <exception cref="ToolContractException">The schema is not a usable object schema.</exception>
+    public static void ValidateSchema(AIFunction function)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+
+        if (string.IsNullOrWhiteSpace(function.Description))
+        {
+            throw new ToolContractException(
+                $"Adapted tool '{function.Name}' carries no description - it would reach the model as a " +
+                "name with no guidance on when to call it.");
+        }
+
+        if (!IsObjectSchema(function.JsonSchema))
+        {
+            throw new ToolContractException(
+                $"Adapted tool '{function.Name}': the server's schema is not a JSON object schema: {function.JsonSchema}");
+        }
+    }
+
+    private static bool IsObjectSchema(JsonElement schema) =>
+        schema.ValueKind == JsonValueKind.Object &&
+        schema.TryGetProperty("type", out JsonElement schemaType) &&
+        schemaType.ValueKind == JsonValueKind.String &&
+        string.Equals(schemaType.GetString(), "object", StringComparison.Ordinal);
 }

@@ -9,6 +9,7 @@ using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Models.DependencyInjection;
 using GlassCoder.Tools.DependencyInjection;
+using GlassCoder.Tools.Retrieval;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -35,6 +36,16 @@ public static class GlassCoderServiceCollectionExtensions
 
         services.AddGlassCoderModels(configuration);
         services.AddGlassCoderTools(configuration);
+
+        // The retrieval corpus is harness-owned output, so it anchors where logs and metrics do
+        // rather than wherever the process was launched (workplan task 56). Resolved here
+        // because AppPaths lives in Core and Tools cannot see it - the dependency runs the other
+        // way. A Tools-only host degrades to a working-directory path rather than failing.
+        services.PostConfigure<RetrievalOptions>(options =>
+            options.CacheDirectory = AppPaths.ResolveDataDirectory(
+                string.IsNullOrWhiteSpace(options.CacheDirectory)
+                    ? RetrievalOptions.DefaultCacheDirectory
+                    : options.CacheDirectory));
 
         services.AddOptions<AgentOptions>()
             .Bind(configuration.GetSection(AgentOptions.SectionName))

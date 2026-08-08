@@ -69,6 +69,43 @@ public sealed class ToolRegistry : IToolRegistry
     {
     }
 
+    /// <summary>
+    /// Creates a registry over the reflected tool sets plus any adapted functions, which follow
+    /// the declared ones: order is part of the contract, and retrieval is never the tool a model
+    /// should reach for first.
+    /// </summary>
+    public ToolRegistry(
+        IEnumerable<IToolSet> toolSets,
+        IEnumerable<IToolFunctionSource> sources,
+        ILogger<ToolRegistry>? logger = null)
+        : this(Combine(toolSets, sources), logger)
+    {
+    }
+
+    private static IReadOnlyList<AIFunction> Combine(
+        IEnumerable<IToolSet> toolSets, IEnumerable<IToolFunctionSource> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+
+        List<AIFunction> functions = [.. ToolFunctionFactory.Create(toolSets)];
+        HashSet<string> names = new(functions.Select(f => f.Name), StringComparer.Ordinal);
+
+        foreach (AIFunction function in sources.SelectMany(source => source.Functions))
+        {
+            if (!names.Add(function.Name))
+            {
+                throw new ToolContractException(
+                    $"Adapted tool '{function.Name}' collides with a tool the harness already declares. " +
+                    "Rename it in Retrieval configuration - a duplicate name would shadow a real tool.");
+            }
+
+            ToolFunctionFactory.ValidateSchema(function);
+            functions.Add(function);
+        }
+
+        return functions;
+    }
+
     /// <inheritdoc />
     public IReadOnlyList<AIFunction> Functions { get; }
 

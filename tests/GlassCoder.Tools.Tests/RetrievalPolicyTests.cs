@@ -259,9 +259,17 @@ public sealed class RetrievalPolicyTests : IDisposable
         provider.GetRequiredService<IOptions<RetrievalOptions>>().Value.Enabled.ShouldBe(enabled);
     }
 
-    /// <summary>Nothing in this task may register a tool - the schema is unchanged until 57.</summary>
+    /// <summary>
+    /// Configuration alone does not put a tool in the schema: the corpus has to say the server
+    /// advertises it. In Replay with a cold corpus that is nothing at all, which is how the
+    /// hermetic mode avoids opening a socket at registration as well as during a call.
+    /// <para>
+    /// This assertion began life as "task 55 registers nothing yet" and outlived that truth
+    /// within a task. It says the durable thing now.
+    /// </para>
+    /// </summary>
     [Fact]
-    public void Enabling_retrieval_advertises_no_tool_yet()
+    public void Configuring_a_tool_does_not_advertise_it_without_a_corpus()
     {
         using TempWorkspace workspace = new();
         IConfiguration configuration = new ConfigurationBuilder()

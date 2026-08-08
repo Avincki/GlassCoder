@@ -19,6 +19,10 @@
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <!-- Retrieval over MCP (workplan tasks 54-63). Pinned since the beginning and referenced by
+         nothing until now; McpClientTool derives from AIFunction, which is what lets an adapted
+         tool reach the registry through the seam that already exists. -->
+    <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 
 </Project>

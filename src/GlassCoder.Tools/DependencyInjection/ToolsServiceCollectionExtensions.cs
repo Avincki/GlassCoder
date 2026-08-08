@@ -120,6 +120,7 @@ public static class ToolsServiceCollectionExtensions
 
         services.TryAddSingleton<IToolRegistry>(provider => new ToolRegistry(
             provider.GetRequiredService<IEnumerable<IToolSet>>(),
+            provider.GetRequiredService<IEnumerable<IToolFunctionSource>>(),
             provider.GetService<ILogger<ToolRegistry>>()));
 
         return services;
@@ -223,6 +224,73 @@ public static class ToolsServiceCollectionExtensions
         // task replaces it by registering first rather than by editing this line.
         services.TryAddSingleton<IRetrievalSignals, NoRetrievalSignals>();
         services.TryAddSingleton<IRetrievalPolicy, RetrievalPolicy>();
+
+        services.TryAddSingleton<McpRetrievalUpstream>();
+        services.TryAddSingleton<IRetrievalUpstream>(sp => sp.GetRequiredService<McpRetrievalUpstream>());
+
+        // Core resolves this against the app data root, where logs and metrics live. A Tools-only
+        // host has no such root, so it degrades to a working-directory path rather than throwing
+        // - which is what the comment on the Core side promises, and it was not true until this
+        // fallback existed.
+        services.TryAddSingleton<IRetrievalCache>(sp =>
+        {
+            string configured = sp.GetRequiredService<IOptions<RetrievalOptions>>().Value.CacheDirectory;
+            return new RetrievalCache(string.IsNullOrWhiteSpace(configured)
+                ? RetrievalOptions.DefaultCacheDirectory
+                : configured);
+        });
+
+        services.TryAddSingleton(sp => new CachingRetrievalUpstream(
+            sp.GetRequiredService<IRetrievalUpstream>(),
+            sp.GetRequiredService<IRetrievalCache>()));
+
+        services.TryAddSingleton(sp => new RetrievalCatalog(
+            sp.GetRequiredService<IRetrievalCache>(),
+            sp.GetRequiredService<McpRetrievalUpstream>(),
+            sp.GetService<ILogger<RetrievalCatalog>>()));
+
+        // The per-server switches, resolved into the tools this session advertises. A server
+        // whose switch is off contributes nothing here, which is what makes it absent from the
+        // schema rather than present and refusing - the difference between a lever an arm can
+        // move and a lever that measures nothing.
+        services.AddSingleton<IToolFunctionSource>(sp => BuildRetrievalTools(sp));
         return services;
+    }
+
+    private static RetrievalToolSource BuildRetrievalTools(IServiceProvider provider)
+    {
+        RetrievalOptions options = provider.GetRequiredService<IOptions<RetrievalOptions>>().Value;
+        RetrievalCatalog catalog = provider.GetRequiredService<RetrievalCatalog>();
+        IRetrievalPolicy policy = provider.GetRequiredService<IRetrievalPolicy>();
+        CachingRetrievalUpstream upstream = provider.GetRequiredService<CachingRetrievalUpstream>();
+        ILogger? logger = provider.GetService<ILogger<RetrievalToolSource>>();
+
+        List<Microsoft.Extensions.AI.AIFunction> functions = [];
+
+        foreach (RetrievalServer server in options.EnabledServers())
+        {
+            IReadOnlyList<RetrievalToolDescriptor> advertised = catalog.Describe(server, options.Mode);
+
+            foreach (RetrievalToolOptions configured in options.For(server).Tools)
+            {
+                RetrievalToolDescriptor? descriptor = advertised.FirstOrDefault(
+                    d => string.Equals(d.ServerTool, configured.ServerTool, StringComparison.Ordinal));
+
+                if (descriptor is null)
+                {
+                    // Configured for a tool the server does not offer. Not fatal - the rest of
+                    // the allow-list is still usable - but loud, because a silently missing tool
+                    // is an arm quietly measuring something other than what it says.
+                    logger?.LogWarning(
+                        "The {Server} MCP server does not advertise '{Tool}', so '{Name}' is not registered",
+                        server, configured.ServerTool, configured.Name);
+                    continue;
+                }
+
+                functions.Add(new RetrievalFunction(server, configured, descriptor, options, policy, upstream));
+            }
+        }
+
+        return new RetrievalToolSource(functions);
     }
 }

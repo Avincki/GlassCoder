@@ -46,6 +46,9 @@ public sealed class RetrievalOptions
     /// <summary>Configuration section these options bind from.</summary>
     public const string SectionName = "GlassCoder:Retrieval";
 
+    /// <summary>Where the corpus lands when configuration names no directory.</summary>
+    public const string DefaultCacheDirectory = "retrieval-cache";
+
     /// <summary>
     /// Whether any retrieval tool is registered at all. Off by default, like <c>bash</c> and the
     /// git tools — and off means <em>absent from the schema</em>, not present and refusing. A
