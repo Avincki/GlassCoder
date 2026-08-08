@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GlassCoder.Core.Context;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools;
@@ -256,6 +257,59 @@ public sealed class ContextAssemblyTests : IDisposable
         digest.ShouldContain("verification_failed: 'src/MainWindow.xaml.cs' was not written: it would not compile.");
         digest.ShouldNotContain("introduce 5");   // only the stable first line of a failure belongs here
         digest.ShouldContain("Calls marked ✗ changed nothing");
+    }
+
+    [Fact]
+    public void A_relayed_failure_behind_a_succeeded_call_is_marked_failed()
+    {
+        // dotnet_project relays a failed SDK command as ok:true; the digest must not file it
+        // under "do not repeat" as though it had worked (run 4b562c91).
+        DigestCompactor compactor = new(new HeuristicTokenEstimator(Options.Create(new ContextOptions())));
+        List<ChatMessage> history =
+        [
+            new(ChatRole.System, "system"),
+            new(ChatRole.User, "goal"),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "dotnet_project", new Dictionary<string, object?> { ["operation"] = "AddReference" })]),
+            new(ChatRole.Tool, [new FunctionResultContent("c1", Observation.Ok(
+                "dotnet_project", "exit 1", "dotnet add_reference failed with exit 1.", outcomeOk: false))]),
+            new(ChatRole.Assistant, new string('a', 4000)),
+            new(ChatRole.Assistant, "Recent thinking."),
+        ];
+
+        CompactionResult result = compactor.Compact(history, tokenBudget: 100, keepRecentTurns: 1);
+
+        string digest = result.Messages[2].Text!;
+        digest.ShouldContain("✗ dotnet_project(operation=AddReference)");
+        digest.ShouldContain("dotnet add_reference failed with exit 1.");
+        digest.ShouldContain("Calls marked ✗ changed nothing");
+    }
+
+    [Fact]
+    public void An_outcome_read_off_the_wire_shape_still_marks_the_row()
+    {
+        // Live results arrive as the JsonElement the AI function layer serialised, not as the
+        // observation object tests construct. Without reading that shape, live digests carry
+        // no outcomes at all - and the outcome flag, serialised only when false, must survive
+        // the round trip.
+        DigestCompactor compactor = new(new HeuristicTokenEstimator(Options.Create(new ContextOptions())));
+        JsonElement wire = JsonSerializer.SerializeToElement(
+            Observation.Ok("dotnet_project", "exit 1", "dotnet add_reference failed with exit 1.", outcomeOk: false),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        List<ChatMessage> history =
+        [
+            new(ChatRole.System, "system"),
+            new(ChatRole.User, "goal"),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "dotnet_project", new Dictionary<string, object?> { ["operation"] = "AddReference" })]),
+            new(ChatRole.Tool, [new FunctionResultContent("c1", wire)]),
+            new(ChatRole.Assistant, new string('a', 4000)),
+            new(ChatRole.Assistant, "Recent thinking."),
+        ];
+
+        CompactionResult result = compactor.Compact(history, tokenBudget: 100, keepRecentTurns: 1);
+
+        string digest = result.Messages[2].Text!;
+        digest.ShouldContain("✗ dotnet_project(operation=AddReference)");
+        digest.ShouldContain("dotnet add_reference failed with exit 1.");
     }
 
     [Fact]

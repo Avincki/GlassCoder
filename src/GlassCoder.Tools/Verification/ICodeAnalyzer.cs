@@ -30,4 +30,22 @@ public interface ICodeAnalyzer
 
     /// <summary>Rung 2: compile a directory of C# sources in memory as one project.</summary>
     Task<DiagnosticReport> CompileAsync(string projectDirectory, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Where the referenced assemblies of the project owning <paramref name="filePath"/> declare
+    /// public types with these simple names: the namespace and assembly, per name found.
+    /// <para>
+    /// The default finds nothing, because only an implementation that owns a reference set can
+    /// answer - and an empty answer merely costs a hint, never a verdict.
+    /// </para>
+    /// </summary>
+    IReadOnlyDictionary<string, ReferencedSymbol> LocateInReferences(
+        string filePath, IReadOnlyCollection<string> identifiers) =>
+        new Dictionary<string, ReferencedSymbol>();
 }
+
+/// <summary>
+/// A type found in a referenced assembly: the namespace that declares it and the assembly it
+/// came from.
+/// </summary>
+public readonly record struct ReferencedSymbol(string Namespace, string Assembly);

@@ -37,10 +37,21 @@ public static class SymbolHints
     /// <summary>
     /// Lines locating each missing symbol the diagnostics quote, prefixed with a newline so the
     /// caller can append the result verbatim. Empty when the diagnostics name no missing symbol,
-    /// when nothing in the workspace declares one, or when looking would cost more than it says -
-    /// a hint is a bonus, never a failure.
+    /// when nothing declares one, or when looking would cost more than it says - a hint is a
+    /// bonus, never a failure.
+    /// <para>
+    /// Workspace sources are searched first, because a project-local declaration gives the
+    /// richer answer - which project owns it, whether the reference exists. Names no source
+    /// declares go to <paramref name="referenceLookup"/>, which answers from the project's
+    /// referenced assemblies: run a408b61b's <c>FactAttribute</c> was in <c>xunit.core.dll</c>
+    /// the whole time, and a hint that only reads sources had nothing to say about it.
+    /// </para>
     /// </summary>
-    public static string Describe(IEnumerable<CodeDiagnostic> diagnostics, string editedFullPath, string repoRoot)
+    public static string Describe(
+        IEnumerable<CodeDiagnostic> diagnostics,
+        string editedFullPath,
+        string repoRoot,
+        Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, ReferencedSymbol>>? referenceLookup = null)
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
         ArgumentNullException.ThrowIfNull(editedFullPath);
@@ -61,15 +72,33 @@ public static class SymbolHints
             }
 
             List<string> sources = [.. SourceFiles(repoRoot)];
+            List<string> undeclared = [];
             StringBuilder hints = new();
             foreach (string identifier in identifiers)
             {
                 if (Locate(identifier, sources) is not { } declaration)
                 {
+                    undeclared.Add(identifier);
                     continue;
                 }
 
                 hints.Append('\n').Append(DescribeDeclaration(identifier, declaration, editedFullPath, repoRoot));
+            }
+
+            if (undeclared.Count > 0 && referenceLookup is not null)
+            {
+                IReadOnlyDictionary<string, ReferencedSymbol> referenced = referenceLookup(undeclared);
+                foreach (string identifier in undeclared)
+                {
+                    if (referenced.TryGetValue(identifier, out ReferencedSymbol symbol))
+                    {
+                        hints.Append('\n').Append(
+                            $"'{identifier}' is not declared in this workspace; it lives in namespace " +
+                            $"'{symbol.Namespace}' (assembly {symbol.Assembly}), which the project already " +
+                            $"references. Add 'using {symbol.Namespace};' to the file, or once for the " +
+                            $"whole project with <Using Include=\"{symbol.Namespace}\" /> in the .csproj.");
+                    }
+                }
             }
 
             return hints.ToString();

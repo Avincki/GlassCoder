@@ -71,7 +71,11 @@ internal sealed class RunProgressSentry
 
         foreach (ToolInvocation invocation in invocations)
         {
-            if (invocation.Status == ToolCallStatus.Succeeded || FailureKey(invocation) is not { } key)
+            // A Succeeded call whose outcome failed - a relayed dotnet command that exited
+            // non-zero - is a failure here, whatever the status says. Run 4b562c91 sent the
+            // same misshapen add_to_solution five times because every relay read as success.
+            if ((invocation.Status == ToolCallStatus.Succeeded && invocation.OutcomeOk) ||
+                FailureKey(invocation) is not { } key)
             {
                 continue;
             }
@@ -87,7 +91,7 @@ internal sealed class RunProgressSentry
         bool anyNovel = false;
         foreach (ToolInvocation invocation in invocations)
         {
-            if (invocation.Status != ToolCallStatus.Succeeded)
+            if (invocation.Status != ToolCallStatus.Succeeded || !invocation.OutcomeOk)
             {
                 continue;
             }
@@ -206,7 +210,11 @@ internal sealed class RunProgressSentry
     /// </summary>
     private static string? FailureKey(ToolInvocation invocation)
     {
-        if (invocation.ErrorMessage is not { } message)
+        // A soft failure has no ErrorMessage - the summary is its account of the refusal, and
+        // its first line ("dotnet add_reference failed with exit 1.") is stable the same way.
+        string? message = invocation.ErrorMessage
+            ?? (!invocation.OutcomeOk ? invocation.Summary : null);
+        if (message is null)
         {
             return null;
         }

@@ -128,9 +128,15 @@ public sealed class AgentLoop : IAgentLoop
         // budget it is warning about.
         bool warnedAboutSteps = false;
 
-        // The critique panel speaks once per run, at the moment the model first claims the goal
-        // is met, and the last ladder summary is the evidence it judges that claim against.
-        bool critiqueSpent = false;
+        // The critique panel speaks at most twice per run, at completion claims, judging them
+        // against the latest ladder summary. Once proved gameable: run f4ed50e0 answered a
+        // refutation by adding UI-test packages, wrote no test that used them, and completed on
+        // the spent critique - so the recovery now gets judged too. Twice is a hard ceiling on
+        // purpose: unbounded refutation once drove a worker into a revert loop (run 4b582162),
+        // so a second refutation completes with a recorded caveat instead of a third argument.
+        const int MaxCritiquePanels = 2;
+        int critiquePanels = 0;
+        string? critiqueCaveat = null;
         string? lastVerificationSummary = null;
 
         // Everything about not-making-progress - repeated failures, stalled read loops, and
@@ -204,33 +210,59 @@ public sealed class AgentLoop : IAgentLoop
                 // applied change against the whole run goal - a question no intermediate step
                 // can answer, so it refuted 14 of 14 changes in run 4b582162 and its prose
                 // drove the worker into a revert loop until the run was cancelled. "The goal
-                // is met" is the one claim the refutation prompt was built for, and it is
-                // judged exactly once.
+                // is met" is the one claim the refutation prompt was built for; it is judged
+                // at most twice, and the second verdict is final either way.
                 StepVerification? critique = null;
-                if (!critiqueSpent && _critics is not null)
+                if (critiquePanels < MaxCritiquePanels && _critics is not null)
                 {
-                    critiqueSpent = true;
+                    critiquePanels++;
                     critique = await CritiqueCompletionAsync(
                         request, response.Text, lastVerificationSummary, budget, cancellationToken)
                         .ConfigureAwait(false);
 
                     if (critique?.Message is { } review)
                     {
-                        budget.CountStep();
-                        messages.Add(new ChatMessage(ChatRole.User, review));
-                        LogStep(
-                            step with { Prompt = prompt },
-                            messages, response, [], modelLatency, "continued", null, critique.Record);
-                        continue;
+                        if (critiquePanels < MaxCritiquePanels)
+                        {
+                            budget.CountStep();
+                            messages.Add(new ChatMessage(ChatRole.User, review));
+                            LogStep(
+                                step with { Prompt = prompt },
+                                messages, response, [], modelLatency, "continued", null, critique.Record);
+                            continue;
+                        }
+
+                        // A second refutation ends the argument rather than extending it: the
+                        // run completes. When the critique gates, the record says the panel was
+                        // never convinced; advisory mode invited finish-as-is, so finishing
+                        // as-is earns no caveat there - the verdict still lands in the step
+                        // record either way.
+                        if (_verification.CritiqueGates)
+                        {
+                            critiqueCaveat = Cap(
+                                $"Completed despite a second critique refutation. {review}",
+                                MaxCritiqueFeedbackCharacters);
+                        }
                     }
                 }
 
                 stopReason = AgentStopReason.Completed;
                 finalText = response.Text;
+                List<string> caveats = [];
+                if (critiqueCaveat is not null)
+                {
+                    caveats.Add(critiqueCaveat);
+                }
+
                 if (sentry.CompletionCaveat() is { } caveat)
                 {
-                    error = caveat;
-                    _logger.LogWarning("Run {RunId}: {Caveat}", request.RunId, caveat);
+                    caveats.Add(caveat);
+                }
+
+                if (caveats.Count > 0)
+                {
+                    error = string.Join(" ", caveats);
+                    _logger.LogWarning("Run {RunId}: {Caveat}", request.RunId, error);
                 }
 
                 budget.CountStep();
@@ -501,7 +533,7 @@ public sealed class AgentLoop : IAgentLoop
 
         _logger.LogInformation(
             "Verification after step: {Outcome} at rung {Rung} in {Duration:F0} ms",
-            report.Passed ? "passed" : "FAILED",
+            report.Passed ? report.Unverified ? "passed (0 tests)" : "passed" : "FAILED",
             report.FailedRung ?? report.HighestRungReached,
             report.DurationMs);
 
@@ -603,13 +635,19 @@ public sealed class AgentLoop : IAgentLoop
         string? message = null;
         if (critique.Refuted)
         {
+            // The recovery instruction is concrete because run f4ed50e0's was not: told the
+            // evidence was thin, it added UI-test packages, wrote no test that used them, and
+            // resubmitted - motion shaped like work.
             string reasons = Cap(critique.Summary, MaxCritiqueFeedbackCharacters);
             message = _verification.CritiqueGates
                 ? $"A critique panel refuted the finished work: {reasons}\n" +
-                  "Address the refutation, then reply with your final summary to finish."
+                  "Address the refutation with substantive work - new or changed code, and tests that " +
+                  "exercise it; adding packages without tests that use them addresses nothing. Then " +
+                  "reply with your final summary to finish."
                 : $"Advisory review of the finished work - the compiler and test results above remain " +
                   $"the authority, and you may finish as-is if you disagree: {reasons}\n" +
-                  "Address only what you agree with, then reply with your final summary to finish.";
+                  "Address only what you agree with - with code and tests, not package references " +
+                  "alone - then reply with your final summary to finish.";
         }
 
         return new StepVerification(

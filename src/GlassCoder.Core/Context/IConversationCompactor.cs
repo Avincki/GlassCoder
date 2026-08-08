@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using GlassCoder.Tools;
 using Microsoft.Extensions.AI;
 
@@ -109,9 +110,12 @@ public sealed class DigestCompactor : IConversationCompactor
                     continue;
                 }
 
+                // Outcome-failed counts as failed: a relayed dotnet command that exited non-zero
+                // must not be filed under "do not repeat" as though it had worked.
                 IToolObservation? outcome = call.CallId is { } id ? outcomes.GetValueOrDefault(id) : null;
-                anyFailed |= outcome is { Ok: false };
-                anyOther |= outcome is not { Ok: false };
+                bool failed = outcome is { Ok: false } or { OutcomeOk: false };
+                anyFailed |= failed;
+                anyOther |= !failed;
 
                 string row = Row(call, outcome);
                 if (repeats.TryGetValue(row, out int seen))
@@ -173,7 +177,8 @@ public sealed class DigestCompactor : IConversationCompactor
         {
             foreach (AIContent content in message.Contents)
             {
-                if (content is FunctionResultContent { Result: IToolObservation observation } result)
+                if (content is FunctionResultContent { Result: { } raw } result &&
+                    Observed(raw) is { } observation)
                 {
                     outcomes[result.CallId] = observation;
                 }
@@ -182,6 +187,33 @@ public sealed class DigestCompactor : IConversationCompactor
 
         return outcomes;
     }
+
+    /// <summary>
+    /// The observation however it arrived: as the object a test constructed, or as the
+    /// JsonElement the AI function layer serialises every live result into. Without the second
+    /// reading, live runs carry no outcomes at all and every row goes unmarked.
+    /// </summary>
+    private static IToolObservation? Observed(object raw) => raw switch
+    {
+        IToolObservation observation => observation,
+        JsonElement { ValueKind: JsonValueKind.Object } element => new ElementObservation(
+            Ok: !element.TryGetProperty("ok", out JsonElement ok) || ok.ValueKind != JsonValueKind.False,
+            OutcomeOk: !element.TryGetProperty("outcomeOk", out JsonElement outcome) ||
+                outcome.ValueKind != JsonValueKind.False,
+            Tool: element.TryGetProperty("tool", out JsonElement tool) ? tool.GetString() ?? string.Empty : string.Empty,
+            Summary: element.TryGetProperty("summary", out JsonElement summary) ? summary.GetString() : null,
+            Error: element.TryGetProperty("error", out JsonElement error) &&
+                   error.ValueKind == JsonValueKind.Object
+                ? new ToolError(
+                    error.TryGetProperty("code", out JsonElement code) ? code.GetString() ?? "failed" : "failed",
+                    error.TryGetProperty("message", out JsonElement text) ? text.GetString() ?? string.Empty : string.Empty)
+                : null),
+        _ => null,
+    };
+
+    /// <summary>An observation read back off the wire shape.</summary>
+    private sealed record ElementObservation(
+        bool Ok, bool OutcomeOk, string Tool, string? Summary, ToolError? Error) : IToolObservation;
 
     /// <summary>
     /// One call as the digest states it: outcome mark, the call, and for a failure the stable
@@ -198,7 +230,7 @@ public sealed class DigestCompactor : IConversationCompactor
         return outcome switch
         {
             null => rendered,
-            { Ok: true } => $"✓ {rendered}",
+            { Ok: true, OutcomeOk: true } => $"✓ {rendered}",
             _ => $"✗ {rendered} — {outcome.Error?.Code ?? "failed"}: " +
                  Shorten(FirstLine(outcome.Error?.Message ?? outcome.Summary), 120),
         };

@@ -17,6 +17,16 @@ public interface IToolObservation
     /// <summary>Whether the tool did what was asked.</summary>
     bool Ok { get; }
 
+    /// <summary>
+    /// Whether the operation the tool carried out achieved its purpose. Distinct from
+    /// <see cref="Ok"/> for tools that relay a command's refusal as information: a failed
+    /// <c>dotnet</c> operation is <c>Ok</c> - the tool did its job of running and reporting it -
+    /// but the outcome is a failure, and the progress machinery must see it as one. Run
+    /// 4b562c91 sent the same misshapen <c>add_to_solution</c> five times because every relay
+    /// read as success to the loop-breakers.
+    /// </summary>
+    bool OutcomeOk => Ok;
+
     /// <summary>Name of the tool that produced this observation.</summary>
     string Tool { get; }
 
@@ -59,6 +69,24 @@ public sealed class ToolObservation<TData> : IToolObservation
     [JsonPropertyOrder(4)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ToolError? Error { get; init; }
+
+    /// <summary>
+    /// Whether the operation achieved its purpose - see <see cref="IToolObservation.OutcomeOk"/>.
+    /// </summary>
+    [JsonIgnore]
+    public bool OutcomeOk { get; init; } = true;
+
+    /// <summary>
+    /// The wire shadow of <see cref="OutcomeOk"/>, present only when false. The AI function
+    /// layer serialises every observation to JSON before the registry sees it again, so an
+    /// unserialised flag would exist only in unit tests - and a serialised-always flag would
+    /// tax every successful call for the rare failed one. Successful observations stay
+    /// byte-identical to what they were.
+    /// </summary>
+    [JsonPropertyName("outcomeOk")]
+    [JsonPropertyOrder(5)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? OutcomeOnWire => OutcomeOk ? null : false;
 }
 
 /// <summary>A machine-readable failure inside an observation.</summary>
@@ -119,9 +147,15 @@ public static class ToolErrorCodes
 /// <summary>Factory helpers so tool bodies stay one line at their exit points.</summary>
 public static class Observation
 {
-    /// <summary>A successful observation carrying <paramref name="data"/>.</summary>
-    public static ToolObservation<TData> Ok<TData>(string tool, TData data, string? summary = null) =>
-        new() { Ok = true, Tool = tool, Data = data, Summary = summary };
+    /// <summary>
+    /// A successful observation carrying <paramref name="data"/>. Pass
+    /// <paramref name="outcomeOk"/> false when the tool ran fine but the operation it relayed
+    /// refused - a failed dotnet command, say - so the progress machinery counts the failure
+    /// while the model still reads an ordinary observation.
+    /// </summary>
+    public static ToolObservation<TData> Ok<TData>(
+        string tool, TData data, string? summary = null, bool outcomeOk = true) =>
+        new() { Ok = true, Tool = tool, Data = data, Summary = summary, OutcomeOk = outcomeOk };
 
     /// <summary>A failed observation. Never throw instead of calling this.</summary>
     public static ToolObservation<TData> Fail<TData>(string tool, string code, string message, string? hint = null) =>

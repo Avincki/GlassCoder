@@ -111,6 +111,37 @@ public sealed class ToolRegistryTests
         invocation.ErrorMessage.ShouldContain("Did you mean 'echo'?");
     }
 
+    /// <summary>
+    /// Run f4ed50e0 called <c>todo_write</c> twice - with byte-identical <c>update_todos</c>
+    /// arguments - and the "did you mean" hint converted the first miss but not the second. A
+    /// suggestion the model ignores twice is not a mechanism: a name whose intent is
+    /// unambiguous is rewritten and invoked, not bounced.
+    /// </summary>
+    [Fact]
+    public async Task A_known_alias_is_rewritten_and_invoked()
+    {
+        ToolRegistry registry = new([new TodoTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(
+            new FunctionCallContent("c6", "todo_write", new Dictionary<string, object?> { ["items"] = "[]" }));
+
+        invocation.Status.ShouldBe(ToolCallStatus.Succeeded);
+        invocation.IsValid.ShouldBeTrue();
+        invocation.ToolName.ShouldBe("update_todos", "failure and repeat keys must align on the canonical name");
+    }
+
+    [Fact]
+    public async Task An_alias_whose_canonical_tool_is_absent_still_fails_as_unknown()
+    {
+        // WellFormedTools registers no update_todos, so the alias has nothing to point at and
+        // the ordinary unknown-tool answer stands.
+        ToolRegistry registry = new([new WellFormedTools()]);
+
+        ToolInvocation invocation = await registry.InvokeAsync(new FunctionCallContent("c7", "todo_write", null));
+
+        invocation.Status.ShouldBe(ToolCallStatus.UnknownTool);
+    }
+
     [Fact]
     public async Task A_tool_that_throws_is_contained_and_reported_as_faulted()
     {
@@ -143,6 +174,14 @@ public sealed class ToolRegistryTests
         [GlassCoderTool("throws", Order = 3)]
         [Description("Throws, which a real tool must never do.")]
         public ToolObservation<EchoData> Throws() => throw new InvalidOperationException("boom");
+    }
+
+    private sealed class TodoTools : IToolSet
+    {
+        [GlassCoderTool("update_todos")]
+        [Description("Replaces the plan, for tests.")]
+        public ToolObservation<EchoData> UpdateTodos([Description("The plan items.")] string items) =>
+            Observation.Ok("update_todos", new EchoData(items), "Plan updated.");
     }
 
     private sealed class UndescribedTool : IToolSet

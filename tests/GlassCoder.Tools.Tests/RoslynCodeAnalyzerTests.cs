@@ -195,6 +195,79 @@ public sealed class RoslynCodeAnalyzerTests : IDisposable
     }
 
     [Fact]
+    public async Task Rung_two_honours_project_declared_using_items()
+    {
+        // Run a408b61b: the xunit template declares <Using Include="Xunit" /> in its project
+        // file, so an idiomatic test file carries no 'using Xunit;' of its own - and the gate,
+        // reading the csproj for ImplicitUsings and UseWPF but not for Using items, manufactured
+        // fifteen CS0246s for a file the real build compiles. The run shipped an application
+        // with no tests. Same shape here, on a framework namespace so no package is needed.
+        _workspace.WriteFile(
+            "proj/Proj.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><Using Include=\"System.Text\" /></ItemGroup></Project>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public string Render() => new StringBuilder().ToString(); }");
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    [Fact]
+    public async Task Static_and_alias_using_items_are_honoured()
+    {
+        _workspace.WriteFile(
+            "proj/Proj.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup>" +
+            "<Using Include=\"System.Math\" Static=\"true\" />" +
+            "<Using Include=\"System.Text.StringBuilder\" Alias=\"Buffer\" />" +
+            "</ItemGroup></Project>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public double R => Sqrt(4.0); public string S => new Buffer().ToString(); }");
+
+        report.Ok.ShouldBeTrue(report.Diagnostics.Count > 0 ? report.Diagnostics[0].ToString() : null);
+    }
+
+    [Fact]
+    public async Task A_removed_implicit_using_is_not_synthesised()
+    {
+        // The other direction has to stay honest: a project that removes an SDK using really
+        // does not have it, and synthesising it anyway would hide a genuinely missing directive.
+        _workspace.WriteFile(
+            "proj/Proj.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>" +
+            "<ItemGroup><Using Remove=\"System.Linq\" /></ItemGroup></Project>");
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        DiagnosticReport report = await Analyzer().CheckEditAsync(
+            caller,
+            "namespace Demo; public sealed class Caller { public int N => Enumerable.Empty<int>().Count(); }");
+
+        report.Ok.ShouldBeFalse();
+        report.Diagnostics.ShouldContain(d => d.Id == "CS0103");
+    }
+
+    [Fact]
+    public void A_missing_name_is_located_in_the_referenced_assemblies()
+    {
+        // Run a408b61b: FactAttribute lived in xunit.core.dll, loaded into the very compilation
+        // that reported CS0246 - and the refusal had nothing to say about it. Framework
+        // stand-in: StringBuilder, resolved from the compilation's own reference set.
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+
+        IReadOnlyDictionary<string, ReferencedSymbol> found =
+            Analyzer().LocateInReferences(caller, ["StringBuilder"]);
+
+        found.ShouldContainKey("StringBuilder");
+        found["StringBuilder"].Namespace.ShouldBe("System.Text");
+    }
+
+    [Fact]
     public async Task A_malformed_project_file_does_not_fail_the_compile()
     {
         _workspace.WriteFile("proj/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>");

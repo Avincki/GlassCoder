@@ -11,10 +11,12 @@ namespace GlassCoder.Tools.Tests;
 /// <para>
 /// The WPF blind spot that cost that run is fixed where it lived, but the next blind spot will
 /// present identically: the gate refusing the same file with the same errors forever, each
-/// refusal costing a step and teaching nothing. So the gate now concedes a fixed argument -
-/// after <see cref="VerificationOptions.MaxIdenticalRefusals"/> identical refusals of one file,
-/// the write goes through with a warning and the build tool adjudicates. The cost of any future
-/// blind spot is thereby capped at the limit, instead of at the token budget.
+/// refusal costing a step and teaching nothing. So the gate concedes a fixed argument - the
+/// identical attempt numbered <see cref="VerificationOptions.MaxIdenticalRefusals"/> goes
+/// through with a warning and the build tool adjudicates. On the limit, not after it: run
+/// a408b61b was promised "after 3 the write will be allowed", reasonably never resubmitted a
+/// thrice-refused file, and shipped no tests. The cost of any future blind spot is thereby
+/// capped at the limit, instead of at the token budget.
 /// </para>
 /// </summary>
 public sealed class RefusalLoopBreakerTests : IDisposable
@@ -38,7 +40,7 @@ public sealed class RefusalLoopBreakerTests : IDisposable
     [Fact]
     public async Task The_same_refusal_over_and_over_eventually_stands_aside()
     {
-        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 2);
+        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 3);
 
         ToolObservation<CreateFileResult> first = await create.CreateFileAsync("src/Broken.cs", BrokenContent);
         ToolObservation<CreateFileResult> second = await create.CreateFileAsync("src/Broken.cs", BrokenContent);
@@ -60,7 +62,7 @@ public sealed class RefusalLoopBreakerTests : IDisposable
     {
         // The concession is for an argument the gate keeps losing the same way. Content that
         // fails differently is the model exploring, and the gate's answer is still information.
-        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 2);
+        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 3);
 
         await create.CreateFileAsync("src/Broken.cs", BrokenContent);
         await create.CreateFileAsync("src/Broken.cs", BrokenContent);
@@ -73,7 +75,7 @@ public sealed class RefusalLoopBreakerTests : IDisposable
     [Fact]
     public async Task A_write_that_lands_wipes_the_slate()
     {
-        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 2);
+        (CreateFileTool create, _) = Tools(maxIdenticalRefusals: 3);
 
         await create.CreateFileAsync("src/Broken.cs", BrokenContent);
         await create.CreateFileAsync("src/Broken.cs", "namespace Demo; public class B { }");
@@ -81,7 +83,8 @@ public sealed class RefusalLoopBreakerTests : IDisposable
         ToolObservation<CreateFileResult> fourth = await create.CreateFileAsync(
             "src/Broken.cs", BrokenContent, overwrite: true);
 
-        // Refusals 1, then (after the good write reset the count) 1 and 2 again: still refused.
+        // Refusals 1, then (after the good write reset the count) 1 and 2 again: still short
+        // of the third identical attempt, so still refused.
         fourth.Ok.ShouldBeFalse();
         fourth.Error!.Code.ShouldBe(ToolErrorCodes.VerificationFailed);
     }
@@ -116,7 +119,7 @@ public sealed class RefusalLoopBreakerTests : IDisposable
     [Fact]
     public async Task Edit_file_concedes_the_same_way()
     {
-        (_, EditFileTool edit) = Tools(maxIdenticalRefusals: 2);
+        (_, EditFileTool edit) = Tools(maxIdenticalRefusals: 3);
         _workspace.WriteFile("src/Target.cs", "namespace Demo; public class T { public int N => 1; }");
 
         for (int attempt = 0; attempt < 2; attempt++)
@@ -140,7 +143,7 @@ public sealed class RefusalLoopBreakerTests : IDisposable
     {
         // Run 5c071f37 alternated create_file and edit_file against the same code-behind; a
         // per-tool count would have let the pair refuse forever in turns.
-        (CreateFileTool create, EditFileTool edit) = Tools(maxIdenticalRefusals: 2);
+        (CreateFileTool create, EditFileTool edit) = Tools(maxIdenticalRefusals: 3);
         _workspace.WriteFile("src/Target.cs", "namespace Demo; public class T { }");
         const string broken = "namespace Demo; public class T { public void M() { NoSuchType x = null; } }";
 

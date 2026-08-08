@@ -356,6 +356,37 @@ public sealed class RepeatedFailureTests
         result.StopReason.ShouldBe(AgentStopReason.StepLimit);
     }
 
+    [Fact]
+    public async Task A_relayed_failure_behind_a_succeeded_call_still_counts()
+    {
+        // Run 4b562c91: dotnet_project relays a failed SDK command as ok:true - information,
+        // not a tool fault - and five identical failures were invisible to this limit. The
+        // outcome flag makes them count without changing what the model reads.
+        RecordingStepLogger transcript = new();
+
+        AgentRunResult result = await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("softboom"))),
+            new ToolRegistry([new SoftFailingTools()]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30, MaxIdenticalToolFailures = 3 }))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep wiring" });
+
+        result.StopReason.ShouldBe(AgentStopReason.RepeatedToolFailure);
+        result.Steps.ShouldBe(3);
+        result.ToolCallValidityRate.ShouldBe(1.0, "the calls were valid; the operations they relayed failed");
+    }
+
+    private sealed class SoftFailingTools : IToolSet
+    {
+        [GlassCoderTool("softboom")]
+        [System.ComponentModel.Description("Relays a failed command as information, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> SoftBoom() =>
+            GlassCoder.Tools.Observation.Ok(
+                "softboom", "exit 1", "dotnet add_reference failed with exit 1.", outcomeOk: false);
+    }
+
     private static AgentLoop Loop(RecordingStepLogger transcript, int maxIdentical, int maxSteps = 30) => new(
         new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("boom"))),
         new ToolRegistry([new FlakyTools()]),

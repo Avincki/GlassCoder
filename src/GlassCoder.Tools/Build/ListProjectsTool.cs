@@ -61,13 +61,34 @@ public sealed class ListProjectsTool : IToolSet
         string root = _guard.RepoRoot;
 
         List<string> solutions = [];
-        if (ProjectLocator.FindSolutionFile(root) is { } solution)
-        {
-            solutions.Add(_guard.ToRelativePath(solution));
-        }
-
         List<ProjectSummary> projects = [];
         List<string> warnings = [];
+
+        // All solutions, not just the root one - run ca727be3 left an empty solution.slnx in a
+        // subdirectory, and nothing ever mentioned it again: not at the root, so build-target
+        // resolution never saw it; empty, so builds never noticed; unreported, so it survived.
+        string rootDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        foreach (string solution in ProjectLocator.FindAllSolutions(root))
+        {
+            string relative = _guard.ToRelativePath(solution);
+            solutions.Add(relative);
+
+            if (ProjectLocator.CountSolutionProjects(solution) == 0)
+            {
+                warnings.Add(
+                    $"'{relative}' contains no projects. Add them with dotnet_project add_to_solution, "
+                    + "or delete the file - an empty solution builds nothing.");
+            }
+
+            if (!string.Equals(
+                    Path.GetDirectoryName(Path.GetFullPath(solution)), rootDirectory,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add(
+                    $"'{relative}' is not at the workspace root, where build-target resolution looks, "
+                    + "so it does not govern any build - projects build individually.");
+            }
+        }
 
         List<string> files = [.. ProjectLocator.FindAllProjects(root).OrderBy(p => p, StringComparer.OrdinalIgnoreCase)];
 

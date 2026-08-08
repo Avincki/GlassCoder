@@ -360,6 +360,71 @@ public static class ProjectLocator
         return references;
     }
 
+    /// <summary>Every solution file under <paramref name="root"/>, skipping build output.</summary>
+    /// <remarks>
+    /// <see cref="FindSolutionFile"/> answers "what governs the build" and looks only at the
+    /// root on purpose. This answers "what solutions exist at all" - run ca727be3 created
+    /// <c>src/MultiplyApp/solution.slnx</c>, added nothing to it, and no surface ever mentioned
+    /// the file again: not at the root, so invisible to build-target resolution; empty, so
+    /// harmless; and unreported, so it survived to confuse the next reader.
+    /// </remarks>
+    public static IEnumerable<string> FindAllSolutions(string root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        if (!Directory.Exists(root))
+        {
+            yield break;
+        }
+
+        foreach (string pattern in SolutionPatterns)
+        {
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(root, pattern, SearchOption.AllDirectories);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (string file in files)
+            {
+                if (!IsBuildOutput(file))
+                {
+                    yield return file;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// How many projects a solution file lists, in either format, or null when the file cannot
+    /// be read - unknown must never be reported as empty.
+    /// </summary>
+    public static int? CountSolutionProjects(string solutionFile)
+    {
+        ArgumentNullException.ThrowIfNull(solutionFile);
+
+        try
+        {
+            if (Path.GetExtension(solutionFile).Equals(".slnx", StringComparison.OrdinalIgnoreCase))
+            {
+                return XDocument.Load(solutionFile)
+                    .Descendants()
+                    .Count(e => e.Name.LocalName.Equals("Project", StringComparison.OrdinalIgnoreCase));
+            }
+
+            return File.ReadLines(solutionFile)
+                .Count(line => line.TrimStart().StartsWith("Project(", StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>What a project targets, as written in its project file, or null when it does not say.</summary>
     public static string? ReadTargetFrameworks(string projectFile)
     {

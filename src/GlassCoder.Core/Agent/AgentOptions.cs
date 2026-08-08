@@ -75,5 +75,7 @@ public sealed class AgentOptions
         "Work in small steps: call exactly one tool, read the observation, then decide the next step. " +
         "Every tool result is an observation object with an 'ok' flag - when ok is false, read the error and adapt. " +
         "Prefer grep and glob to locate code before reading whole files. " +
+        "Update todos only at phase boundaries - plan once, then mark groups of work done together, " +
+        "not after every file. " +
         "When the goal is met, reply with a short plain-text summary and no tool call.";
 }

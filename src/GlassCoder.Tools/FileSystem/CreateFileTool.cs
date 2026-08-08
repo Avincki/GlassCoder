@@ -294,8 +294,10 @@ public sealed class CreateFileTool : IToolSet
             $"This file would introduce {introduced.Count} new compile error(s).");
 
         // The refusal carries the diagnosis, not just the error: where a missing type actually
-        // lives, and the reference or using that reaches it (run 05e1bedb).
-        string hints = SymbolHints.Describe(introduced, fullPath, _guard.RepoRoot);
+        // lives, and the reference or using that reaches it (runs 05e1bedb, a408b61b).
+        string hints = SymbolHints.Describe(
+            introduced, fullPath, _guard.RepoRoot,
+            identifiers => _analyzer.LocateInReferences(fullPath, identifiers));
 
         if (!_options.RejectEditsThatBreakTheBuild)
         {
@@ -304,23 +306,26 @@ public sealed class CreateFileTool : IToolSet
 
         // The loop-breaker (run 5c071f37): an in-memory check that keeps refusing the same file
         // with the same errors may be blind to something - generated code, most likely - and it
-        // has no way to learn. Only this rung stands aside; a syntax error above is in the file
+        // has no way to learn. Conceding one attempt past the limit proved one too many: run
+        // a408b61b was promised "after 3 the write will be allowed", reasonably never resubmitted
+        // a thrice-refused file, and shipped no tests - so the limit itself is now the attempt
+        // that goes through. Only this rung stands aside; a syntax error above is in the file
         // itself and never a blind spot.
         int strikes = _refusals.RecordRefusal(fullPath, VerificationRefusalTracker.FingerprintOf(introduced));
-        if (_options.MaxIdenticalRefusals > 0 && strikes > _options.MaxIdenticalRefusals)
+        if (_options.MaxIdenticalRefusals > 0 && strikes >= _options.MaxIdenticalRefusals)
         {
             _refusals.Forget(fullPath);
             return (false,
-                $"Written despite {_options.MaxIdenticalRefusals} identical refusals: the in-memory check " +
-                "keeps reporting the same errors, which can mean it is blind to generated code rather than " +
-                "that the content is wrong. The build tool is the authoritative gate - run it next.\n" +
+                $"Written on identical attempt {strikes}: the in-memory check keeps reporting the same " +
+                "errors, which can mean it is blind to generated code rather than that the content is " +
+                "wrong. The build tool is the authoritative gate - run it next.\n" +
                 introducedSummary.Text + hints,
                 true);
         }
 
         string strikeNote = _options.MaxIdenticalRefusals > 0 && strikes > 1
-            ? $"\nThis exact refusal has now happened {strikes} times. After {_options.MaxIdenticalRefusals} " +
-              "the write will be allowed and the build tool will judge it."
+            ? $"\nThis exact refusal has now happened {strikes} times. Identical attempt " +
+              $"{_options.MaxIdenticalRefusals} will be written as-is and judged by the build tool."
             : string.Empty;
 
         return (true, introducedSummary.Text + hints + strikeNote, true);

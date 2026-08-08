@@ -90,6 +90,32 @@ public sealed class CriticPanelTests
     }
 
     [Fact]
+    public async Task The_critics_are_told_what_evidence_the_worker_can_produce()
+    {
+        // Run 008007e1 was refuted 3/3 partly for lacking a runtime UI demonstration and
+        // spiralled into re-scaffolding until the token limit; run ca727be3 drew the same
+        // demand. No tool can answer it - live UI proof is the operator's Run-app button - so
+        // the prompt bounds refutation to evidence a worker can actually produce.
+        List<string> prompts = [];
+        CriticPanel panel = Panel(system =>
+        {
+            prompts.Add(system);
+            return Verdict(refuted: false, "fine");
+        });
+
+        await panel.CritiqueAsync("goal", "change", "evidence");
+
+        prompts.Count.ShouldBe(3);
+        prompts.ShouldAllBe(p => p.Contains("cannot launch the application", StringComparison.Ordinal));
+        prompts.ShouldAllBe(p => p.Contains("never, by itself, grounds to refute", StringComparison.Ordinal));
+
+        // Word-choice literalism refuted runs 008007e1 and f4ed50e0 over "dialog" versus
+        // "window" while the built behaviour covered the ask - two-for-two across critiqued
+        // runs of that goal.
+        prompts.ShouldAllBe(p => p.Contains("not its word choice", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_critic_that_answers_with_nothing_has_not_judged()
     {
         // An empty completion is a failure to judge, not an acceptance.

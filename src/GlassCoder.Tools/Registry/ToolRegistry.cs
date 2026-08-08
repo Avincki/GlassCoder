@@ -18,6 +18,18 @@ namespace GlassCoder.Tools.Registry;
 /// </summary>
 public sealed class ToolRegistry : IToolRegistry
 {
+    /// <summary>
+    /// Wrong names whose intent is unambiguous, rewritten to the tool the model meant. Only
+    /// names proven in run logs belong here - an alias is a bet that the model's habit is
+    /// stable, and each one is a name the "did you mean" hint failed to convert.
+    /// </summary>
+    private static readonly Dictionary<string, string> Aliases = new(StringComparer.Ordinal)
+    {
+        ["todo_write"] = "update_todos",
+        ["write_todos"] = "update_todos",
+        ["todos"] = "update_todos",
+    };
+
     private readonly Dictionary<string, AIFunction> _byName;
     private readonly ILogger<ToolRegistry> _logger;
 
@@ -57,6 +69,20 @@ public sealed class ToolRegistry : IToolRegistry
         // answer what the model actually asked for (CLAUDE.md §9). Two diagnoses of a failing run
         // had to infer an argument from artefacts on disk because of it.
         IReadOnlyDictionary<string, object?>? arguments = Describe(call.Arguments);
+
+        // Known aliases are rewritten and invoked, not hinted at. Run f4ed50e0 called
+        // todo_write twice - with byte-identical update_todos arguments - and the "did you
+        // mean" hint converted the first miss but not the second: a suggestion the model
+        // ignores twice is not a mechanism. The rewrite is only for names whose intent is
+        // unambiguous; everything else still earns the hint below.
+        if (!_byName.ContainsKey(call.Name) &&
+            Aliases.TryGetValue(call.Name, out string? canonical) &&
+            _byName.ContainsKey(canonical))
+        {
+            _logger.LogInformation(
+                "Model called {Alias}; rewritten to {Canonical} and invoked", call.Name, canonical);
+            call = new FunctionCallContent(call.CallId, canonical, call.Arguments);
+        }
 
         if (!_byName.TryGetValue(call.Name, out AIFunction? function))
         {
@@ -109,6 +135,17 @@ public sealed class ToolRegistry : IToolRegistry
                 // without reaching into the observation's payload type.
                 ErrorMessage = ReportsSuccess(result) ? null : DescribeFailure(result),
                 Summary = SummaryOf(result),
+
+                // The AI function layer hands results back as JsonElement, so the flag is read
+                // off the wire shape - where it appears only when false.
+                OutcomeOk = result switch
+                {
+                    IToolObservation observation => observation.OutcomeOk,
+                    JsonElement { ValueKind: JsonValueKind.Object } element =>
+                        !element.TryGetProperty("outcomeOk", out JsonElement flag) ||
+                        flag.ValueKind != JsonValueKind.False,
+                    _ => true,
+                },
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

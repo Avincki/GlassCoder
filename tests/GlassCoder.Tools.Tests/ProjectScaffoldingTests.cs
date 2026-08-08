@@ -3,6 +3,7 @@ using GlassCoder.Tools;
 using GlassCoder.Tools.Build;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
+using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Options;
@@ -240,6 +241,24 @@ public sealed class ProjectScaffoldingTests
     }
 
     [Fact]
+    public async Task Stray_whitespace_on_arguments_is_forgiven_before_the_sdk_sees_it()
+    {
+        // Run f4ed50e0 sent add_package ' FlaUI.UIA3' - one leading space - and the SDK refused
+        // it twice before the model noticed. Whitespace is never intent.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.AddPackage, " src/App/App.csproj ", " xunit ");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        IReadOnlyList<string> arguments = executor.Commands.Single().Arguments;
+        arguments[3].ShouldBe("xunit");
+        arguments[1].ShouldEndWith("App.csproj");
+    }
+
+    [Fact]
     public async Task Adding_a_package_passes_the_version_only_when_one_was_asked_for()
     {
         using TempWorkspace workspace = new();
@@ -378,10 +397,14 @@ public sealed class ProjectScaffoldingTests
         observation.Summary.ShouldContain("Class1.cs was removed");
         File.Exists(stub).ShouldBeFalse();
 
-        // Through the change log, so a file that existed for one tool call is still accounted for.
-        CodeChange recorded = changes.All().ShouldHaveSingleItem();
-        recorded.Status.ShouldBe(ChangeStatus.Applied);
-        recorded.AfterText.ShouldBeEmpty();
+        // Through the change log, so a file that existed for one tool call is still accounted
+        // for - as the scaffold's creation and then its removal, so a revert means "gone"
+        // rather than "back to the stub".
+        changes.All().Count.ShouldBe(2);
+        changes.All()[0].BeforeText.ShouldBeEmpty();
+        CodeChange removal = changes.All()[1];
+        removal.Status.ShouldBe(ChangeStatus.Applied);
+        removal.AfterText.ShouldBeEmpty();
     }
 
     /// <summary>
@@ -407,9 +430,12 @@ public sealed class ProjectScaffoldingTests
         observation.Summary.ShouldContain("UnitTest1.cs was removed");
         File.Exists(stub).ShouldBeFalse();
 
-        CodeChange recorded = changes.All().ShouldHaveSingleItem();
-        recorded.Status.ShouldBe(ChangeStatus.Applied);
-        recorded.AfterText.ShouldBeEmpty();
+        // Creation then removal, same as the classlib stub.
+        changes.All().Count.ShouldBe(2);
+        changes.All()[0].BeforeText.ShouldBeEmpty();
+        CodeChange removal = changes.All()[1];
+        removal.Status.ShouldBe(ChangeStatus.Applied);
+        removal.AfterText.ShouldBeEmpty();
     }
 
     [Fact]
@@ -502,6 +528,10 @@ public sealed class ProjectScaffoldingTests
         observation.Ok.ShouldBeTrue("a refused operation is information the agent acts on");
         observation.Data!.Succeeded.ShouldBeFalse();
         observation.Data.Output.ShouldContain("NU1101");
+
+        // Information to the model, failure to the machinery: run 4b562c91 sent the same
+        // misshapen call five times because every relay read as success to the loop-breakers.
+        observation.OutcomeOk.ShouldBeFalse();
     }
 
     /// <summary>
@@ -610,6 +640,366 @@ public sealed class ProjectScaffoldingTests
         // No guess: the call reaches the SDK exactly as sent, and the CLI's own answer stands.
         executor.Commands[0].Arguments[1].ShouldEndWith("App");
         executor.Commands[0].Arguments[3].ShouldEndWith("sln.slnx");
+    }
+
+    // ── The framework seam between the tool's own templates (runs a408b61b, ca727be3) ──
+
+    /// <summary>
+    /// The wpf template scaffolds net10.0-windows; the xunit template scaffolds net10.0 - so
+    /// wiring the pair, the very sequence the templates exist for, failed. The CLI's error
+    /// lists the referencing project's framework as the constraint, which reads as "change the
+    /// app": run a408b61b obeyed, downgrading the WPF app before eventually widening the test
+    /// project - seven steps and three hand-edited csproj files. The narrow shape is
+    /// deterministic, so the tool now widens the referencing project and retries.
+    /// </summary>
+    [Fact]
+    public async Task A_framework_mismatch_on_add_reference_is_repaired_and_retried()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "tests/App.Tests/App.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>");
+        workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0-windows</TargetFramework>\n    <UseWPF>true</UseWPF>\n  </PropertyGroup>\n</Project>");
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1,
+            "Project `App.csproj` cannot be added due to incompatible targeted frameworks between the two "
+            + "projects. Review the project you are trying to add and verify that is compatible with the "
+            + "following targets:\n- net10.0");
+        executor.Enqueue(0, "Reference added to the project.");
+        ChangeLog changes = new();
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src", "tests"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.AddReference, "tests/App.Tests/App.Tests.csproj", "src/App/App.csproj");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Data!.Succeeded.ShouldBeTrue();
+        observation.OutcomeOk.ShouldBeTrue();
+        observation.Summary.ShouldContain("widened from net10.0 to net10.0-windows");
+        File.ReadAllText(Path.Combine(workspace.Root, "tests", "App.Tests", "App.Tests.csproj"))
+            .ShouldContain("<TargetFramework>net10.0-windows</TargetFramework>");
+        executor.Commands.Count.ShouldBe(2, "the add is retried once after the widening");
+        changes.All().ShouldContain(c =>
+            c.Path == "tests/App.Tests/App.Tests.csproj" && c.AfterText.Contains("net10.0-windows"));
+    }
+
+    [Fact]
+    public async Task An_unrepairable_framework_mismatch_carries_the_diagnosis()
+    {
+        // Any shape outside the single-TFM base-plus-suffix case is not auto-edited - but the
+        // CLI's misleading message must never reach the model raw. Both frameworks and the side
+        // to change go in the summary.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(
+            "tests/App.Tests/App.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n  </PropertyGroup>\n</Project>");
+        workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0-windows</TargetFramework>\n  </PropertyGroup>\n</Project>");
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "cannot be added due to incompatible targeted frameworks between the two projects.");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src", "tests"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.AddReference, "tests/App.Tests/App.Tests.csproj", "src/App/App.csproj");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Data!.Succeeded.ShouldBeFalse();
+        observation.OutcomeOk.ShouldBeFalse();
+        observation.Summary.ShouldContain("net8.0");
+        observation.Summary.ShouldContain("net10.0-windows");
+        observation.Summary.ShouldContain("REFERENCING");
+        executor.Commands.Count.ShouldBe(1, "an ambiguous shape is never auto-edited or retried");
+        File.ReadAllText(Path.Combine(workspace.Root, "tests", "App.Tests", "App.Tests.csproj"))
+            .ShouldContain("<TargetFramework>net8.0</TargetFramework>");
+    }
+
+    [Fact]
+    public async Task A_scaffold_summary_names_the_framework()
+    {
+        // The framework is the one fact the next call trips over, and both a408b61b and
+        // ca727be3 discovered the wpf/xunit mismatch only from add_reference's exit 1.
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        string csproj = Path.Combine(workspace.Root, "src", "App", "App.csproj");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new RewritingExecutor(
+                csproj,
+                "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF></PropertyGroup></Project>"),
+            workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("targeting net10.0-windows");
+    }
+
+    // ── Solutions that govern nothing (run ca727be3) ──
+
+    /// <summary>
+    /// Run ca727be3 created <c>src/MultiplyApp/solution.slnx</c>, added nothing to it, and no
+    /// surface mentioned the file again: off the root, so build-target resolution never saw
+    /// it; empty, so builds never noticed. Said at creation, because afterwards nobody says it.
+    /// </summary>
+    [Fact]
+    public async Task A_solution_created_off_root_says_it_will_not_govern_builds()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src");
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldContain("not at the workspace root");
+    }
+
+    [Fact]
+    public async Task A_solution_created_at_the_root_gets_no_such_note()
+    {
+        using TempWorkspace workspace = new();
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "Every.slnx"), "<Solution />");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            executor, workspace.Guard("."), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "Every.sln");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        observation.Summary.ShouldNotContain("not at the workspace root");
+    }
+
+    [Fact]
+    public async Task An_empty_off_root_solution_is_warned_about_by_list_projects()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/sln.slnx", "<Solution />");
+
+        ToolObservation<ListProjectsResult> observation =
+            await new ListProjectsTool(workspace.Guard()).ListAsync();
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Solutions.ShouldContain("src/sln.slnx");
+        observation.Data.Warnings.ShouldContain(w => w.Contains("contains no projects", StringComparison.Ordinal));
+        observation.Data.Warnings.ShouldContain(w => w.Contains("not at the workspace root", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_populated_root_solution_draws_no_solution_warnings()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("Everything.slnx", "<Solution><Project Path=\"src/App/App.csproj\" /></Solution>");
+        workspace.WriteFile("src/App/App.csproj", Project());
+
+        ToolObservation<ListProjectsResult> observation =
+            await new ListProjectsTool(workspace.Guard()).ListAsync();
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Solutions.ShouldContain("Everything.slnx");
+        observation.Data.Warnings.ShouldNotContain(w => w.Contains("contains no projects", StringComparison.Ordinal));
+        observation.Data.Warnings.ShouldNotContain(w => w.Contains("not at the workspace root", StringComparison.Ordinal));
+    }
+
+    // ── Where a scaffold may land (run 008007e11a) ──
+
+    /// <summary>
+    /// Run 008007e11a: told its window should be a dialog, the model asked <c>new</c> for
+    /// 'src/MultiplyApp/DialogWindow.xaml' - a file name - and received a complete second WPF
+    /// application nested inside the first, then spent the rest of its token budget failing to
+    /// delete it. A path that names a file is a misread of what <c>new</c> does, and the
+    /// refusal points at create_file, the tool the model actually wanted.
+    /// </summary>
+    [Fact]
+    public async Task A_path_that_names_a_file_is_refused_before_the_sdk_runs()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.New, "src/App/DialogWindow.xaml", "wpf");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Hint.ShouldNotBeNull();
+        observation.Error.Hint.ShouldContain("create_file");
+        executor.Commands.ShouldBeEmpty("the refusal must come before six files exist");
+    }
+
+    [Fact]
+    public async Task A_scaffold_inside_an_existing_project_is_refused()
+    {
+        // The SDK's default glob compiles a nested project's sources into its parent.
+        // list_projects has warned about that after the fact all along; this is the same
+        // knowledge applied while refusing is still one cheap step.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.New, "src/App/Dialog", "wpf");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Message.ShouldContain("App.csproj");
+        executor.Commands.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_scaffold_above_an_existing_project_is_refused()
+    {
+        // The same nesting the other way up: a project scaffolded at src/ would swallow the
+        // sources of every project already under it.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.New, "src", "console");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+        observation.Error.Message.ShouldContain("App.csproj");
+        executor.Commands.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_sibling_scaffold_is_still_welcome()
+    {
+        // The correct shape the refusals steer towards has to keep working.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        ScriptedCommandExecutor executor = new();
+
+        ToolObservation<DotnetProjectResult> observation = await Tool(workspace, executor).RunAsync(
+            DotnetProjectOperation.New, "src/Dialog", "wpf");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+        executor.Commands.ShouldNotBeEmpty();
+    }
+
+    // ── The scaffold reaches the change log (run 008007e11a) ──
+
+    /// <summary>
+    /// <c>dotnet new</c> writes without going through the change log, so a scaffolded file
+    /// used to have no baseline - "how this run found it" became whatever the first later
+    /// touch happened to record.
+    /// </summary>
+    [Fact]
+    public async Task A_scaffolded_file_is_recorded_as_created_by_this_run()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        string window = Path.Combine(workspace.Root, "src", "App", "MainWindow.xaml");
+        ChangeLog changes = new();
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new RewritingExecutor(window, "<Window />"),
+            workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        observation.Ok.ShouldBeTrue(observation.Error?.Message);
+
+        CodeChange recorded = changes.All().ShouldHaveSingleItem();
+        recorded.Path.ShouldBe("src/App/MainWindow.xaml");
+        recorded.BeforeText.ShouldBeEmpty("the run created it, and the baseline must say so");
+        recorded.AfterText.ShouldBe("<Window />");
+        recorded.Status.ShouldBe(ChangeStatus.Applied);
+    }
+
+    [Fact]
+    public async Task A_file_already_there_is_not_claimed_as_scaffolded()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/README.md", "already here");
+        string window = Path.Combine(workspace.Root, "src", "App", "MainWindow.xaml");
+        ChangeLog changes = new();
+
+        await new DotnetProjectTool(
+            new RewritingExecutor(window, "<Window />"),
+            workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        changes.All().ShouldHaveSingleItem().Path.ShouldBe("src/App/MainWindow.xaml");
+    }
+
+    [Fact]
+    public async Task A_created_solution_is_recorded_as_created_by_this_run()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src");
+        ChangeLog changes = new();
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+
+        await new DotnetProjectTool(
+            executor, workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+
+        CodeChange recorded = changes.All().ShouldHaveSingleItem();
+        recorded.Path.ShouldBe("src/Every.slnx");
+        recorded.BeforeText.ShouldBeEmpty();
+        recorded.Status.ShouldBe(ChangeStatus.Applied);
+    }
+
+    /// <summary>
+    /// Revert on a scaffolded file now means what it says. Before the creation was recorded,
+    /// "how this run found it" resolved to the scaffold's content via whatever touched the
+    /// file first - in run 008007e11a that was a delete, and the revert restored the very
+    /// file the model was trying to be rid of.
+    /// </summary>
+    [Fact]
+    public async Task Reverting_a_scaffolded_file_removes_it_rather_than_restoring_the_scaffold()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        string window = Path.Combine(workspace.Root, "src", "App", "MainWindow.xaml");
+        ChangeLog changes = new();
+        PathGuard guard = workspace.Guard("src");
+
+        await new DotnetProjectTool(
+            new RewritingExecutor(window, "<Window />"),
+            guard, changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        ToolObservation<FileOperationResult> revert = await new FileOperationTool(guard, changes)
+            .RunAsync(FileOperation.Revert, "src/App/MainWindow.xaml");
+
+        revert.Ok.ShouldBeTrue(revert.Error?.Message);
+        revert.Summary.ShouldContain("removed");
+        File.Exists(window).ShouldBeFalse("this run created the file, so found-state is absence");
+    }
+
+    /// <summary>
+    /// The exact 008007e11a sequence: scaffold, delete, revert. The delete already put the
+    /// file back to how the run found it - not existing - so the revert has nothing to do,
+    /// and says so instead of resurrecting the scaffold.
+    /// </summary>
+    [Fact]
+    public async Task Reverting_a_deleted_scaffold_file_does_not_resurrect_it()
+    {
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src/App");
+        string window = Path.Combine(workspace.Root, "src", "App", "MainWindow.xaml");
+        ChangeLog changes = new();
+        PathGuard guard = workspace.Guard("src");
+
+        await new DotnetProjectTool(
+            new RewritingExecutor(window, "<Window />"),
+            guard, changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.New, "src/App", "wpf");
+
+        FileOperationTool files = new(guard, changes);
+        await files.RunAsync(FileOperation.Delete, "src/App/MainWindow.xaml");
+        ToolObservation<FileOperationResult> revert =
+            await files.RunAsync(FileOperation.Revert, "src/App/MainWindow.xaml");
+
+        revert.Ok.ShouldBeFalse();
+        revert.Error!.Message.ShouldContain("already as this run found it");
+        File.Exists(window).ShouldBeFalse();
     }
 
     private static DotnetProjectTool Tool(TempWorkspace workspace, ICommandExecutor executor) =>

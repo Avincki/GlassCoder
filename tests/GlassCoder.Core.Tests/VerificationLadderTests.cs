@@ -67,6 +67,27 @@ public sealed class VerificationLadderTests : IDisposable
     }
 
     [Fact]
+    public async Task A_test_run_that_verified_nothing_is_not_reported_green()
+    {
+        // Runs a408b61b and ca727be3 each logged "UnitTests passed" eleven times over a
+        // workspace holding no test files: 0 of 0 is not a passing suite. It does not gate - a
+        // testless tree is a fact, not a failure - but it stops reading as verification, and
+        // the honest line stays in the summary the model and the critics judge.
+        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _executor.Enqueue(0, "");   // the build
+        _executor.Enqueue(0, "");   // dotnet test: exits clean, discovers nothing
+
+        VerificationReport report = await Ladder().VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+
+        report.Passed.ShouldBeTrue("zero tests must not gate");
+        report.Unverified.ShouldBeTrue();
+        RungResult tests = report.Results.Single(r => r.Rung == VerificationRung.UnitTests);
+        tests.Unverified.ShouldBeTrue();
+        tests.Summary.ShouldContain("nothing was verified");
+    }
+
+    [Fact]
     public async Task A_failing_test_stops_the_climb_before_the_full_suite()
     {
         _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");

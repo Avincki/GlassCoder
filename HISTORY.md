@@ -9,6 +9,180 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-08 (evening) — Efficiency: the run that completed and still wasted a third
+
+**Shipped.** From run `f4ed50e0` (30 steps, 289k, Completed, 6 tests - the live trial of the
+morning batches) and a second external review (GrokReview20260808114442.md): known wrong tool
+names are rewritten and invoked, `dotnet_project` forgives stray whitespace, the completion
+critique judges the recovery too, critics stop refuting over word choice, and todos are asked
+for at phase boundaries only. 683 tests green, +10.
+
+**What the run said.** Every prior fix held - the TFM seam repaired itself in one call, the
+ladder logged "unverified" over the testless tree, two identical soft failures were counted -
+and the run still spent a third of its steps on new friction: `todo_write` twice (the "did
+you mean" hint converted the first miss, not the second), a leading-space package id refused
+twice by the SDK, and a ten-step critique recovery that added Moq and FlaUI to the test
+project without writing a single test that used them, then completed on the spent critique.
+
+**Decided**
+
+- **Aliases rewrite; hints suggest.** A name whose intent is unambiguous (`todo_write` with
+  byte-identical `update_todos` arguments) is invoked as what it meant, logged, and recorded
+  under the canonical name so failure and repeat keys align. Only log-proven names enter the
+  map - an alias is a bet that the model's habit is stable.
+- **The critique panel speaks at most twice.** Once on the claim, once on the recovery - run
+  f4ed50e0's package theater completed unexamined on the spent critique. The ceiling is hard:
+  a second refutation completes the run rather than starting a third argument, with a caveat
+  in the record when the critique gates, and without one in advisory mode - advisory invited
+  finish-as-is, so finishing as-is is not a caveat. Bounded at two, 4b582162's revert loop
+  stays impossible.
+- **The refutation message names the failure mode it breeds:** packages without tests that
+  use them address nothing. Recovery instructions are concrete because f4ed50e0's was not.
+- **Critics judge behaviour, not word choice.** "Dialog" versus "window" refuted two runs of
+  the same goal whose built UI covered the ask, two-for-two.
+- **Todos at phase boundaries** (system prompt, both the code default and the operator's
+  settings copy): 7 of f4ed50e0's 30 steps were plan bookkeeping.
+- **Git tools off in the operator's settings for the measurement phase** - five schemas
+  re-sent every step of runs that never call them. Revert: `Git.Enabled: true` in
+  `%APPDATA%\GlassCoder\settings.json` (backup beside it).
+
+**Open**
+
+- The two-panel critique is untested live: watch whether the second panel converts recoveries
+  or merely stamps caveats.
+- The alias map has one entry family; other habitual wrong names should earn their place from
+  logs, not speculation.
+- Auto-`add_to_solution` was proposed again and rejected again - an off-root solution is
+  invisible to build-target resolution regardless of membership. If runs keep creating
+  ceremonial solutions despite the new warnings, steer `new_solution` away instead.
+
+---
+
+## 2026-08-08 (later) — The seams between the organs
+
+**Shipped.** From an external review (GrokReview20260808.md) of run `ca727be3`, critically
+re-reviewed against the two failed predecessors: soft failures now reach the progress
+machinery, the wpf↔xunit framework seam repairs itself, zero-test climbs stop reading green,
+solutions that govern nothing say so, and the completion critics are bounded to evidence the
+worker can produce. 676 tests green, +12.
+
+**What the re-review changed.** The external review's two best findings survived
+verification (soft-fail invisibility at `RunProgressSentry`, the never-re-critiqued second
+completion); two of its recommendations were refused: re-arming the completion critique would
+reinstate the revert-loop its one-shot design exists to prevent, and a refusing XAML
+handler pre-check is the gate-deadlock pattern that cost runs 5c071f37 and a408b61b. The
+critic fix went the other way - constrain refutation to obtainable evidence - and the XAML
+check was dropped.
+
+**Decided**
+
+- **`OutcomeOk` rides the wire only when false.** The AI function layer serialises every
+  observation to JSON before the registry sees it again, so a `[JsonIgnore]` flag exists only
+  in unit tests - discovered when the sentry test stalled instead of stopping. Successful
+  observations stay byte-identical; a soft failure adds one field. The digest now reads
+  outcomes off the wire shape too, which it never did live.
+- **The tool repairs the mismatch its own templates manufacture.** wpf scaffolds
+  net10.0-windows, xunit scaffolds net10.0; on the CLI's "incompatible targeted frameworks",
+  the single-TFM base-plus-suffix shape widens the *referencing* project through the change
+  log and retries once - the `NormalizeSolutionAdd` contract. Every other shape gets both
+  frameworks and the side to change; the CLI's message, which reads as "change the app",
+  never reaches the model raw. Scaffold summaries now name the framework so the mismatch is
+  visible before the failure.
+- **Zero tests is `Unverified`, not passed and not skipped.** A new state, because failed
+  would gate a testless tree and skipped would drop the "nothing was verified" line from the
+  summary the critics judge. Runs a408b61b and ca727be3 each logged "UnitTests passed" eleven
+  times with no test files on disk.
+- **Critics are told the worker's evidence universe** - builds, tests, file reads, static
+  checks; no app launch, no UI, no screen - and that absent runtime proof is never by itself
+  grounds to refute. Runs 008007e1 (3/3, then a fatal re-scaffold spiral) and ca727be3 (2/3)
+  were both refuted over evidence no tool can produce; live UI proof is the operator's
+  Run-app button by design.
+- **`list_projects` and `new_solution` now say when a solution is empty or off-root.** Run
+  ca727be3's `src/MultiplyApp/solution.slnx` was both, and no surface ever mentioned it
+  again. Auto-adding projects to solutions was considered and rejected: it polishes a file
+  build-target resolution cannot see.
+
+**Open**
+
+- The completion critique still runs exactly once; a model that finishes over a refutation it
+  answered with new evidence is accepted without a second panel. Watch whether the evidence
+  constraint alone is enough.
+- Whether "does it compile" should have one authority (a cached design-time build in the
+  gate) or the gate should be advisory-only everywhere - the standing question behind
+  5c071f37, e8f9186a, 008007e1 and a408b61b - remains undecided.
+- `GrokReview20260808.md` items deferred, not refused: compound scaffold op (only if ceremony
+  stays expensive live), docs refresh of `docs/grok/tool-evaluation-ai-codegen.md`.
+
+---
+
+## 2026-08-08 — The gate stops manufacturing its own refusals
+
+**Shipped.** From run `a408b61b` (42 steps, 519k, TokenLimit, an app with zero tests): the
+pre-write gate now synthesises the csproj's `<Using>` items, concedes on the strike limit
+instead of after it, and SymbolHints answers from referenced assemblies. 664 tests green, +7.
+Validated the same morning by run `ca727be3`: 21 steps, 162k, **Completed** - the first run
+of the desktop goal to finish - with an idiomatic no-`using Xunit;` test file accepted first
+try.
+
+**What the run said.** The xunit template declares `<Using Include="Xunit" />` in its
+project file; the gate read the csproj for ImplicitUsings and UseWPF but not for Using items
+three lines away, and manufactured fifteen CS0246s for a file the real build compiles.
+SymbolHints searched only workspace sources, so FactAttribute - sitting in xunit.core.dll,
+loaded into the very compilation that reported it missing - drew no hint, and the model
+chased the compiler's "assembly reference?" through three no-op package adds and two green
+builds. The concession's "after 3 the write will be allowed" asked for a fourth identical
+attempt no model makes. Whether a run survived the gate had come down to whether the model
+happened to type a using the project already declared.
+
+**Decided**
+
+- **Explicit `<Using>` items are synthesised; SDK-flavour sets still are not.** The project
+  declares the items, so the real build compiles against them and so must the gate; Web/Worker
+  namespaces live in packages the compile may not reference, and emitting those would
+  manufacture the opposite error.
+- **The strike limit is the attempt that goes through** (`>=`, not `>`), with the countdown
+  reworded to say so. A promise of leniency one attempt past the last refusal converts nobody.
+- **SymbolHints asks the failing compilation's own reference set** for names no source
+  declares, and names the namespace, assembly and exact using directive in the refusal.
+
+**Open**
+
+- `add_reference` still failed on the wpf/xunit TFM seam (3 steps to recover) - fixed in the
+  next entry.
+- The ladder counted a testless workspace as a passing UnitTests rung throughout - likewise.
+
+---
+
+## 2026-08-07 (night) — A refuted finish, a scaffold in a file's clothing
+
+**Shipped.** From run `008007e1` (42 steps, 501k, TokenLimit): `dotnet_project new` refuses
+file-named paths and paths inside or above an existing project, and every file `dotnet new`
+scaffolds is recorded in the change log as created-by-this-run. 657 tests green, +8.
+
+**What the run said.** Steps 0-23 were flawless - app, tests, 5/5 passing. The completion
+critique refuted 3/3 (dialog-vs-window wording; no runtime evidence), and the recovery
+asked `new` for `src/MultiplyApp/DialogWindow.xaml` - a file name, inside the project being
+edited - because no window-item template exists. A complete second application landed nested
+in the first; deleting it file-by-file consumed the rest of the budget, and a revert
+resurrected a deleted scaffold file because files written by `dotnet new` had no change-log
+baseline: "how this run found it" was whatever the first later touch recorded.
+
+**Decided**
+
+- **Refuse the hazardous scaffold while refusing is one cheap step.** `list_projects` had
+  warned about nesting after the fact all along; the same knowledge now runs before six files
+  exist, and the refusal points at `create_file` - the tool the model actually wanted.
+- **Scaffolded files enter the change log as creations** ('' → content), so revert means
+  what it says: the file goes. The template-stub deletion now records creation *and* removal.
+
+**Open**
+
+- `file_operation` still has no recursive delete; undoing a bad scaffold remains file-by-file
+  (mitigated by refusing the scaffold instead).
+- The critique demanded evidence no tool can produce - addressed on 2026-08-08.
+
+---
+
 ## 2026-08-07 — Clean stops losing to a single held handle
 
 **Shipped.** From the operator's report that Clean left subfolders standing: the pane's clean

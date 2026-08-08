@@ -57,6 +57,15 @@ public sealed record RungResult(
     /// only saw a summary string could not bill it.
     /// </summary>
     public CritiqueResult? Critique { get; init; }
+
+    /// <summary>
+    /// True when the rung ran, failed nothing, and verified nothing - a test run that
+    /// discovered zero tests. Distinct from <see cref="Passed"/> so a climb over a testless
+    /// workspace stops logging "UnitTests passed" (runs a408b61b and ca727be3 each printed it
+    /// eleven times with no test files on disk), and distinct from <see cref="Skipped"/> so
+    /// the "nothing was verified" line stays in the summary the model and the critics read.
+    /// </summary>
+    public bool Unverified { get; init; }
 }
 
 /// <summary>The outcome of climbing the ladder.</summary>
@@ -80,6 +89,9 @@ public sealed record VerificationReport(
 
     /// <summary>The critique verdict, when rung 6 ran, so the loop can bill the critic's spend.</summary>
     public CritiqueResult? Critique => Results.FirstOrDefault(r => r.Critique is not null)?.Critique;
+
+    /// <summary>True when a rung ran but verified nothing - the asterisk on a green climb.</summary>
+    public bool Unverified => Results.Any(r => !r.Skipped && r.Unverified);
 }
 
 /// <summary>Everything the ladder needs to know about what it is verifying.</summary>
@@ -196,7 +208,9 @@ public sealed class VerificationLadder : IVerificationLadder
 
             _logger.LogInformation(
                 "Verification rung {Rung}: {Outcome} in {Duration:F0} ms",
-                rung, result.Passed ? "passed" : "FAILED", result.DurationMs);
+                rung,
+                result.Unverified ? "unverified" : result.Passed ? "passed" : "FAILED",
+                result.DurationMs);
 
             if (!result.Passed)
             {
@@ -333,7 +347,12 @@ public sealed class VerificationLadder : IVerificationLadder
                     _ => $"{tests.Failed} of {tests.Total} tests failed: {string.Join(", ", tests.FailedTests.Take(5))}",
                 };
 
-                return new RungResult(rung, tests.Ok, summary, Elapsed(start));
+                // Zero tests is not green: it does not gate - a testless workspace is a fact,
+                // not a failure - but it must not log or read as a passing suite either.
+                return new RungResult(rung, tests.Ok, summary, Elapsed(start))
+                {
+                    Unverified = tests.Ok && tests.Total == 0,
+                };
             }
 
             case VerificationRung.Critique:

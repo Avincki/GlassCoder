@@ -54,6 +54,15 @@ public sealed record ToolInvocation
     /// </summary>
     public string? Summary { get; init; }
 
+    /// <summary>
+    /// Whether the operation the tool relayed achieved its purpose. False for
+    /// failure-as-information observations - a <c>dotnet</c> command that exited non-zero
+    /// behind a <see cref="ToolCallStatus.Succeeded"/> call - so the progress machinery can
+    /// count what the model is told is a failure (run 4b562c91: five identical soft-failed
+    /// <c>add_to_solution</c> calls, invisible to every loop-breaker).
+    /// </summary>
+    public bool OutcomeOk { get; init; } = true;
+
     /// <summary>Whether this call counts as valid for the tool-call validity rate.</summary>
     public bool IsValid => Status is ToolCallStatus.Succeeded or ToolCallStatus.Failed;
 }

@@ -5,6 +5,7 @@ using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.FileSystem;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.Build;
@@ -132,6 +133,13 @@ public sealed class DotnetProjectTool : IToolSet
         string? version = null,
         CancellationToken cancellationToken = default)
     {
+        // Stray whitespace is never intent: run f4ed50e0 sent add_package ' FlaUI.UIA3' - one
+        // leading space - and the SDK refused it twice before the model noticed. The CLI cannot
+        // forgive it, so it is forgiven here.
+        path = path?.Trim() ?? string.Empty;
+        argument = argument?.Trim();
+        version = version?.Trim();
+
         // Meet the model where it is (the edit_file lesson): run 4b562c91 sent add_to_solution
         // with the project in 'path' and the solution in 'argument' five times running, and the
         // CLI's "Solution argument is misplaced" taught it nothing all five times. When the
@@ -171,6 +179,17 @@ public sealed class DotnetProjectTool : IToolSet
                 $"'{argument}' is not a template this tool offers.",
                 $"Use one of: {string.Join(", ", KnownTemplates)}.");
         }
+
+        if (operation == DotnetProjectOperation.New && RefuseHazardousScaffold(verdict) is { } hazard)
+        {
+            return hazard;
+        }
+
+        // Which files are already there, taken before the SDK runs, so everything it writes can
+        // be told apart afterwards and recorded as this run's own creations.
+        HashSet<string> preexisting = operation == DotnetProjectOperation.New
+            ? new(ScaffoldFiles(verdict.FullPath!), StringComparer.OrdinalIgnoreCase)
+            : [];
 
         // Read before, so the change log can show what the SDK did to the file as a diff.
         string? before = touchedFile is not null && File.Exists(touchedFile)
@@ -217,16 +236,28 @@ public sealed class DotnetProjectTool : IToolSet
 
         if (!payload.Succeeded)
         {
+            if (operation == DotnetProjectOperation.AddReference &&
+                result.CombinedOutput.Contains("incompatible targeted frameworks", StringComparison.OrdinalIgnoreCase))
+            {
+                return await RepairFrameworkMismatchAsync(
+                    verdict, argument!, arguments, workingDirectory, payload, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             // A refused operation is information, not a tool fault - same contract as a failed
-            // build (CLAUDE.md §7).
+            // build (CLAUDE.md §7). OutcomeOk carries the failure to the progress machinery,
+            // which otherwise reads the relay as success (run 4b562c91: five identical soft
+            // failures, invisible to every loop-breaker).
             return Observation.Ok(
-                ToolName, payload, $"dotnet {Describe(operation)} failed with exit {result.ExitCode}.");
+                ToolName, payload, $"dotnet {Describe(operation)} failed with exit {result.ExitCode}.",
+                outcomeOk: false);
         }
 
         // The project file has moved underneath any build already taken, and the SDK wrote it
         // without going through the change log, so both have to be told.
         _cache?.Invalidate();
         RecordChange(touchedFile, before);
+        RecordScaffold(operation, verdict, argument, preexisting);
 
         int reformatted = RecordRewrites(sources);
         string summary = operation switch
@@ -244,6 +275,164 @@ public sealed class DotnetProjectTool : IToolSet
         };
 
         return Observation.Ok(ToolName, payload, summary);
+    }
+
+    /// <summary>
+    /// Extensions that mean the caller named a file where <c>new</c> wants a directory. Dotted
+    /// directory names are normal in .NET ('src/App.Tests'), so only extensions that
+    /// unambiguously belong to files are listed.
+    /// </summary>
+    private static readonly string[] FileExtensions =
+        [".cs", ".vb", ".fs", ".xaml", ".axaml", ".razor", ".cshtml", ".resx",
+         ".csproj", ".fsproj", ".vbproj", ".sln", ".slnx", ".json", ".config", ".xml"];
+
+    /// <summary>
+    /// Runaway backstop on scaffold recording, far above what any offered template writes.
+    /// </summary>
+    private const int MaxScaffoldRecords = 200;
+
+    /// <summary>
+    /// Refuses a scaffold that would land where no project should go, while refusing is still
+    /// one cheap step.
+    /// <para>
+    /// From run 008007e11a: asked to turn its window into a dialog, the model called new with
+    /// path 'src/MultiplyApp/DialogWindow.xaml' - a file name, inside the very project it was
+    /// editing - and got a complete second application nested in the first. It saw the mistake
+    /// one step later and spent the rest of its token budget deleting the scaffold file by
+    /// file. The SDK compiles nested projects' sources into each other; list_projects already
+    /// warns about exactly that after the fact, and this is the same knowledge applied before
+    /// the six files exist.
+    /// </para>
+    /// </summary>
+    private ToolObservation<DotnetProjectResult>? RefuseHazardousScaffold(PathGuardResult verdict)
+    {
+        string full = Path.TrimEndingDirectorySeparator(verdict.FullPath!);
+        string relative = verdict.RelativePath!;
+
+        if (FileExtensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
+        {
+            return Observation.Fail<DotnetProjectResult>(
+                ToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{relative}' names a file, and 'new' scaffolds a whole project into a directory.",
+                "To add a window or class to an existing project, create the file with create_file - "
+                + "every .cs and .xaml under a project's directory is compiled into it automatically. "
+                + "Use 'new' only for a fresh project in its own directory, for example 'src/MyApp'.");
+        }
+
+        // Bounded to the workspace: a project file above the repository root is somebody
+        // else's tree and no reason to refuse anything.
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_guard.RepoRoot));
+        if (ProjectLocator.FindProjectFile(full) is { } owner &&
+            Path.GetFullPath(owner).StartsWith(
+                root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            return Observation.Fail<DotnetProjectResult>(
+                ToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{relative}' is inside the '{_guard.ToRelativePath(owner)}' project, and the SDK "
+                + "compiles a nested project's sources into its parent.",
+                "Add files to that project with create_file, or scaffold the new project in a "
+                + "sibling directory of its own.");
+        }
+
+        if (Directory.Exists(full) && ProjectLocator.FindAllProjects(full).FirstOrDefault() is { } nested)
+        {
+            return Observation.Fail<DotnetProjectResult>(
+                ToolName,
+                ToolErrorCodes.InvalidArgument,
+                $"'{relative}' contains the '{_guard.ToRelativePath(nested)}' project, and a project "
+                + "scaffolded above another compiles that project's sources into itself.",
+                "Scaffold into an empty directory of its own, beside the projects already there.");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Every file under <paramref name="directory"/> the workspace can see. The guard hides
+    /// bin/ and obj/, which matters because <c>new</c> restores and restore writes obj/.
+    /// </summary>
+    private IEnumerable<string> ScaffoldFiles(string directory)
+    {
+        if (!Directory.Exists(directory))
+        {
+            yield break;
+        }
+
+        string[] files;
+        try
+        {
+            files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            yield break;
+        }
+
+        foreach (string file in files)
+        {
+            if (_guard.Resolve(file, PathAccess.Read).Allowed)
+            {
+                yield return file;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Puts the files the SDK just scaffolded into the change log as this run's creations.
+    /// <para>
+    /// <c>dotnet new</c> writes without going through the change log, so until now a scaffolded
+    /// file had no baseline: the first later touch became "how this run found it". Run
+    /// 008007e11a deleted a mis-scaffolded App.xaml, then reverted it - and the revert
+    /// resurrected the scaffold, because the delete was the file's earliest record and the
+    /// delete's before-text was the scaffold. Recorded as created (nothing to content), revert
+    /// means what it says: the file goes.
+    /// </para>
+    /// </summary>
+    private void RecordScaffold(
+        DotnetProjectOperation operation,
+        PathGuardResult verdict,
+        string? argument,
+        HashSet<string> preexisting)
+    {
+        if (operation == DotnetProjectOperation.NewSolution)
+        {
+            // The one file dotnet new sln writes. On a conflict the SDK refuses and this is
+            // never reached, so a located solution is a created one.
+            if (LocateCreatedSolution(verdict, argument) is { } solution &&
+                ReadOrNull(solution) is { } text)
+            {
+                CodeChange change = _changes.Propose(
+                    _guard.ToRelativePath(solution), ToolName, string.Empty, text);
+                _changes.Update(change.Id, ChangeStatus.Applied);
+            }
+
+            return;
+        }
+
+        if (operation != DotnetProjectOperation.New)
+        {
+            return;
+        }
+
+        int recorded = 0;
+        foreach (string file in ScaffoldFiles(verdict.FullPath!))
+        {
+            if (preexisting.Contains(file) || ReadOrNull(file) is not { } content)
+            {
+                continue;
+            }
+
+            CodeChange change = _changes.Propose(
+                _guard.ToRelativePath(file), ToolName, string.Empty, content);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+
+            if (++recorded >= MaxScaffoldRecords)
+            {
+                break;
+            }
+        }
     }
 
     /// <summary>
@@ -362,6 +551,126 @@ public sealed class DotnetProjectTool : IToolSet
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(operation));
+        }
+    }
+
+    /// <summary>
+    /// Repairs the one framework mismatch the tool's own templates manufacture, or names the fix.
+    /// <para>
+    /// The wpf template targets <c>net10.0-windows</c>; the xunit template targets
+    /// <c>net10.0</c>. Wiring the pair - the very sequence the templates exist for - fails, and
+    /// the CLI's message lists the <em>referencing</em> project's framework as the constraint,
+    /// which reads as "change the app". Run a408b61b obeyed: it downgraded the WPF app first
+    /// (which would break it), flipped it back, and only then widened the test project - seven
+    /// steps and three hand-edits of csproj files under a tool whose description says never to
+    /// hand-edit one. Run ca727be3 lost three steps to the same seam.
+    /// </para>
+    /// <para>
+    /// When the shape is unambiguous - both projects single-targeted and the referenced
+    /// framework is the referencing one plus an OS suffix - widening the referencing project is
+    /// always the fix and always compile-compatible, so it is done here, through the change log,
+    /// and the add retried once: the same meet-the-model-where-it-is contract as
+    /// <see cref="NormalizeSolutionAdd"/>. Every other shape gets the diagnosis the CLI
+    /// withholds: both frameworks, and which side to change.
+    /// </para>
+    /// </summary>
+    private async Task<ToolObservation<DotnetProjectResult>> RepairFrameworkMismatchAsync(
+        PathGuardResult verdict,
+        string argument,
+        List<string> arguments,
+        string workingDirectory,
+        DotnetProjectResult failed,
+        CancellationToken cancellationToken)
+    {
+        string referencing = verdict.FullPath!;
+        string referenced = Resolve(argument);
+        string referencingRel = verdict.RelativePath!;
+        string referencedRel = _guard.ToRelativePath(referenced);
+
+        string? from = ProjectLocator.ReadTargetFrameworks(referencing);
+        string? to = ProjectLocator.ReadTargetFrameworks(referenced);
+
+        bool widened = from is not null && to is not null &&
+            !from.Contains(';') && !to.Contains(';') &&
+            to.StartsWith(from + "-", StringComparison.OrdinalIgnoreCase) &&
+            TryWidenTargetFramework(referencing, from, to);
+
+        if (!widened)
+        {
+            return Observation.Ok(
+                ToolName,
+                failed,
+                $"dotnet add_reference failed: '{referencingRel}' targets {from ?? "an unknown framework"} and " +
+                $"'{referencedRel}' targets {to ?? "an unknown framework"}, which the SDK will not wire together. " +
+                $"Fix the REFERENCING project: set <TargetFramework> in {referencingRel} to one compatible with " +
+                $"'{referencedRel}'. Do not change the referenced project's framework.",
+                outcomeOk: false);
+        }
+
+        // The project file moved underneath any build already taken.
+        _cache?.Invalidate();
+
+        CommandResult retry = await _executor.ExecuteAsync(
+            new CommandRequest("dotnet", arguments)
+            {
+                WorkingDirectory = workingDirectory,
+                RequiresNetwork = false,
+                Timeout = TimeSpan.FromSeconds(_sandbox.CommandTimeoutSeconds),
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (retry.FailureReason is not null || retry.TimedOut || retry.ExitCode != 0)
+        {
+            DotnetProjectResult still = new(
+                "add_reference", referencingRel, false, retry.ExitCode,
+                Trim(retry.CombinedOutput), retry.Duration.TotalMilliseconds);
+
+            return Observation.Ok(
+                ToolName,
+                still,
+                $"'{referencingRel}' was widened from {from} to {to} (see the change log), but the add " +
+                $"still failed with exit {retry.ExitCode}.",
+                outcomeOk: false);
+        }
+
+        DotnetProjectResult repaired = new(
+            "add_reference", referencingRel, true, 0,
+            Trim(retry.CombinedOutput), retry.Duration.TotalMilliseconds);
+
+        return Observation.Ok(
+            ToolName,
+            repaired,
+            $"'{referencingRel}' now references '{referencedRel}'. Its TargetFramework was widened from " +
+            $"{from} to {to} first - a project referencing a Windows app must target Windows itself. " +
+            "The csproj edit is in the change log.");
+    }
+
+    /// <summary>
+    /// Rewrites the single <c>TargetFramework</c> element from one value to another, through the
+    /// change log. False when the element is not there to rewrite, in which case nothing changed.
+    /// </summary>
+    private bool TryWidenTargetFramework(string projectFile, string from, string to)
+    {
+        try
+        {
+            string before = File.ReadAllText(projectFile);
+            string needle = $"<TargetFramework>{from}</TargetFramework>";
+            if (!before.Contains(needle, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string after = before.Replace(
+                needle, $"<TargetFramework>{to}</TargetFramework>", StringComparison.OrdinalIgnoreCase);
+            File.WriteAllText(projectFile, after);
+
+            CodeChange change = _changes.Propose(_guard.ToRelativePath(projectFile), ToolName, before, after);
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
@@ -499,7 +808,16 @@ public sealed class DotnetProjectTool : IToolSet
     private string DescribeCreatedProject(PathGuardResult verdict, string template)
     {
         string directory = verdict.FullPath!;
-        string created = $"Created a {template} project in '{verdict.RelativePath}'.";
+
+        // The framework goes in the summary because it is the one fact the next call trips
+        // over: wpf scaffolds net10.0-windows, xunit scaffolds net10.0, and both runs a408b61b
+        // and ca727be3 discovered the mismatch only from add_reference's exit 1.
+        string? framework = ProjectLocator.EnumerateProjects(directory).FirstOrDefault() is { } projectFile
+            ? ProjectLocator.ReadTargetFrameworks(projectFile)
+            : null;
+        string created = framework is null
+            ? $"Created a {template} project in '{verdict.RelativePath}'."
+            : $"Created a {template} project in '{verdict.RelativePath}' targeting {framework}.";
 
         // A desktop template's scaffold is the starting skeleton, not a stub: the run's work IS
         // editing that window. Deleting it would hand every WPF task back the blank-workspace
@@ -558,19 +876,41 @@ public sealed class DotnetProjectTool : IToolSet
     /// </summary>
     private string DescribeCreatedSolution(PathGuardResult verdict, string? argument)
     {
+        string name = SolutionName(
+            argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(verdict.FullPath!)));
+
+        if (LocateCreatedSolution(verdict, argument) is not { } created)
+        {
+            return $"Created a solution named '{name}'.";
+        }
+
+        // Said at creation, because afterwards nobody says it: run ca727be3's solution sat in a
+        // subdirectory where build-target resolution never looks, empty, and no surface
+        // mentioned it again for the rest of the run.
+        bool atRoot = string.Equals(
+            Path.GetDirectoryName(Path.GetFullPath(created)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(_guard.RepoRoot)),
+            StringComparison.OrdinalIgnoreCase);
+
+        return $"Created a solution at '{_guard.ToRelativePath(created)}'. Use this exact path with add_to_solution."
+            + (atRoot
+                ? string.Empty
+                : " Note: it is not at the workspace root, so builds will not resolve it as their target - "
+                  + "projects build individually. If you do not need a solution, skip it.");
+    }
+
+    /// <summary>The file <c>dotnet new sln</c> wrote, whichever format the SDK chose.</summary>
+    private string? LocateCreatedSolution(PathGuardResult verdict, string? argument)
+    {
         string full = verdict.FullPath!;
         bool namesAFile = Path.GetExtension(full) is ".sln" or ".slnx";
         string directory = namesAFile ? Path.GetDirectoryName(full) ?? _guard.RepoRoot : full;
         string name = SolutionName(
             argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(full)));
 
-        string? created = SolutionExtensions
+        return SolutionExtensions
             .Select(extension => Path.Combine(directory, name + extension))
             .FirstOrDefault(File.Exists);
-
-        return created is null
-            ? $"Created a solution named '{name}'."
-            : $"Created a solution at '{_guard.ToRelativePath(created)}'. Use this exact path with add_to_solution.";
     }
 
     /// <summary>

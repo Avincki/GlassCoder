@@ -426,10 +426,13 @@ public sealed class AgentLoopVerificationTests
     //
     // Run 4b582162: the panel sat on the ladder, judged every step's diff against the whole run
     // goal, and refuted 14 of 14 changes - including the correct ones - until the user cancelled
-    // the run. The panel now speaks once, at the completion claim, and as advice.
+    // the run. The panel now speaks at most twice, at completion claims: once on the claim, and
+    // once on the recovery - because run f4ed50e0 answered a refutation with UI-test packages,
+    // wrote no test that used them, and completed on the spent critique unexamined. The second
+    // verdict is final either way; a bounded panel can never become 4b582162's loop.
 
     [Fact]
-    public async Task A_refuted_completion_claim_gets_one_advisory_look_then_finishes()
+    public async Task A_refuted_completion_claim_is_rejudged_once_then_finishes()
     {
         Harness harness = new(
             FakeChatClient.ToolCall("mutate"),
@@ -450,16 +453,18 @@ public sealed class AgentLoopVerificationTests
 
         result.StopReason.ShouldBe(AgentStopReason.Completed);
         result.FinalText.ShouldBe("done for real");
-        result.Error.ShouldBeNull("an advisory refutation is not a caveat on the run");
+        result.Error.ShouldBeNull("advisory mode invited finish-as-is, so finishing as-is is no caveat");
 
-        // One panel, ever: the second "done" completes without another round of critics.
-        harness.Critics.Requests.Count.ShouldBe(1);
+        // Two panels, no more: the claim and the recovery each get judged; a third claim would
+        // complete without another round of critics.
+        harness.Critics.Requests.Count.ShouldBe(2);
 
         // The refutation reached the model marked as advice, capped rather than verbatim.
         string advisory = harness.Client.Requests[2].Messages
             .Last(m => m.Role == ChatRole.User).Text.ShouldNotBeNull();
         advisory.ShouldContain("Advisory review");
         advisory.ShouldContain("finish as-is if you disagree");
+        advisory.ShouldContain("not package references alone", customMessage: "run f4ed50e0's package theater is named in the recovery instruction");
         advisory.ShouldContain("[...]", customMessage: "two thousand characters of critic prose must not reach the worker");
 
         // The full verdict is in the transcript, on the step that was challenged.
@@ -467,6 +472,64 @@ public sealed class AgentLoopVerificationTests
         record.Passed.ShouldBeTrue("critique does not gate");
         record.HighestRungReached.ShouldBe(nameof(VerificationRung.Critique));
         record.Summary.ShouldContain("3/3 critics refuted");
+    }
+
+    [Fact]
+    public async Task A_second_refutation_under_a_gating_critique_completes_with_a_caveat()
+    {
+        // The bounded alternative to arguing forever: the run ends, and the record says the
+        // panel was never convinced.
+        Harness harness = new(
+            new VerificationLadderOptions { CritiqueGates = true },
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(true, [], 3, "3/3 critics refuted the change: no tests exercise the UI.")
+                {
+                    RespondingVotes = 3,
+                },
+            },
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.FinalText.ShouldBe("done for real");
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("second critique refutation");
+        harness.Critics.Requests.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_recovery_that_convinces_the_second_panel_completes_clean()
+    {
+        Harness harness = new(
+            new VerificationLadderOptions { CritiqueGates = true },
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done, with the evidence added"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(true, [], 3, "3/3 critics refuted the change: thin evidence.")
+            {
+                RespondingVotes = 3,
+            });
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(false, [], 0, "3/3 critics accepted the change.")
+            {
+                RespondingVotes = 3,
+            });
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        result.Error.ShouldBeNull("a recovery the panel accepted needs no caveat");
+        harness.Critics.Requests.Count.ShouldBe(2);
     }
 
     [Fact]
@@ -637,6 +700,9 @@ public sealed class AgentLoopVerificationTests
                 RespondingVotes = 3,
             };
 
+        /// <summary>Verdicts to hand out in order before falling back to <see cref="Next"/>.</summary>
+        public Queue<CritiqueResult> Sequence { get; } = new();
+
         public bool Enabled => true;
 
         public bool CanCritique(string? role) => true;
@@ -653,7 +719,8 @@ public sealed class AgentLoopVerificationTests
             Requests.Add((goal, change, evidence, role));
 
             // The real panel stamps the role it ran on; the record downstream carries it.
-            return Task.FromResult(Next with { Role = ResolveRole(role) });
+            CritiqueResult verdict = Sequence.Count > 0 ? Sequence.Dequeue() : Next;
+            return Task.FromResult(verdict with { Role = ResolveRole(role) });
         }
     }
 

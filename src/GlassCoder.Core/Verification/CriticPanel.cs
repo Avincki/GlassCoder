@@ -357,6 +357,13 @@ public sealed class CriticPanel : ICriticPanel
         // evidence can actually establish. The earlier wording asked whether "the change is
         // correct", and against one intermediate step no evidence can establish that, so a
         // temperature-0 critic refuted every step it saw (run 4b582162, 14 of 14).
+        //
+        // The evidence universe is stated because critics kept demanding what no tool can
+        // produce: run 008007e1 was refuted 3/3 partly for lacking a runtime UI demonstration,
+        // spiralled into re-scaffolding, and died at the token limit; run ca727be3 was refuted
+        // 2/3 on the same ground with no tool that could ever answer it. Live UI proof is the
+        // operator's Run-app button, not the worker's job - a demand the worker cannot meet is
+        // not a refutation, it is a deadlock.
         List<ChatMessage> messages =
         [
             new(ChatRole.System,
@@ -364,6 +371,13 @@ public sealed class CriticPanel : ICriticPanel
                 $"Judge it through this lens - {lens}. " +
                 "Judge only the change and evidence in front of you; default to refuted:true when the " +
                 "evidence cannot support the claim. " +
+                "The worker can only produce this evidence: builds, test runs, file contents and static " +
+                "checks. It cannot launch the application, interact with a UI, or capture a screen - a " +
+                "human operator does that separately - so the absence of runtime or visual proof is " +
+                "never, by itself, grounds to refute. Refute over evidence the worker could have " +
+                "produced and did not, or over what the produced evidence actually shows. " +
+                "Judge the behaviour the goal asks for, not its word choice: a window presenting the " +
+                "required controls satisfies a goal that says 'dialog', and the like. " +
                 "Reply with JSON only: {\"refuted\": bool, \"confidence\": number between 0 and 1, \"reason\": string}."),
             new(ChatRole.User,
                 $"Goal:\n{goal}\n\nThe change:\n{change}\n\nEvidence:\n{evidence}\n\n" +

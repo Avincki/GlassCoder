@@ -30,7 +30,8 @@ namespace GlassCoder.Tools.Verification;
 public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 {
     /// <summary>
-    /// The global usings <c>Microsoft.NET.Sdk</c> generates when <c>ImplicitUsings</c> is on.
+    /// The namespaces <c>Microsoft.NET.Sdk</c> turns into global usings when
+    /// <c>ImplicitUsings</c> is on.
     /// <para>
     /// The SDK writes these into <c>obj/</c>, which the workspace deny list excludes from every
     /// access - so without synthesising them here, this compilation sees a project whose files
@@ -45,15 +46,9 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
     /// of our own making.
     /// </para>
     /// </summary>
-    private const string ImplicitUsingsSource = """
-        global using global::System;
-        global using global::System.Collections.Generic;
-        global using global::System.IO;
-        global using global::System.Linq;
-        global using global::System.Net.Http;
-        global using global::System.Threading;
-        global using global::System.Threading.Tasks;
-        """;
+    private static readonly string[] BaseImplicitUsings =
+        ["System", "System.Collections.Generic", "System.IO", "System.Linq",
+         "System.Net.Http", "System.Threading", "System.Threading.Tasks"];
 
     private static readonly CSharpParseOptions ParseOptions =
         new(LanguageVersion.Preview, DocumentationMode.None);
@@ -211,10 +206,10 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         }
 
         // Added after the emptiness check so it can never make an empty project look populated.
-        if (ImplicitUsingsEnabled(projectDirectory))
+        if (GlobalUsingsSource(projectDirectory) is { } usings)
         {
             trees.Add(CSharpSyntaxTree.ParseText(
-                ImplicitUsingsSource,
+                usings,
                 ParseOptions,
                 path: Path.Combine(projectDirectory, "GlassCoder.ImplicitUsings.g.cs"),
                 cancellationToken: cancellationToken));
@@ -329,6 +324,74 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         SyntaxTree tree = CSharpSyntaxTree.ParseText(text, ParseOptions, path: file, cancellationToken: cancellationToken);
         _trees[file] = new CachedTree(tree, info.LastWriteTimeUtc, info.Length);
         return tree;
+    }
+
+    /// <summary>
+    /// The global usings the SDK would generate for this project: the base implicit set when
+    /// <c>ImplicitUsings</c> is on, minus every <c>&lt;Using Remove&gt;</c> item, plus every
+    /// <c>&lt;Using Include&gt;</c> item - with <c>Static</c> and <c>Alias</c> honoured. Null
+    /// when there is nothing to synthesise.
+    /// <para>
+    /// The Include half is run a408b61b's scar. The xunit template declares
+    /// <c>&lt;Using Include="Xunit" /&gt;</c> in its project file, so an idiomatic test file
+    /// carries no <c>using Xunit;</c> of its own - and this compilation, reading the csproj for
+    /// ImplicitUsings and UseWPF but not for Using items three lines away, manufactured fifteen
+    /// CS0246s for a file the real build compiles. The run shipped an application with no tests
+    /// over it. Whether a run survived the gate had come down to whether the model happened to
+    /// type the using the project had already declared.
+    /// </para>
+    /// </summary>
+    private static string? GlobalUsingsSource(string projectDirectory)
+    {
+        List<(string Include, string? Alias, bool Static)> includes = [];
+        HashSet<string> removes = new(StringComparer.Ordinal);
+
+        try
+        {
+            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            {
+                foreach (XElement item in XDocument.Load(project)
+                    .Descendants()
+                    .Where(e => e.Name.LocalName.Equals("Using", StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (item.Attribute("Remove")?.Value.Trim() is { Length: > 0 } removed)
+                    {
+                        removes.Add(removed);
+                    }
+                    else if (item.Attribute("Include")?.Value.Trim() is { Length: > 0 } included)
+                    {
+                        includes.Add((
+                            included,
+                            item.Attribute("Alias")?.Value.Trim(),
+                            string.Equals(item.Attribute("Static")?.Value.Trim(), "true",
+                                StringComparison.OrdinalIgnoreCase)));
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
+        {
+            // A malformed project file costs the synthesis, never the compile.
+        }
+
+        // Removes subtract from base set and includes alike - an order-blind reading of MSBuild's
+        // item semantics, which is as much as a file-level parse can honestly claim.
+        List<string> lines = [];
+        if (ImplicitUsingsEnabled(projectDirectory))
+        {
+            lines.AddRange(BaseImplicitUsings
+                .Where(ns => !removes.Contains(ns))
+                .Select(ns => $"global using global::{ns};"));
+        }
+
+        lines.AddRange(includes
+            .Where(u => !removes.Contains(u.Include))
+            .Select(u =>
+                !string.IsNullOrEmpty(u.Alias) ? $"global using {u.Alias} = global::{u.Include};"
+                : u.Static ? $"global using static global::{u.Include};"
+                : $"global using global::{u.Include};"));
+
+        return lines.Count == 0 ? null : string.Join('\n', lines.Distinct(StringComparer.Ordinal));
     }
 
     /// <summary>
@@ -592,6 +655,90 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         }
 
         return (references, resolved);
+    }
+
+    /// <summary>
+    /// Where the project's referenced assemblies declare the missing names the compiler quoted.
+    /// <para>
+    /// SymbolHints answers from workspace sources, which is the right first place to look - but
+    /// run a408b61b's <c>FactAttribute</c> lives in <c>xunit.core.dll</c>, an assembly this
+    /// analyzer had itself loaded into the very compilation that reported CS0246. The refusal
+    /// shipped with the compiler's generic "missing a using directive or an assembly
+    /// reference?", and the model chased the assembly-reference half through three package adds
+    /// and two green builds. The compilation knew the namespace all along; this is the lookup
+    /// that says it.
+    /// </para>
+    /// </summary>
+    public IReadOnlyDictionary<string, ReferencedSymbol> LocateInReferences(
+        string filePath, IReadOnlyCollection<string> identifiers)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(identifiers);
+
+        Dictionary<string, ReferencedSymbol> found = new(StringComparer.Ordinal);
+        if (identifiers.Count == 0 || FindProjectDirectory(Path.GetFullPath(filePath)) is not { } projectDirectory)
+        {
+            return found;
+        }
+
+        (List<MetadataReference> metadata, _) = References(projectDirectory);
+        CSharpCompilation probe = CSharpCompilation.Create("glasscoder-symbol-probe", references: metadata);
+        HashSet<string> wanted = new(identifiers, StringComparer.Ordinal);
+
+        // Scavenged build output sits after the framework in the reference list, and it is the
+        // likelier home of a name the compile could not find - so it is walked first.
+        foreach (MetadataReference reference in Enumerable.Reverse(metadata))
+        {
+            if (wanted.Count == 0)
+            {
+                break;
+            }
+
+            try
+            {
+                if (probe.GetAssemblyOrModuleSymbol(reference) is IAssemblySymbol assembly)
+                {
+                    Search(assembly.GlobalNamespace, assembly.Name, wanted, found);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException)
+            {
+                // An unreadable reference simply declares nothing.
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Collects the wanted type names this namespace subtree publicly declares.</summary>
+    private static void Search(
+        INamespaceSymbol container,
+        string assembly,
+        HashSet<string> wanted,
+        Dictionary<string, ReferencedSymbol> found)
+    {
+        // A type in the global namespace needs no using directive, so a missing-name error was
+        // never about it.
+        if (!container.IsGlobalNamespace)
+        {
+            foreach (INamedTypeSymbol type in container.GetTypeMembers())
+            {
+                if (type.DeclaredAccessibility == Accessibility.Public && wanted.Remove(type.Name))
+                {
+                    found[type.Name] = new ReferencedSymbol(container.ToDisplayString(), assembly);
+                }
+            }
+        }
+
+        foreach (INamespaceSymbol child in container.GetNamespaceMembers())
+        {
+            if (wanted.Count == 0)
+            {
+                return;
+            }
+
+            Search(child, assembly, wanted, found);
+        }
     }
 
     /// <summary>

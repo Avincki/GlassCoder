@@ -153,6 +153,63 @@ public sealed class SymbolHintTests
             workspace.Root).ShouldBeEmpty();
     }
 
+    // ── Names only a referenced assembly declares (run a408b61b) ──
+
+    /// <summary>
+    /// Run a408b61b: 'FactAttribute' is nowhere in the workspace - it lives in xunit.core.dll,
+    /// which the failing compilation itself referenced - so a hint that only reads sources had
+    /// nothing to say, and the model chased the "assembly reference" half of CS0246 through
+    /// three package adds and two green builds.
+    /// </summary>
+    [Fact]
+    public void A_name_no_source_declares_is_answered_from_the_reference_lookup()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        List<string> asked = [];
+
+        string hint = SymbolHints.Describe(
+            [NotFound("FactAttribute")],
+            Path.Combine(workspace.Root, "src", "App", "Tests.cs"),
+            workspace.Root,
+            identifiers =>
+            {
+                asked.AddRange(identifiers);
+                return new Dictionary<string, ReferencedSymbol>
+                {
+                    ["FactAttribute"] = new("Xunit", "xunit.core"),
+                };
+            });
+
+        asked.ShouldBe(["FactAttribute"], customMessage: "the lookup gets exactly the names the sources could not answer");
+        hint.ShouldContain("namespace 'Xunit'");
+        hint.ShouldContain("using Xunit;");
+        hint.ShouldContain("<Using Include=\"Xunit\" />");
+    }
+
+    [Fact]
+    public void A_name_a_source_declares_never_reaches_the_reference_lookup()
+    {
+        // The workspace declaration is the richer answer - it knows the project and whether the
+        // reference exists - so metadata is only consulted for what the sources cannot place.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/Thing.cs", "namespace AppNs;\n\npublic class Thing { }\n");
+        bool consulted = false;
+
+        SymbolHints.Describe(
+            [NotFound("Thing")],
+            Path.Combine(workspace.Root, "src", "App", "User.cs"),
+            workspace.Root,
+            _ =>
+            {
+                consulted = true;
+                return new Dictionary<string, ReferencedSymbol>();
+            });
+
+        consulted.ShouldBeFalse();
+    }
+
     // ── Through the gate ──
 
     [Fact]
@@ -182,6 +239,37 @@ public sealed class SymbolHintTests
         observation.Ok.ShouldBeFalse();
         observation.Error!.Message.ShouldContain("declared in src/Lib/Thing.cs");
         observation.Error.Message.ShouldContain("does not reference that project");
+    }
+
+    /// <summary>
+    /// The whole a408b61b chain, on a framework type: a name no source declares, sitting in an
+    /// assembly the gate's own compilation references, must be named with its namespace in the
+    /// refusal the model reads - not left to the compiler's "using directive or assembly
+    /// reference?" coin flip.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_names_the_namespace_a_referenced_assembly_declares()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/Program.cs", "public class P { }");
+
+        IOptions<VerificationOptions> verification = Options.Create(new VerificationOptions());
+        CreateFileTool tool = new(
+            workspace.Guard("src"),
+            new RoslynCodeAnalyzer(workspace.Guard("src"), verification),
+            new DiagnosticSummarizer(verification),
+            verification,
+            new ChangeLog(),
+            new AutoApprovalGate(Options.Create(new ApprovalOptions())));
+
+        ToolObservation<CreateFileResult> observation = await tool.CreateFileAsync(
+            "src/App/User.cs",
+            "public class User { public StringBuilder Buffer { get; } = new(); }");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Message.ShouldContain("namespace 'System.Text'");
+        observation.Error.Message.ShouldContain("using System.Text;");
     }
 
     private static CodeDiagnostic NotFound(string name) => new(
