@@ -4,8 +4,8 @@ using Microsoft.Extensions.Logging;
 namespace GlassCoder.Tools.Build;
 
 /// <summary>
-/// Remembers the last successful build of each target, and forgets everything the moment the
-/// tree changes.
+/// Remembers the last successful build and test run of each target, and forgets everything the
+/// moment the tree changes.
 /// <para>
 /// The waste this exists for is an agent building the same unchanged tree several steps running
 /// - three consecutive builds with no edit between them, each costing ten to thirty seconds and
@@ -13,15 +13,24 @@ namespace GlassCoder.Tools.Build;
 /// already has is still good. This gives it one.
 /// </para>
 /// <para>
+/// Test runs joined on the same terms (workplan task 74). Run <c>d5edbc59</c> spent steps 19, 20,
+/// 25 and 26 re-establishing greens that steps 17 and 24 had already reported inline - four of
+/// twenty-eight steps re-confirming the one axis that was never in doubt, in a run where the axis
+/// that <em>was</em> refuted got none.
+/// </para>
+/// <para>
 /// Only successes are cached. A failed build is the observation the agent is acting on, and
 /// replaying a stale failure could leave it fixing something it already fixed - whereas a stale
 /// success is impossible, because anything that could change the answer invalidates the entry.
+/// A test run that ran zero tests is not cached either: it is not a success, it is the absence of
+/// one, and replaying it would put "nothing was verified" behind a cache hit.
 /// </para>
 /// </summary>
 public sealed class BuildCache
 {
     private readonly Lock _gate = new();
     private readonly Dictionary<string, BuildResult> _entries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TestRunResult> _tests = new(StringComparer.OrdinalIgnoreCase);
     private readonly ILogger<BuildCache> _logger;
 
     /// <summary>Creates the cache and subscribes it to the change log.</summary>
@@ -69,6 +78,34 @@ public sealed class BuildCache
         }
     }
 
+    /// <summary>The cached test run for a target and filter, when the tree has not moved since.</summary>
+    public bool TryGetTests(string target, string? filter, out TestRunResult? result)
+    {
+        lock (_gate)
+        {
+            return _tests.TryGetValue(Key(target, filter), out result);
+        }
+    }
+
+    /// <summary>
+    /// Remembers a green test run. A red one is the observation the agent is acting on, and a run
+    /// that executed nothing is not a result worth replaying.
+    /// </summary>
+    public void SetTests(string target, string? filter, TestRunResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (!result.Ok || result.Total == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _tests[Key(target, filter)] = result;
+        }
+    }
+
     /// <summary>
     /// Forgets everything. Called from the change log, and by hand from any tool that changes
     /// the tree without going through it - editing a project file through <c>dotnet</c>, say.
@@ -77,12 +114,13 @@ public sealed class BuildCache
     {
         lock (_gate)
         {
-            if (_entries.Count == 0)
+            if (_entries.Count == 0 && _tests.Count == 0)
             {
                 return;
             }
 
             _entries.Clear();
+            _tests.Clear();
             Generation++;
         }
 
@@ -90,4 +128,7 @@ public sealed class BuildCache
     }
 
     private static string Key(string target, bool allowRestore) => $"{target}|{allowRestore}";
+
+    // A filter narrows what ran, so "all tests passed" for one filter says nothing about another.
+    private static string Key(string target, string? filter) => $"{target}|{filter ?? string.Empty}";
 }

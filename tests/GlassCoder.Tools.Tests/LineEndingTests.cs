@@ -100,6 +100,93 @@ public sealed class LineEndingTests : IDisposable
         observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
         observation.Error.Message.ShouldContain("first 2 line(s) appear");
         observation.Error.Hint.ShouldContain("overwrite: true");
+
+        // A partial match really is a whitespace problem, so this is the one case where reading
+        // the file again is the right advice.
+        observation.Error.Hint.ShouldContain("Read the file again");
+    }
+
+    /// <summary>
+    /// The second occurrence of a defect HISTORY parked as "watch rather than fix" (workplan
+    /// task 70).
+    /// <para>
+    /// Runs <c>122e11c6</c> and <c>d5edbc59</c> each spent steps 9-12 on this: an edit whose
+    /// target was text the model meant to <em>write</em>, a refusal saying only that it was not
+    /// found, a re-read of a file that had been read correctly, and an escape into a whole-file
+    /// rewrite - which in the second run is where nine unused using directives came from.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_target_that_is_nowhere_in_the_file_names_the_two_moves_that_work()
+    {
+        _workspace.WriteFile("src/Class1.cs", "public class Class1\r\n{\r\n    int X => 1;\r\n}\r\n");
+
+        ToolObservation<EditFileResult> observation = await Tool().EditFileAsync(
+            "src/Class1.cs",
+            "public void Multiply()\n{\n    return a * b;\n}",
+            "replacement");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
+        observation.Error.Message.ShouldContain("No line of it appears there");
+
+        observation.Error.Hint.ShouldContain("outline: true");
+        observation.Error.Hint.ShouldContain("overwrite: true");
+
+        // And it must not send the model back to re-read: that is the step this fix removes.
+        observation.Error.Hint.ShouldNotContain("Read the file again");
+    }
+
+    [Fact]
+    public async Task A_single_line_target_that_is_absent_gets_the_same_answer()
+    {
+        // It used to get no diagnosis at all and the whitespace hint - the one explanation a
+        // zero match cannot have.
+        _workspace.WriteFile("src/Class1.cs", "public class Class1\r\n{\r\n    int X => 1;\r\n}\r\n");
+
+        ToolObservation<EditFileResult> observation = await Tool().EditFileAsync(
+            "src/Class1.cs", "int Y => 2;", "int Y => 3;");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Message.ShouldContain("No line of it appears there");
+        observation.Error.Hint.ShouldContain("outline: true");
+    }
+
+    /// <summary>
+    /// Every line present, the block absent. This threw <see cref="IndexOutOfRangeException"/>
+    /// before task 70 - the diagnosis reached past the end of its own array - and any target
+    /// ending in a newline whose lines all appear somewhere would trigger it.
+    /// </summary>
+    [Fact]
+    public async Task Lines_that_all_appear_but_never_together_say_so_instead_of_throwing()
+    {
+        _workspace.WriteFile("src/Class1.cs", "int A => 1;\r\nint MIDDLE => 0;\r\nint B => 2;\r\n");
+
+        ToolObservation<EditFileResult> observation = await Tool().EditFileAsync(
+            "src/Class1.cs", "int A => 1;\nint B => 2;\n", "replacement");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.NotFound);
+        observation.Error.Message.ShouldContain("not consecutively");
+        observation.Error.Hint.ShouldContain("contiguous");
+    }
+
+    [Fact]
+    public void A_re_read_of_an_unchanged_file_announces_itself_as_one()
+    {
+        // Not a refusal - the read returns exactly what it would have returned. It just lets the
+        // model tell "I have new information" from "I have the same information twice".
+        _workspace.WriteFile("src/Class1.cs", "public class Class1 { }");
+
+        ReadFileTool tool = new(
+            _workspace.Guard("src"), Options.Create(new ToolsOptions()), new FileReadMemo());
+
+        tool.ReadFile("src/Class1.cs").Summary.ShouldNotContain("has not changed");
+        tool.ReadFile("src/Class1.cs").Summary.ShouldContain("has not changed since you last read it");
+
+        // A write between reads makes the next read new again, with nothing having to invalidate.
+        _workspace.WriteFile("src/Class1.cs", "public class Class1 { int X => 1; }");
+        tool.ReadFile("src/Class1.cs").Summary.ShouldNotContain("has not changed");
     }
 
     [Fact]

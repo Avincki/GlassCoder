@@ -297,12 +297,14 @@ public sealed class ProjectScaffoldingTests
         using TempWorkspace workspace = new();
         ScriptedCommandExecutor executor = new();
 
-        await Tool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, "src/MyMathLib.sln");
+        // At the root, because task 73 refuses a solution anywhere else - the composition being
+        // asserted here is the same either way.
+        await RootTool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, "MyMathLib.sln");
 
         List<string> arguments = [.. executor.Commands.Single().Arguments];
         arguments[arguments.IndexOf("-n") + 1].ShouldBe("MyMathLib", "the .sln belongs to the file, not the name");
-        // ...and it goes in src, not in a new src/MyMathLib.sln folder.
-        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("src");
+        // ...and it goes at the root, not in a new MyMathLib.sln folder.
+        arguments[arguments.IndexOf("-o") + 1].ShouldBe(Path.TrimEndingDirectorySeparator(workspace.Root));
     }
 
     [Fact]
@@ -313,11 +315,11 @@ public sealed class ProjectScaffoldingTests
         using TempWorkspace workspace = new();
         ScriptedCommandExecutor executor = new();
 
-        await Tool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, "src/Everything");
+        await RootTool(workspace, executor).RunAsync(DotnetProjectOperation.NewSolution, ".", "Everything");
 
         List<string> arguments = [.. executor.Commands.Single().Arguments];
         arguments[arguments.IndexOf("-n") + 1].ShouldBe("Everything");
-        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("Everything");
+        arguments[arguments.IndexOf("-o") + 1].ShouldBe(Path.TrimEndingDirectorySeparator(workspace.Root));
     }
 
     [Fact]
@@ -330,12 +332,12 @@ public sealed class ProjectScaffoldingTests
         using TempWorkspace workspace = new();
         ScriptedCommandExecutor executor = new();
 
-        await Tool(workspace, executor).RunAsync(
-            DotnetProjectOperation.NewSolution, "src", "ArrayProcessor.sln");
+        await RootTool(workspace, executor).RunAsync(
+            DotnetProjectOperation.NewSolution, ".", "ArrayProcessor.sln");
 
         List<string> arguments = [.. executor.Commands.Single().Arguments];
         arguments[arguments.IndexOf("-n") + 1].ShouldBe("ArrayProcessor", "the extension is the SDK's to choose");
-        arguments[arguments.IndexOf("-o") + 1].ShouldEndWith("src");
+        arguments[arguments.IndexOf("-o") + 1].ShouldBe(Path.TrimEndingDirectorySeparator(workspace.Root));
     }
 
     /// <summary>
@@ -364,12 +366,11 @@ public sealed class ProjectScaffoldingTests
     public async Task Creating_a_solution_reports_the_file_the_sdk_actually_wrote()
     {
         using TempWorkspace workspace = new();
-        workspace.CreateDirectory("src");
-        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "Every.slnx"), "<Solution />");
 
         ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
-            executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()))
-            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+            executor, workspace.Guard("."), new ChangeLog(), Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "Every.sln");
 
         observation.Ok.ShouldBeTrue(observation.Error?.Message);
         observation.Summary.ShouldContain("Every.slnx", customMessage: "the next add_to_solution and glob must be aimed at a file that exists");
@@ -768,27 +769,53 @@ public sealed class ProjectScaffoldingTests
     // ── Solutions that govern nothing (run ca727be3) ──
 
     /// <summary>
-    /// Run ca727be3 created <c>src/MultiplyApp/solution.slnx</c>, added nothing to it, and no
-    /// surface mentioned the file again: off the root, so build-target resolution never saw
-    /// it; empty, so builds never noticed. Said at creation, because afterwards nobody says it.
+    /// Runs ca727be3 and d5edbc59 each created a solution below the root, added nothing to it, and
+    /// shipped it. The second was <em>warned</em> in the same response that created it - "builds
+    /// will not resolve it as their target... if you do not need a solution, skip it" - and read
+    /// past the warning. Workplan task 73 refuses instead, on the precedent HISTORY set for
+    /// <c>new</c>: refuse the hazardous scaffold while refusing is one cheap step.
     /// </summary>
     [Fact]
-    public async Task A_solution_created_off_root_says_it_will_not_govern_builds()
+    public async Task A_solution_below_the_build_root_is_refused_rather_than_warned_about()
     {
         using TempWorkspace workspace = new();
         workspace.CreateDirectory("src");
-        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+        ScriptedCommandExecutor executor = new();
 
         ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
             executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()))
             .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
 
-        observation.Ok.ShouldBeTrue(observation.Error?.Message);
-        observation.Summary.ShouldContain("not at the workspace root");
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Code.ShouldBe(ToolErrorCodes.InvalidArgument);
+
+        // The reason names the consequence, not just the rule: an empty solution makes dotnet
+        // test run zero tests and exit 0, which is a green that verified nothing.
+        observation.Error.Message.ShouldContain("zero tests");
+
+        // Nothing ran. Refusing costs one step; the file it would have written outlives the run.
+        executor.Commands.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task A_solution_created_at_the_root_gets_no_such_note()
+    public async Task The_refusal_does_not_suggest_a_root_the_workspace_cannot_write_to()
+    {
+        // The writable set here is src, so "create it at the root instead" would be advice the
+        // guard refuses - one wasted step traded for another.
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src");
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new ScriptedCommandExecutor(), workspace.Guard("src"), new ChangeLog(),
+            Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+
+        observation.Error!.Hint.ShouldContain("skip it");
+        observation.Error.Hint.ShouldNotContain("Create it at the root");
+    }
+
+    [Fact]
+    public async Task A_solution_at_the_root_is_created_without_complaint()
     {
         using TempWorkspace workspace = new();
         RewritingExecutor executor = new(Path.Combine(workspace.Root, "Every.slnx"), "<Solution />");
@@ -960,16 +987,15 @@ public sealed class ProjectScaffoldingTests
     public async Task A_created_solution_is_recorded_as_created_by_this_run()
     {
         using TempWorkspace workspace = new();
-        workspace.CreateDirectory("src");
         ChangeLog changes = new();
-        RewritingExecutor executor = new(Path.Combine(workspace.Root, "src", "Every.slnx"), "<Solution />");
+        RewritingExecutor executor = new(Path.Combine(workspace.Root, "Every.slnx"), "<Solution />");
 
         await new DotnetProjectTool(
-            executor, workspace.Guard("src"), changes, Options.Create(new SandboxOptions()))
-            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+            executor, workspace.Guard("."), changes, Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "Every.sln");
 
         CodeChange recorded = changes.All().ShouldHaveSingleItem();
-        recorded.Path.ShouldBe("src/Every.slnx");
+        recorded.Path.ShouldBe("Every.slnx");
         recorded.BeforeText.ShouldBeEmpty();
         recorded.Status.ShouldBe(ChangeStatus.Applied);
     }
@@ -1033,6 +1059,14 @@ public sealed class ProjectScaffoldingTests
 
     private static DotnetProjectTool Tool(TempWorkspace workspace, ICommandExecutor executor) =>
         new(executor, workspace.Guard("src"), new ChangeLog(), Options.Create(new SandboxOptions()));
+
+    /// <summary>
+    /// A tool whose writable set reaches the workspace root, which is the only place task 73
+    /// allows a solution. Solution composition is asserted through this rather than through
+    /// <see cref="Tool"/>.
+    /// </summary>
+    private static DotnetProjectTool RootTool(TempWorkspace workspace, ICommandExecutor executor) =>
+        new(executor, workspace.Guard("."), new ChangeLog(), Options.Create(new SandboxOptions()));
 
     /// <summary>
     /// An executor that rewrites a file, the way <c>dotnet format</c> does. The scripted executor

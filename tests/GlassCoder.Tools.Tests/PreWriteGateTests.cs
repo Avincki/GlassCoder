@@ -189,8 +189,118 @@ public sealed class BuildCacheTests
         executor.Commands.Count.ShouldBe(3);
     }
 
+    /// <summary>
+    /// The same argument one rung up (workplan task 74). Run <c>d5edbc59</c> spent steps 19, 20,
+    /// 25 and 26 re-establishing greens that its inline verification had already reported at
+    /// steps 17 and 24 - four of twenty-eight steps on the one axis that was never in doubt.
+    /// </summary>
+    [Fact]
+    public async Task Running_unchanged_tests_twice_only_runs_them_once()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        RunTestsTool tests = Tests(workspace, executor, new ChangeLog());
+
+        await tests.RunTestsAsync("src");
+        ToolObservation<TestRunResult> second = await tests.RunTestsAsync("src");
+
+        executor.Commands.Count.ShouldBe(1);
+        second.Ok.ShouldBeTrue();
+        second.Summary.ShouldContain("unchanged");
+        second.Data!.Total.ShouldBe(7, "the remembered result is the whole result, not a stub");
+    }
+
+    [Fact]
+    public async Task A_change_makes_the_next_test_run_real_again()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 8, Skipped: 0, Total: 8");
+        ChangeLog changes = new();
+        RunTestsTool tests = Tests(workspace, executor, changes);
+
+        await tests.RunTestsAsync("src");
+        changes.Propose("src/WidgetTests.cs", "create_file", string.Empty, "new test");
+        await tests.RunTestsAsync("src");
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_red_suite_is_never_remembered()
+    {
+        // The same reasoning as a failed build: a red run is the observation the agent is acting
+        // on, and replaying it could leave it re-fixing something it has already fixed.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "  Failed A.B.C [1 ms]\nFailed!  - Failed: 1, Passed: 6, Skipped: 0, Total: 7");
+        executor.Enqueue(1, "  Failed A.B.C [1 ms]\nFailed!  - Failed: 1, Passed: 6, Skipped: 0, Total: 7");
+        RunTestsTool tests = Tests(workspace, executor, new ChangeLog());
+
+        await tests.RunTestsAsync("src");
+        await tests.RunTestsAsync("src");
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_run_that_executed_nothing_is_never_remembered()
+    {
+        // "0 of 0 tests" is the absence of a result, not a green one. Serving it from a cache
+        // would put "nothing was verified" behind a hit, which is the failure RungResult.
+        // Unverified exists to prevent.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 0, Skipped: 0, Total: 0");
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 0, Skipped: 0, Total: 0");
+        RunTestsTool tests = Tests(workspace, executor, new ChangeLog());
+
+        await tests.RunTestsAsync("src");
+        await tests.RunTestsAsync("src");
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task A_different_filter_is_a_different_question()
+    {
+        // "All tests passed" under one filter says nothing about another.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 2, Skipped: 0, Total: 2");
+        RunTestsTool tests = Tests(workspace, executor, new ChangeLog());
+
+        await tests.RunTestsAsync("src");
+        await tests.RunTestsAsync("src", "FullyQualifiedName~Widget");
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Discovery_is_never_served_from_the_cache()
+    {
+        // Discovery is cheap, and a stale list of names is precisely what a discovery call asks
+        // about - it is the one question a remembered answer cannot answer.
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        executor.Enqueue(0, "The following Tests are available:\n    A.B.C\n");
+        RunTestsTool tests = Tests(workspace, executor, new ChangeLog());
+
+        await tests.RunTestsAsync("src");
+        await tests.RunTestsAsync("src", listOnly: true);
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
     private static BuildTool Build(TempWorkspace workspace, ICommandExecutor executor, ChangeLog changes) =>
         new(executor, workspace.Guard("src"), Summarizer(), Options.Create(new SandboxOptions()), new BuildCache(changes));
+
+    private static RunTestsTool Tests(TempWorkspace workspace, ICommandExecutor executor, ChangeLog changes) =>
+        new(executor, workspace.Guard("src"), Options.Create(new SandboxOptions()), new BuildCache(changes));
 
     private static DiagnosticSummarizer Summarizer() => new(Options.Create(new VerificationOptions()));
 }

@@ -34,13 +34,21 @@ public sealed class ReadFileTool : IToolSet
 
     private readonly IPathGuard _guard;
     private readonly ToolsOptions _options;
+    private readonly FileReadMemo? _memo;
 
     /// <summary>Creates the tool.</summary>
-    public ReadFileTool(IPathGuard guard, IOptions<ToolsOptions> options)
+    /// <param name="guard">The path allow-list.</param>
+    /// <param name="options">Read caps.</param>
+    /// <param name="memo">
+    /// What this run has already read, so an unchanged re-read can say so. Optional: without it
+    /// the tool behaves exactly as before, which is what keeps it out of every test's constructor.
+    /// </param>
+    public ReadFileTool(IPathGuard guard, IOptions<ToolsOptions> options, FileReadMemo? memo = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _guard = guard;
         _options = options.Value;
+        _memo = memo;
     }
 
     /// <summary>Reads a slice of a text file.</summary>
@@ -179,6 +187,14 @@ public sealed class ReadFileTool : IToolSet
             // Said out loud, because a clipped line is the one thing here that cannot be quoted
             // back to edit_file - it is not what the file holds.
             summary += $" {clipped} line(s) were too long and are shown truncated; do not quote those to edit_file.";
+        }
+
+        // A re-read that returns what the last one returned announces itself as the no-op it is
+        // (workplan task 70). It refuses nothing; it just lets the model tell new information
+        // from the same information twice.
+        if (_memo?.RecordRead(verdict.FullPath, text) == true)
+        {
+            summary += " This file has not changed since you last read it in this run.";
         }
 
         return Observation.Ok(ToolName, result, summary);

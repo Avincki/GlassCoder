@@ -185,6 +185,12 @@ public sealed class DotnetProjectTool : IToolSet
             return hazard;
         }
 
+        if (operation == DotnetProjectOperation.NewSolution &&
+            RefuseSolutionBelowTheRoot(verdict, argument) is { } stray)
+        {
+            return stray;
+        }
+
         // Which files are already there, taken before the SDK runs, so everything it writes can
         // be told apart afterwards and recorded as this run's own creations.
         HashSet<string> preexisting = operation == DotnetProjectOperation.New
@@ -347,6 +353,61 @@ public sealed class DotnetProjectTool : IToolSet
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Refuses a solution anywhere but the build root (workplan task 73).
+    /// <para>
+    /// This used to warn, in the same response that created the thing it warned about. Step 1 of
+    /// run <c>d5edbc59</c> made <c>src/MultiplyApp/solution.slnx</c> and was told, correctly, that
+    /// builds would not resolve it and that skipping it was an option. The agent read past the
+    /// warning, never called <c>add_to_solution</c>, and an empty <c>&lt;Solution&gt;&lt;/Solution&gt;</c>
+    /// shipped.
+    /// </para>
+    /// <para>
+    /// The artifact is worse than clutter. <c>dotnet test</c> against an empty solution runs zero
+    /// tests and exits 0 - a green that verified nothing, which is exactly what
+    /// <c>RungResult.Unverified</c> was added to prevent, arriving through a different door. So
+    /// this follows the precedent HISTORY set on 2026-08-07 for <c>new</c>: refuse the hazardous
+    /// scaffold while refusing is one cheap step.
+    /// </para>
+    /// </summary>
+    private ToolObservation<DotnetProjectResult>? RefuseSolutionBelowTheRoot(
+        PathGuardResult verdict, string? argument)
+    {
+        string full = Path.TrimEndingDirectorySeparator(verdict.FullPath!);
+        bool namesAFile = Path.GetExtension(full) is ".sln" or ".slnx";
+        string directory = namesAFile ? Path.GetDirectoryName(full) ?? _guard.RepoRoot : full;
+
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_guard.RepoRoot));
+        if (string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)),
+                root,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        string name = SolutionName(argument ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(full)));
+
+        // Whether the root is even writable decides which advice is honest. The default writable
+        // set is src and tests, and telling the model to create a file where the guard will refuse
+        // it would trade one wasted step for another.
+        bool rootIsWritable = _guard.Resolve($"{name}.slnx", PathAccess.Write).Allowed;
+
+        return Observation.Fail<DotnetProjectResult>(
+            ToolName,
+            ToolErrorCodes.InvalidArgument,
+            $"A solution at '{verdict.RelativePath}' would sit below the workspace root, where builds "
+            + "will not resolve it as their target - and an empty solution makes 'dotnet test' run "
+            + "zero tests and exit 0, which reads as green and verifies nothing.",
+            rootIsWritable
+                ? $"Create it at the root instead - path '{name}.slnx' - and then add each project "
+                  + "with add_to_solution. If you do not need a solution, skip it: projects build "
+                  + "individually and build takes a project path."
+                : "The workspace's writable set does not reach the root, so there is nowhere a "
+                  + "solution would work here: skip it. Projects build individually, and build and "
+                  + "run_tests both take a project path.");
     }
 
     /// <summary>
@@ -898,16 +959,10 @@ public sealed class DotnetProjectTool : IToolSet
         // Said at creation, because afterwards nobody says it: run ca727be3's solution sat in a
         // subdirectory where build-target resolution never looks, empty, and no surface
         // mentioned it again for the rest of the run.
-        bool atRoot = string.Equals(
-            Path.GetDirectoryName(Path.GetFullPath(created)),
-            Path.TrimEndingDirectorySeparator(Path.GetFullPath(_guard.RepoRoot)),
-            StringComparison.OrdinalIgnoreCase);
-
-        return $"Created a solution at '{_guard.ToRelativePath(created)}'. Use this exact path with add_to_solution."
-            + (atRoot
-                ? string.Empty
-                : " Note: it is not at the workspace root, so builds will not resolve it as their target - "
-                  + "projects build individually. If you do not need a solution, skip it.");
+        // No below-root warning here any more: task 73 refuses that scaffold outright, so by the
+        // time anything is created it is at the root. The warning it replaced was read past in
+        // run d5edbc59 and an empty solution shipped, which is the argument for refusing.
+        return $"Created a solution at '{_guard.ToRelativePath(created)}'. Use this exact path with add_to_solution.";
     }
 
     /// <summary>The file <c>dotnet new sln</c> wrote, whichever format the SDK chose.</summary>

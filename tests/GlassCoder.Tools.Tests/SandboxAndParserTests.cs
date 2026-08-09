@@ -198,6 +198,106 @@ public sealed class SandboxAndParserTests
         outcome.FailedTests.ShouldContain("GlassCoder.Core.Tests.LoggingTests.Redaction_works");
     }
 
+    /// <summary>
+    /// The delta the model could not see (workplan task 69).
+    /// <para>
+    /// Run <c>d5edbc59</c> wrote a test whose expected literal was wrong by 5×10⁻³ and was told
+    /// only "2 of 7 tests failed". It loosened the tolerance, which could not help, and then
+    /// replaced the expected value with the expression under test, which made the assertion
+    /// unfailable. The actual product was in the runner's output the whole time.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_failing_assertion_carries_its_expected_and_actual()
+    {
+        const string output = """
+            [xUnit.net 00:00:00.61]     MultiplyAppTests.MultiplyViewModelTests.Multiply_Decimals [FAIL]
+              Failed MultiplyAppTests.MultiplyViewModelTests.Multiply_Decimals [< 1 ms]
+              Error Message:
+               Assert.Equal() Failure: Values differ
+               Expected: 7.011652
+               Actual:   7.006652
+              Stack Trace:
+                 at MultiplyAppTests.MultiplyViewModelTests.Multiply_Decimals() in C:\w\Tests.cs:line 80
+            Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 131 ms
+            """;
+
+        TestFailure failure = TestOutputParser.Parse(output).Failures.ShouldHaveSingleItem();
+
+        failure.Name.ShouldBe("MultiplyAppTests.MultiplyViewModelTests.Multiply_Decimals");
+        failure.Message.ShouldContain("7.011652");
+        failure.Message.ShouldContain("7.006652");
+
+        // The frames are dropped: a model repairing an assertion needs the numbers, not the stack.
+        failure.Message.ShouldNotContain("Stack Trace");
+        failure.Message.ShouldNotContain("Tests.cs:line 80");
+
+        // And the timing that sits on the name's own line is not mistaken for the message.
+        failure.Message.ShouldNotContain("ms]");
+    }
+
+    [Fact]
+    public void Each_failing_test_gets_its_own_message()
+    {
+        const string output = """
+              Failed A.B.First [1 ms]
+              Error Message:
+               Assert.True() Failure
+              Stack Trace:
+                 at A.B.First()
+              Failed A.B.Second [2 ms]
+              Error Message:
+               Assert.Equal() Failure: Expected: 3 Actual: 4
+              Stack Trace:
+                 at A.B.Second()
+            Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 9 ms
+            """;
+
+        IReadOnlyList<TestFailure> failures = TestOutputParser.Parse(output).Failures;
+
+        failures.Count.ShouldBe(2);
+        failures[0].Message.ShouldContain("Assert.True");
+        failures[0].Message.ShouldNotContain("Expected: 3", Case.Sensitive, "one block must not bleed into the next");
+        failures[1].Message.ShouldContain("Actual: 4");
+    }
+
+    [Fact]
+    public void A_runner_that_says_nothing_about_a_failure_still_parses()
+    {
+        // The tolerance that matters: no Error Message label, no Stack Trace, no crash - and the
+        // names, which are what the older behaviour gave, are still there.
+        const string output = """
+              Failed A.B.Silent [1 ms]
+            Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 9 ms
+            """;
+
+        TestOutcome outcome = TestOutputParser.Parse(output);
+
+        outcome.FailedTests.ShouldContain("A.B.Silent");
+        outcome.Failures.ShouldSatisfyAllConditions(
+            () => outcome.Failures.Count.ShouldBeLessThanOrEqualTo(1),
+            () => outcome.Failures.All(f => f.Message.Length > 0).ShouldBeTrue());
+    }
+
+    /// <summary>
+    /// The messages ride <em>under</em> the count line, never in it. The run progress sentry keys
+    /// repeated failures on the first line, so a message spliced into it would make one recurring
+    /// failure look like a new one on every step.
+    /// </summary>
+    [Fact]
+    public void The_described_failures_never_disturb_the_first_line()
+    {
+        string described = TestOutputParser.Describe(
+        [
+            new TestFailure("A.B.First", "Assert.Equal() Failure: Expected: 3 Actual: 4"),
+        ]);
+
+        described.ShouldStartWith("\n");
+        described.ShouldContain("A.B.First: Assert.Equal()");
+        TestOutputParser.Describe([]).ShouldBeEmpty();
+        TestOutputParser.Describe(null).ShouldBeEmpty();
+    }
+
     [Fact]
     public async Task An_unavailable_sandbox_refuses_rather_than_falling_back_to_the_host()
     {

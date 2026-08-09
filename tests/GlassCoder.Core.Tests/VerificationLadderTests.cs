@@ -104,6 +104,42 @@ public sealed class VerificationLadderTests : IDisposable
         _executor.Commands.Count(c => c.Arguments[0] == "test").ShouldBe(1, "the full suite must not run after a red unit test");
     }
 
+    /// <summary>
+    /// The rung says which assertion failed and by how much (workplan task 69).
+    /// <para>
+    /// This is the path an inline <c>create_file</c> or <c>edit_file</c> verification reports
+    /// through, and it used to give names alone while the <c>run_tests</c> record kept the
+    /// runner's own output. Run <c>d5edbc59</c> was editing tests through this rung when it
+    /// loosened a tolerance that could not help and then deleted the expected value.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_failing_rung_carries_the_assertion_not_only_the_name()
+    {
+        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _executor.Enqueue(0, "");
+        _executor.Enqueue(1, """
+              Failed Demo.MultiplyTests.Multiply_Decimals [< 1 ms]
+              Error Message:
+               Assert.Equal() Failure: Values differ
+               Expected: 7.011652
+               Actual:   7.006652
+              Stack Trace:
+                 at Demo.MultiplyTests.Multiply_Decimals()
+            Failed!  - Failed: 1, Passed: 6, Skipped: 0, Total: 7
+            """);
+
+        VerificationReport report = await Ladder().VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+
+        RungResult tests = report.Results.Single(r => r.Rung == VerificationRung.UnitTests);
+        tests.Summary.ShouldContain("7.011652", customMessage: "the literal the test asserted");
+        tests.Summary.ShouldContain("7.006652", customMessage: "the product the code computed - the half that makes it repairable");
+
+        // The count line is unchanged, because the sentry keys repeated failures on it.
+        tests.Summary.Split('\n')[0].ShouldBe("1 of 7 tests failed: Demo.MultiplyTests.Multiply_Decimals");
+    }
+
     [Fact]
     public async Task A_clean_climb_reaches_the_full_suite()
     {

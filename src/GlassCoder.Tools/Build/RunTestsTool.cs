@@ -16,6 +16,8 @@ namespace GlassCoder.Tools.Build;
 /// <param name="Total">Tests that ran.</param>
 /// <param name="FailedTests">Names of the failing tests.</param>
 /// <param name="Output">Tail of the run output, for context on the failures.</param>
+/// <param name="Failures">Each failing test with the assertion message the runner gave for it.</param>
+/// <param name="Notices">What is worth asking about a green suite, or empty. Never a failure.</param>
 /// <param name="DurationMs">Wall-clock for the run.</param>
 /// <param name="Sandbox">Where it ran: <c>docker</c> or <c>host</c>.</param>
 /// <param name="Tests">Discovered test names, when the call was a discovery rather than a run.</param>
@@ -29,6 +31,10 @@ public sealed record TestRunResult(
     [property: Description("Total number of tests - that ran, or that were discovered.")] int Total,
     [property: Description("Names of the failing tests.")] IReadOnlyList<string> FailedTests,
     [property: Description("Tail of the test output.")] string Output,
+    [property: Description("Each failing test with its assertion message.")]
+    IReadOnlyList<TestFailure> Failures,
+    [property: Description("Questions worth asking about a green suite - whether it exercises the product at all. Never a failure.")]
+    string Notices,
     [property: Description("Wall-clock milliseconds the run took.")] double DurationMs,
     [property: Description("Where the tests ran: docker or host.")] string Sandbox,
     [property: Description("Discovered test names, when listOnly was set. Pass one to filter.")]
@@ -54,21 +60,45 @@ public sealed class RunTestsTool : IToolSet
     private readonly ICommandExecutor _executor;
     private readonly IPathGuard _guard;
     private readonly SandboxOptions _sandbox;
+    private readonly BuildCache? _cache;
+    private readonly RoslynCodeAnalyzer? _analyzer;
+    private readonly ToolsOptions _tools;
 
     /// <summary>Creates the tool.</summary>
-    public RunTestsTool(ICommandExecutor executor, IPathGuard guard, IOptions<SandboxOptions> sandbox)
+    /// <param name="executor">The sandboxed command seam.</param>
+    /// <param name="guard">The path allow-list.</param>
+    /// <param name="sandbox">Sandbox settings, for the command timeout.</param>
+    /// <param name="cache">
+    /// The build cache, which remembers green runs until the tree moves (workplan task 74).
+    /// Optional, so a test constructing this tool need not care.
+    /// </param>
+    /// <param name="analyzer">
+    /// The tree cache, for the suite-quality notices (workplan task 66). Optional for the same
+    /// reason: without it a green suite simply reports as it always did.
+    /// </param>
+    /// <param name="tools">Sweep caps for those notices.</param>
+    public RunTestsTool(
+        ICommandExecutor executor,
+        IPathGuard guard,
+        IOptions<SandboxOptions> sandbox,
+        BuildCache? cache = null,
+        RoslynCodeAnalyzer? analyzer = null,
+        IOptions<ToolsOptions>? tools = null)
     {
         ArgumentNullException.ThrowIfNull(sandbox);
 
         _executor = executor;
         _guard = guard;
         _sandbox = sandbox.Value;
+        _cache = cache;
+        _analyzer = analyzer;
+        _tools = tools?.Value ?? new ToolsOptions();
     }
 
     /// <summary>Runs the tests for a project, solution or directory.</summary>
     [GlassCoderTool(ToolName, Order = 60)]
-    [Description("Run tests with dotnet test, reporting pass, fail and skip counts and the names of failing "
-        + "tests. Build first. Set listOnly to discover test names instead of running them.")]
+    [Description("Run tests with dotnet test. Build first. Set listOnly to discover test names instead "
+        + "of running them.")]
     public async Task<ToolObservation<TestRunResult>> RunTestsAsync(
         [Description("Repo-relative project, solution or directory. '.' is everything.")]
         string path = ".",
@@ -82,6 +112,19 @@ public sealed class RunTestsTool : IToolSet
         if (!verdict.Allowed || verdict.FullPath is null)
         {
             return Observation.Fail<TestRunResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
+        }
+
+        // Nothing has changed since these tests last ran green, so the answer cannot have changed
+        // either (workplan task 74). Discovery is never served from here - it is cheap, and a
+        // stale list of names is exactly the thing a discovery call is asking about.
+        if (!listOnly && _cache is not null &&
+            _cache.TryGetTests(verdict.RelativePath!, filter, out TestRunResult? remembered))
+        {
+            return Observation.Ok(
+                ToolName,
+                remembered!,
+                $"All {remembered!.Total} tests passed (unchanged since the last run, so this result "
+                    + "was reused). Change something before running them again.");
         }
 
         bool isDirectory = Directory.Exists(verdict.FullPath);
@@ -137,15 +180,26 @@ public sealed class RunTestsTool : IToolSet
         }
 
         TestOutcome outcome = TestOutputParser.Parse(result.CombinedOutput);
+        bool green = outcome.Ok && result.ExitCode == 0;
+
+        // The moment a green suite is about to be read as proof is the moment to ask whether it
+        // touches the product (workplan task 66). Only on green: a red suite is already telling
+        // the model something more urgent, and a notice would compete with it.
+        string notices = green && outcome.Total > 0 && _analyzer is not null
+            ? TestSuiteNotices.Describe(_guard, _analyzer, _tools.MaxFilesSearched, cancellationToken)
+            : string.Empty;
+
         TestRunResult payload = new(
             verdict.RelativePath!,
-            outcome.Ok && result.ExitCode == 0,
+            green,
             outcome.Passed,
             outcome.Failed,
             outcome.Skipped,
             outcome.Total,
             outcome.FailedTests,
             Tail(result.CombinedOutput),
+            outcome.Failures,
+            notices,
             result.Duration.TotalMilliseconds,
             result.Sandbox);
 
@@ -168,8 +222,15 @@ public sealed class RunTestsTool : IToolSet
             // failures on, and names make one recurring failure distinguishable from a new one.
             _ => $"{outcome.Failed} of {outcome.Total} tests failed: " +
                  string.Join(", ", outcome.FailedTests.Take(3)) +
-                 (outcome.FailedTests.Count > 3 ? $" (+{outcome.FailedTests.Count - 3} more)." : "."),
+                 (outcome.FailedTests.Count > 3 ? $" (+{outcome.FailedTests.Count - 3} more)." : ".") +
+                 Describe(outcome.Failures),
         };
+
+        summary += payload.Notices;
+
+        // Green and non-empty is worth remembering until something moves. Both conditions are the
+        // cache's to enforce, so a caller cannot forget one of them.
+        _cache?.SetTests(verdict.RelativePath!, filter, payload);
 
         // A red suite is information to the model and a failure to the progress machinery,
         // same contract as a refused dotnet command.
@@ -195,8 +256,8 @@ public sealed class RunTestsTool : IToolSet
             return Observation.Ok(
                 ToolName,
                 new TestRunResult(
-                    path, result.ExitCode == 0, 0, 0, 0, 0, [], Tail(result.CombinedOutput),
-                    result.Duration.TotalMilliseconds, result.Sandbox, [], false),
+                    path, result.ExitCode == 0, 0, 0, 0, 0, [], Tail(result.CombinedOutput), [],
+                    string.Empty, result.Duration.TotalMilliseconds, result.Sandbox, [], false),
                 result.ExitCode == 0
                     ? $"No tests found in '{path}'."
                     : $"Could not list the tests in '{path}'; discovery has to build first.");
@@ -206,7 +267,7 @@ public sealed class RunTestsTool : IToolSet
         IReadOnlyList<string> listed = truncated ? [.. all.Take(MaxDiscoveredTests)] : all;
 
         TestRunResult payload = new(
-            path, true, 0, 0, 0, all.Count, [], string.Empty,
+            path, true, 0, 0, 0, all.Count, [], string.Empty, [], string.Empty,
             result.Duration.TotalMilliseconds, result.Sandbox, listed, truncated);
 
         string summary = truncated
@@ -215,6 +276,9 @@ public sealed class RunTestsTool : IToolSet
 
         return Observation.Ok(ToolName, payload, summary);
     }
+
+    /// <summary>The failing assertions, under the count line rather than in it (workplan task 69).</summary>
+    private static string Describe(IReadOnlyList<TestFailure> failures) => TestOutputParser.Describe(failures);
 
     private static string Tail(string output) =>
         output.Length <= MaxOutputCharacters

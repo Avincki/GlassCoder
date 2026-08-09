@@ -118,6 +118,26 @@ public sealed class EditFileTool : IToolSet
         + "themselves - indentation, most often. Read the file again and copy the target from "
         + "what it returns. To replace the whole file instead, use create_file with overwrite: true.";
 
+    /// <summary>
+    /// When nothing at all matched (workplan task 70).
+    /// <para>
+    /// Deliberately does not say "read the file again". Re-reading is what the model does anyway
+    /// and it cannot help here: the file was usually read correctly, and the target is text the
+    /// model meant to <em>write</em>. Naming the two moves that do work is what turns four steps
+    /// into one.
+    /// </para>
+    /// </summary>
+    private const string ZeroMatchHint =
+        "Nothing of the target is in the file, so this is not a whitespace difference and reading "
+        + "it again will show the same thing. You are probably quoting text you meant to write, or "
+        + "editing the wrong file. Use read_file with outline: true to see what this file actually "
+        + "declares, or create_file with overwrite: true to replace it wholesale.";
+
+    /// <summary>When every line is present but the block is not - the quote spans a gap.</summary>
+    private const string ScatteredHint =
+        "Quote one contiguous region exactly as read_file returns it, including the lines in "
+        + "between, or make the separate changes as separate edits.";
+
     private readonly IPathGuard _guard;
     private readonly ICodeAnalyzer _analyzer;
     private readonly DiagnosticSummarizer _summarizer;
@@ -497,10 +517,11 @@ public sealed class EditFileTool : IToolSet
 
         if (found is not { } match)
         {
+            (string diagnosis, string hint) = Diagnose(text, hunk.OldText);
             return HunkResult.Refused(
                 ToolErrorCodes.NotFound,
-                $"{which}the text to replace was not found in '{path}'. {Nearest(text, hunk.OldText)}",
-                NotFoundHint);
+                $"{which}the text to replace was not found in '{path}'. {diagnosis}",
+                hint);
         }
 
         return new HunkResult(
@@ -523,10 +544,11 @@ public sealed class EditFileTool : IToolSet
         IReadOnlyList<TextFile.Match> matches = TextFile.FindAll(text, hunk.OldText);
         if (matches.Count == 0)
         {
+            (string diagnosis, string hint) = Diagnose(text, hunk.OldText);
             return HunkResult.Refused(
                 ToolErrorCodes.NotFound,
-                $"{which}the text to replace was not found in '{path}'. {Nearest(text, hunk.OldText)}",
-                NotFoundHint);
+                $"{which}the text to replace was not found in '{path}'. {diagnosis}",
+                hint);
         }
 
         StringBuilder updated = new(text.Length);
@@ -665,21 +687,24 @@ public sealed class EditFileTool : IToolSet
         $"{diagnostic.Id}|{diagnostic.FilePath}|{diagnostic.Message}";
 
     /// <summary>
-    /// A lead to follow when the target was not found.
+    /// A lead to follow when the target was not found, and the hint that fits it.
     /// <para>
     /// "Not found" on its own sends the model back to re-read a file it has often already read
     /// correctly. Saying which part of its target <em>did</em> match points at the line that
     /// differs, which is usually one indentation level.
     /// </para>
+    /// <para>
+    /// The hint travels with the diagnosis because the right advice is not the same in the three
+    /// cases (workplan task 70). A partial match really is a whitespace problem and re-reading
+    /// helps. A <em>zero</em> match is not: no amount of indentation turns text that is not there
+    /// into text that is, and telling the model to read the file again is what sent runs
+    /// <c>122e11c6</c> and <c>d5edbc59</c> through the same four wasted steps to the same
+    /// whole-file rewrite.
+    /// </para>
     /// </summary>
-    private static string Nearest(string original, string oldText)
+    private static (string Diagnosis, string Hint) Diagnose(string original, string oldText)
     {
         string[] lines = oldText.ReplaceLineEndings(TextFile.Lf).Split(TextFile.Lf);
-        if (lines.Length <= 1)
-        {
-            return string.Empty;
-        }
-
         (string normalised, _) = TextFile.Normalise(original);
 
         int matched = 0;
@@ -693,10 +718,28 @@ public sealed class EditFileTool : IToolSet
             matched++;
         }
 
-        return matched == 0
-            ? "None of its lines appear in the file."
-            : $"Its first {matched} line(s) appear in the file, but line {matched + 1} does not: "
-                + $"\"{Trim(lines[matched])}\".";
+        // A one-line target that is absent is a zero match. It used to return no diagnosis at all
+        // and inherit the whitespace hint - the one explanation it cannot be.
+        if (matched == 0 || lines.Length <= 1)
+        {
+            return ("No line of it appears there.", ZeroMatchHint);
+        }
+
+        // Every line is present but the block is not, so the quote is assembled from lines that
+        // are not adjacent. Reaching for lines[matched] here used to throw IndexOutOfRange, and a
+        // target ending in a newline hits it whenever its lines all appear somewhere.
+        if (matched >= lines.Length)
+        {
+            return (
+                "Every line of it appears in the file, but not consecutively - the quoted block is "
+                    + "assembled from lines that are not adjacent.",
+                ScatteredHint);
+        }
+
+        return (
+            $"Its first {matched} line(s) appear in the file, but line {matched + 1} does not: "
+                + $"\"{Trim(lines[matched])}\".",
+            NotFoundHint);
     }
 
     private static string Trim(string line) =>

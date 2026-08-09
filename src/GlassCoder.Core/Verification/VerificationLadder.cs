@@ -342,9 +342,22 @@ public sealed class VerificationLadder : IVerificationLadder
                 string summary = (tests.Ok, tests.Total) switch
                 {
                     (true, 0) => "The test run exited cleanly but ran 0 tests - nothing was verified.",
-                    (true, _) => $"{tests.Passed} tests passed.",
+
+                    // The suite-quality notices ride the rung report as well as the tool's own
+                    // summary (workplan task 66), because this is the sentence the critics read
+                    // when they are deciding whether "tests pass" means the work is done.
+                    (true, _) => $"{tests.Passed} tests passed." + tests.Notices,
                     (false, 0) => "The test run failed before any test executed.",
-                    _ => $"{tests.Failed} of {tests.Total} tests failed: {string.Join(", ", tests.FailedTests.Take(5))}",
+
+                    // The assertion messages ride under the count (workplan task 69). This rung is
+                    // what an inline edit_file verification reports through, and it used to give
+                    // names alone while the tool record kept the runner's output - two organs, two
+                    // views of one fact, and the model was reading the narrowed one. Given only
+                    // "two tests failed", the visible repairs are loosening the assertion and
+                    // deleting the oracle, and run d5edbc59 took both in that order.
+                    _ => $"{tests.Failed} of {tests.Total} tests failed: " +
+                         string.Join(", ", tests.FailedTests.Take(5)) +
+                         TestOutputParser.Describe(tests.Failures),
                 };
 
                 // Zero tests is not green: it does not gate - a testless workspace is a fact,
