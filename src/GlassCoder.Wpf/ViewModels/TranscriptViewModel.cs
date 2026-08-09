@@ -185,7 +185,7 @@ public sealed class StepRowViewModel
             System.Text.StringBuilder text = new();
             foreach (TranscriptMessage message in Record.Prompt)
             {
-                text.AppendLine(CultureInfo.InvariantCulture, $"[{message.Role}] {message.Text}");
+                text.AppendLine(CultureInfo.InvariantCulture, $"[{message.Role}] {Describe(message)}");
             }
 
             if (Record.ResponseText is not null)
@@ -234,6 +234,32 @@ public sealed class StepRowViewModel
 
             return text.ToString();
         }
+    }
+
+    /// <summary>
+    /// What to show for one replayed message.
+    /// <para>
+    /// An assistant turn that only called a tool has no text at all - which is the ordinary shape
+    /// of a tool-using step, so the pane used to show a column of bare <c>[assistant]</c> labels
+    /// with nothing beside them. The names were being recorded all along in
+    /// <see cref="TranscriptMessage.ToolCallNames"/> and only the formatter dropped them, so this
+    /// reads them back out of transcripts already on disk as well as new ones.
+    /// </para>
+    /// </summary>
+    private static string Describe(TranscriptMessage message)
+    {
+        string names = message.ToolCallNames is { Count: > 0 } calls
+            ? $"→ {string.Join(", ", calls)}"
+            : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(message.Text))
+        {
+            // Never an empty line: a message with neither text nor a call name is a real thing to
+            // know about - it means the content was of a kind nothing here reads yet.
+            return names.Length > 0 ? names : "(no text)";
+        }
+
+        return names.Length > 0 ? $"{names} {message.Text}" : message.Text;
     }
 }
 

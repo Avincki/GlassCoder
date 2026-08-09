@@ -646,6 +646,20 @@ public sealed class AgentLoop : IAgentLoop
     private const int MaxCritiqueFeedbackCharacters = 800;
 
     /// <summary>
+    /// Ceiling on a tool result replayed into a step's prompt record.
+    /// <para>
+    /// Much tighter than <see cref="LoggingOptions.MaxLoggedTextLength"/>, because every step logs
+    /// the <em>whole</em> conversation: one result is written once per step for the rest of the
+    /// run, so recording these at the 16,000-character limit would grow the transcript with the
+    /// square of the step count - a thirty-step run could log nine megabytes of the same tool
+    /// output. The authoritative full copy is written once, in
+    /// <see cref="ToolCallRecord.Result"/> on the step that made the call; this is the replay, and
+    /// it only has to be enough to read the conversation by.
+    /// </para>
+    /// </summary>
+    private const int MaxReplayedResultCharacters = 2_000;
+
+    /// <summary>
     /// One critique of the finished work, at the moment the model first claims the goal is met.
     /// <para>
     /// Null when there was nothing to judge - no panel, no applied changes, a panel that could
@@ -897,18 +911,50 @@ public sealed class AgentLoop : IAgentLoop
             Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
 
+    /// <summary>
+    /// One message, reduced to what a transcript needs.
+    /// <para>
+    /// <see cref="ChatMessage.Text"/> concatenates the <see cref="TextContent"/> parts and nothing
+    /// else - which for two of the four roles is nothing at all. An assistant turn that only called
+    /// a tool carries a <see cref="FunctionCallContent"/>, and the tool's answer comes back as a
+    /// <see cref="FunctionResultContent"/>; reading only <c>Text</c> recorded both as empty, so the
+    /// replayed conversation was a column of blank <c>[assistant]</c> and <c>[tool]</c> lines and
+    /// the run could not be reconstructed as the model saw it.
+    /// </para>
+    /// <para>
+    /// Redaction still happens in <see cref="StepLogger"/>. This only decides what there is to
+    /// redact.
+    /// </para>
+    /// </summary>
     private static TranscriptMessage Describe(ChatMessage message)
     {
         List<string>? toolCalls = null;
+        List<string>? results = null;
+
         foreach (AIContent content in message.Contents)
         {
-            if (content is FunctionCallContent call)
+            switch (content)
             {
-                (toolCalls ??= []).Add(call.Name);
+                case FunctionCallContent call:
+                    (toolCalls ??= []).Add(call.Name);
+                    break;
+
+                case FunctionResultContent result when Serialise(result.Result) is { Length: > 0 } text:
+                    (results ??= []).Add(SecretRedactor.Truncate(text, MaxReplayedResultCharacters)!);
+                    break;
+
+                default:
+                    break;
             }
         }
 
-        return new TranscriptMessage(message.Role.Value, message.Text, toolCalls);
+        // The message's own text wins wherever it has any; a tool result only stands in where
+        // there was none, which is precisely the case that recorded as blank.
+        string? described = !string.IsNullOrEmpty(message.Text)
+            ? message.Text
+            : results is null ? null : string.Join(Environment.NewLine, results);
+
+        return new TranscriptMessage(message.Role.Value, described, toolCalls);
     }
 
     private static ToolCallRecord Describe(ToolInvocation invocation) =>

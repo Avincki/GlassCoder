@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using GlassCoder.Core.Agent;
+using GlassCoder.Core.Diagnostics;
 using GlassCoder.Models.Configuration;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools;
@@ -49,6 +50,49 @@ public sealed class AgentLoopTests
         IReadOnlyList<ChatMessage> secondPrompt = harness.Client.Requests[1].Messages;
         secondPrompt.ShouldContain(m => m.Role == ChatRole.Tool);
         secondPrompt[^1].Contents.OfType<FunctionResultContent>().ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task The_replayed_conversation_records_the_tool_call_and_its_result()
+    {
+        // What the transcript surface reads. ChatMessage.Text sees only the TextContent parts, so
+        // a tool-calling assistant turn and the tool's answer both reduced to an empty string -
+        // the step detail showed a column of blank [assistant] and [tool] lines, and the run could
+        // not be reconstructed as the model saw it.
+        Harness harness = new(
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = "hello" }),
+            FakeChatClient.Text("Echoed."));
+
+        await harness.RunAsync();
+
+        // The second step replays the first step's exchange.
+        IReadOnlyList<TranscriptMessage> replayed = harness.StepLogger.Steps[1].Prompt;
+
+        TranscriptMessage assistant = replayed.Last(m => m.Role == "assistant");
+        assistant.ToolCallNames.ShouldNotBeNull().ShouldBe(["echo"]);
+
+        TranscriptMessage tool = replayed.Last(m => m.Role == "tool");
+        tool.Text.ShouldNotBeNullOrWhiteSpace("a tool result that logs as empty is a lost observation");
+        tool.Text.ShouldContain("hello");
+    }
+
+    [Fact]
+    public async Task A_replayed_tool_result_is_capped_well_below_the_logging_limit()
+    {
+        // Every step logs the whole conversation, so one result is written once per remaining
+        // step. At the 16,000-character logging limit that grows with the square of the step
+        // count; the full copy lives once in ToolCalls[].Result on the step that made the call.
+        Harness harness = new(
+            FakeChatClient.ToolCall("echo", new Dictionary<string, object?> { ["text"] = new string('x', 20_000) }),
+            FakeChatClient.Text("Echoed."));
+
+        await harness.RunAsync();
+
+        TranscriptMessage tool = harness.StepLogger.Steps[1].Prompt.Last(m => m.Role == "tool");
+        tool.Text!.Length.ShouldBeLessThan(2_100);
+
+        // ...and the step that made the call still carries the whole thing.
+        harness.StepLogger.Steps[0].ToolCalls.ShouldHaveSingleItem().Result!.Length.ShouldBeGreaterThan(19_000);
     }
 
     [Fact]
