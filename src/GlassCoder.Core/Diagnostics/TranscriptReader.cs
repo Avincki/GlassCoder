@@ -22,7 +22,7 @@ public static class TranscriptReader
     public static IReadOnlyList<RunTranscript> ReadFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Read(File.ReadLines(path));
+        return Read(ReadLines(path));
     }
 
     /// <summary>
@@ -35,9 +35,35 @@ public static class TranscriptReader
         IEnumerable<string> lines = Directory
             .EnumerateFiles(directory, searchPattern)
             .OrderBy(f => f, StringComparer.Ordinal)
-            .SelectMany(File.ReadLines);
+            .SelectMany(ReadLines);
 
         return Read(lines);
+    }
+
+    /// <summary>
+    /// Reads a log file's lines while the logger still holds it open for writing.
+    /// <para>
+    /// <see cref="File.ReadLines(string)"/> asks for <see cref="FileShare.Read"/>, which is a
+    /// declaration that nobody else may write - and Serilog's file sink is already writing, so
+    /// Windows refuses the open with a sharing violation. Today's log is the one file this type
+    /// is most often asked about and the one file guaranteed to be locked, so reading it has to
+    /// tolerate the writer rather than compete with it. Delete-sharing is part of the same
+    /// concession: the sink rolls and prunes files underneath a reader.
+    /// </para>
+    /// </summary>
+    private static IEnumerable<string> ReadLines(string path)
+    {
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using StreamReader reader = new(stream);
+
+        while (reader.ReadLine() is { } line)
+        {
+            yield return line;
+        }
     }
 
     /// <summary>Reads every run out of a sequence of JSONL lines.</summary>

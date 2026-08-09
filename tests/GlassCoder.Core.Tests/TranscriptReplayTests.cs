@@ -154,6 +154,36 @@ public sealed class TranscriptReplayTests : IDisposable
         transcript.ToText().ShouldContain("review by critic-remote");
     }
 
+    [Fact]
+    public async Task Todays_log_replays_while_the_logger_still_holds_it_open()
+    {
+        // The case the application actually hits, and the one every other test here skips: the
+        // retrospective reads the newest log during window construction, while this process's own
+        // Serilog sink still has that file open for writing. Disposing the logger first - which is
+        // what the other tests do - is the one condition a running GlassCoder never satisfies.
+        LoggingOptions logging = new() { Directory = _directory, Console = false };
+        using Serilog.Core.Logger serilog = SerilogBootstrap.CreateLogger(logging);
+        using ILoggerFactory factory = LoggerFactory.Create(builder => builder.AddSerilog(serilog));
+
+        StepLogger stepLogger = new(factory.CreateLogger<StepLogger>(), Options.Create(logging));
+
+        AgentLoop loop = new(
+            new FakeChatClientFactory(new FakeChatClient(FakeChatClient.Text("Done."))),
+            new ToolRegistry([new EchoTools()]),
+            stepLogger,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions()));
+
+        AgentRunResult result = await loop.RunAsync(
+            new AgentRunRequest { TaskId = "replay-task", Goal = "Echo hello." });
+
+        string newest = Directory.EnumerateFiles(_directory, "*.jsonl").ShouldHaveSingleItem();
+
+        TranscriptReader.ReadFile(newest).ShouldHaveSingleItem().RunId.ShouldBe(result.RunId);
+        TranscriptReader.ReadDirectory(_directory).ShouldHaveSingleItem().RunId.ShouldBe(result.RunId);
+    }
+
     private async Task<AgentRunResult> RunThroughSerilogAsync()
     {
         LoggingOptions logging = new() { Directory = _directory, Console = false };
