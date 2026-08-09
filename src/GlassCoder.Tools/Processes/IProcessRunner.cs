@@ -28,6 +28,26 @@ public sealed record ProcessRunRequest(string FileName, IReadOnlyList<string> Ar
     /// </para>
     /// </summary>
     public Action<string>? OnOutputLine { get; init; }
+
+    /// <summary>
+    /// Polled with the child's process id while it runs. The first <see langword="true"/> ends the
+    /// wait early and the process tree is killed, exactly as a timeout would kill it.
+    /// <para>
+    /// This exists for a caller whose evidence arrives before the process does anything else -
+    /// <c>launch_app</c> wants "it drew a window", and a desktop application never exits to say
+    /// so. Without it the only available signal is the clock, and the whole timeout is spent every
+    /// time. Deliberately a predicate over a process id rather than anything window-shaped: this
+    /// class runs builds and test suites too, and it has no business knowing what a window is.
+    /// </para>
+    /// <para>
+    /// Invoked on the waiting thread, and a predicate that throws is swallowed and read as "not
+    /// ready yet" - the same bargain <see cref="OnOutputLine"/> strikes, for the same reason.
+    /// </para>
+    /// </summary>
+    public Func<int, bool>? ReadyWhen { get; init; }
+
+    /// <summary>How often <see cref="ReadyWhen"/> is polled. Ignored when it is null.</summary>
+    public TimeSpan ReadyPollInterval { get; init; } = TimeSpan.FromMilliseconds(200);
 }
 
 /// <summary>What a child process did.</summary>
@@ -45,6 +65,14 @@ public sealed record ProcessRunResult(
 {
     /// <summary>Whether the process exited cleanly.</summary>
     public bool Succeeded => ExitCode == 0 && !TimedOut;
+
+    /// <summary>
+    /// Whether the run ended because <see cref="ProcessRunRequest.ReadyWhen"/> said so, rather
+    /// than by the process exiting or the clock running out. The process was still alive and was
+    /// killed, so <see cref="ExitCode"/> is -1 and <see cref="TimedOut"/> is false: this is the
+    /// third outcome, and it is the good one for anything that is not supposed to exit.
+    /// </summary>
+    public bool ReadySignalled { get; init; }
 }
 
 /// <summary>

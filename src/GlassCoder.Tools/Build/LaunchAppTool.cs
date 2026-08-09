@@ -21,7 +21,12 @@ public sealed record LaunchAppResult(
     [property: Description("True when it was still running at the timeout - for a desktop app, the good outcome.")] bool StayedUp,
     [property: Description("Exit code, when it exited on its own.")] int ExitCode,
     [property: Description("Tail of standard error.")] string Error,
-    [property: Description("How long it ran, in milliseconds.")] double ElapsedMs);
+    [property: Description("How long it ran, in milliseconds.")] double ElapsedMs)
+{
+    /// <summary>Whether a window actually appeared, which is the strongest evidence here.</summary>
+    [Description("True when the application drew a window - stronger evidence than merely staying up.")]
+    public bool ShowedWindow { get; init; }
+}
 
 /// <summary>
 /// <c>launch_app</c> - the runtime evidence a completion critique keeps asking for (workplan
@@ -57,6 +62,7 @@ public sealed class LaunchAppTool : IToolSet
     private readonly IProcessRunner _processes;
     private readonly IPathGuard _guard;
     private readonly RuntimeEvidence _evidence;
+    private readonly IWindowPresence? _windows;
     private readonly ILogger<LaunchAppTool> _logger;
 
     /// <summary>Creates the tool.</summary>
@@ -64,11 +70,13 @@ public sealed class LaunchAppTool : IToolSet
         IProcessRunner processes,
         IPathGuard guard,
         RuntimeEvidence evidence,
+        IWindowPresence? windows = null,
         ILogger<LaunchAppTool>? logger = null)
     {
         _processes = processes;
         _guard = guard;
         _evidence = evidence;
+        _windows = windows;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<LaunchAppTool>.Instance;
     }
 
@@ -100,16 +108,29 @@ public sealed class LaunchAppTool : IToolSet
 
         int seconds = Math.Clamp(timeoutSeconds, 1, MaxTimeoutSeconds);
 
+        // The application's own executable when it can be found, because the window belongs to
+        // whatever process draws it: under `dotnet run` that is a grandchild, and the handle this
+        // polls for would stay zero for the whole timeout. Falling back to `dotnet run` costs
+        // nothing that was ever there - it is what this tool always did.
+        string? executable = FindExecutable(verdict.FullPath);
+        bool watched = executable is not null && _windows is not null;
+
+        ProcessRunRequest request = executable is null
+            ? new ProcessRunRequest("dotnet", ["run", "--project", verdict.FullPath, "--no-build"])
+                { WorkingDirectory = Path.GetDirectoryName(verdict.FullPath) }
+            : new ProcessRunRequest(executable, [])
+                { WorkingDirectory = Path.GetDirectoryName(executable) };
+
+        request = request with
+        {
+            Timeout = TimeSpan.FromSeconds(seconds),
+            ReadyWhen = watched ? _windows!.HasVisibleWindow : null,
+        };
+
         ProcessRunResult result;
         try
         {
-            result = await _processes.RunAsync(
-                new ProcessRunRequest("dotnet", ["run", "--project", verdict.FullPath, "--no-build"])
-                {
-                    WorkingDirectory = Path.GetDirectoryName(verdict.FullPath),
-                    Timeout = TimeSpan.FromSeconds(seconds),
-                },
-                cancellationToken).ConfigureAwait(false);
+            result = await _processes.RunAsync(request, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -119,28 +140,46 @@ public sealed class LaunchAppTool : IToolSet
                 $"The application could not be started: {ex.Message}");
         }
 
-        // A desktop application that is still up when the clock runs out is the success case: it
-        // started, drew its window and did not fall over. An application that exits immediately
-        // with a non-zero code is the failure this is looking for.
-        bool stayedUp = result.TimedOut;
+        // Three ways to still be alive, and they are not equally good evidence. A window on the
+        // screen is the thing the critique panels kept asking for; surviving the clock is the
+        // weaker claim this tool used to make; and an immediate non-zero exit is the failure it
+        // is looking for.
+        bool showedWindow = result.ReadySignalled;
+        bool stayedUp = result.TimedOut || showedWindow;
         bool started = stayedUp || result.ExitCode == 0;
 
         LaunchAppResult payload = new(
             verdict.RelativePath!,
             started,
             stayedUp,
-            result.TimedOut ? 0 : result.ExitCode,
+            stayedUp ? 0 : result.ExitCode,
             Cap(result.StandardError),
-            result.Duration.TotalMilliseconds);
-
-        string summary = (stayedUp, result.ExitCode) switch
+            result.Duration.TotalMilliseconds)
         {
-            (true, _) => string.Create(
+            ShowedWindow = showedWindow,
+        };
+
+        string summary = (showedWindow, stayedUp, result.ExitCode) switch
+        {
+            (true, _, _) => string.Create(
+                CultureInfo.InvariantCulture,
+                $"'{verdict.RelativePath}' started and drew a window after " +
+                $"{result.Duration.TotalSeconds:F1}s, then was stopped. It runs and renders; " +
+                $"whether the window is *right* still needs eyes on it."),
+
+            // Watched and saw nothing is a different fact from never having looked, and saying
+            // the first when the second is true would invent evidence against the change.
+            (false, true, _) when watched => string.Create(
+                CultureInfo.InvariantCulture,
+                $"'{verdict.RelativePath}' was still running after {seconds}s but never drew a " +
+                $"window. It launches without crashing; something is keeping the UI from " +
+                $"appearing.{Describe(result.StandardError)}"),
+            (false, true, _) => string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{verdict.RelativePath}' started and was still running after {seconds}s, then was " +
                 $"stopped. It launches without crashing; whether the window is right is the " +
                 $"operator's Run app to say."),
-            (false, 0) => string.Create(
+            (false, false, 0) => string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{verdict.RelativePath}' ran and exited 0 after {result.Duration.TotalSeconds:F1}s."),
             _ => string.Create(
@@ -154,10 +193,47 @@ public sealed class LaunchAppTool : IToolSet
         _evidence.Record(summary, started);
 
         _logger.LogInformation(
-            "launch_app on {Path}: started={Started}, stayedUp={StayedUp}, exit={ExitCode}",
-            verdict.RelativePath, started, stayedUp, result.ExitCode);
+            "launch_app on {Path}: started={Started}, stayedUp={StayedUp}, window={ShowedWindow}, " +
+            "exit={ExitCode}, {ElapsedMs:F0}ms",
+            verdict.RelativePath, started, stayedUp, showedWindow, result.ExitCode,
+            result.Duration.TotalMilliseconds);
 
         return Observation.Ok(ToolName, payload, summary, outcomeOk: started);
+    }
+
+    /// <summary>
+    /// The application's own executable under <c>bin</c>, or null when there is no obvious one.
+    /// <para>
+    /// Matched by name - <c>&lt;project&gt;.exe</c> - rather than taking any executable in the
+    /// output, because <c>bin</c> is full of other projects' apphosts and picking the wrong one
+    /// would launch the wrong application and report on it confidently. A project whose
+    /// <c>AssemblyName</c> differs from its file name finds nothing here and falls back to
+    /// <c>dotnet run</c>, which is the behaviour that shipped in task 71.
+    /// </para>
+    /// </summary>
+    private static string? FindExecutable(string projectFullPath)
+    {
+        // The apphost is extensionless off Windows, which makes "is this the app or a stray file"
+        // a guess rather than a match. Not worth being wrong about for a fallback that works.
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        string bin = Path.Combine(Path.GetDirectoryName(projectFullPath) ?? ".", "bin");
+        if (!Directory.Exists(bin))
+        {
+            return null;
+        }
+
+        string expected = Path.GetFileNameWithoutExtension(projectFullPath) + ".exe";
+
+        // Newest wins: Debug and Release both persist, and the one just built is the one the
+        // model has been editing.
+        return new DirectoryInfo(bin)
+            .EnumerateFiles(expected, SearchOption.AllDirectories)
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .FirstOrDefault()?.FullName;
     }
 
     private static string Describe(string? standardError)

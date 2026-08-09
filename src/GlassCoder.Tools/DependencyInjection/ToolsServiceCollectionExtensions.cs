@@ -197,6 +197,7 @@ public static class ToolsServiceCollectionExtensions
         // What running the application showed, carried to the panel that asks for it
         // (workplan task 71). Keyed by run, like the refusal tracker and the read memo.
         services.TryAddSingleton<RuntimeEvidence>();
+        services.TryAddSingleton<IWindowPresence, WindowPresence>();
         services.TryAddSingleton<LaunchAppTool>();
 
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());

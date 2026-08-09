@@ -27,6 +27,11 @@ expensive half.
 **`RoslynCodeAnalyzer` caches the assemblies it scavenges from `bin`**, keyed on path, write time
 and length - the key `CachedTree` already used for syntax trees, one line above.
 
+**`launch_app` waits for a window instead of sleeping out its timeout.** `ProcessRunRequest`
+gained `ReadyWhen`, a predicate over the child's process id that the runner polls and that ends
+the wait early; `IWindowPresence` answers it from `Process.MainWindowHandle`. Measured against
+the real `MultiplyApp`: **904 ms, against the 10,000 ms this used to cost every single launch.**
+
 **Decided**
 
 - **The instruction was replaced, not deleted.** "Trust the automatic verification" alone would
@@ -49,13 +54,24 @@ and length - the key `CachedTree` already used for syntax trees, one line above.
   rung at 188 ms. Measured with the framework references pre-warmed: 163 DLLs / 9.8 MB goes 66 ms
   → 8 ms, and 450 DLLs / 87 MB goes 139 ms → 12 ms. Tens of milliseconds a compile, scaling with
   the bin, and worth most on the `LocateInReferences` path a CS0246 storm hammers.
+- **The readiness predicate is over a process id, not a window.** `ProcessRunner` also runs builds
+  and test suites and has no business knowing what a window is, so the platform half lives behind
+  `IWindowPresence` - which is also what lets a test say "the window appeared after 400 ms"
+  without a desktop to say it on.
+- **`launch_app` starts the application's own executable rather than `dotnet run`.** The window
+  belongs to whatever process draws it, and under `dotnet run` that is a grandchild whose handle
+  this never sees - so the polling would have reported "no window" for an application that drew
+  one immediately. Matched by name, `<project>.exe` under `bin`, because that folder is full of
+  other projects' apphosts; no match falls back to `dotnet run`, which is what task 71 shipped.
+- **Watched-and-saw-nothing is said differently from never-looked.** A launch with no executable
+  to find never polls, and claiming "it never drew a window" there would manufacture evidence
+  against a change that may be fine. Three summaries, not two.
 
 **Open**
 
-- Four further candidates were costed and not built: seeding `BuildCache` from the ladder's own
-  rungs, `--no-build` on `run_tests` when the build is fresh, `DOTNET_CLI_USE_MSBUILD_SERVER=1`,
-  and `launch_app` polling for a drawn window instead of sleeping out its ten-second timeout.
-  The last is the largest single constant in a run that launches anything.
+- Three further candidates were costed and not built: seeding `BuildCache` from the ladder's own
+  rungs, `--no-build` on `run_tests` when the build is fresh, and
+  `DOTNET_CLI_USE_MSBUILD_SERVER=1`.
 - **Nothing here has been measured against a live worker**, and the prompt change is the kind that
   only a run can judge. The next run is the test.
 

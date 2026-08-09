@@ -37,6 +37,109 @@ public sealed class ProcessRunnerTests
         result.Succeeded.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// The point of <see cref="ProcessRunRequest.ReadyWhen"/> (workplan task 71): a process that
+    /// is never going to exit can still say it has done the thing that was worth waiting for, and
+    /// the wait ends there instead of at the timeout.
+    /// </summary>
+    [Fact]
+    public async Task A_ready_signal_ends_the_wait_without_spending_the_timeout()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        ProcessRunner runner = new();
+        int polls = 0;
+
+        // ping -n 20 runs for about nineteen seconds; the timeout is fifteen. Both are far enough
+        // from the assertion below that a slow machine cannot turn a pass into a failure.
+        ProcessRunResult result = await runner.RunAsync(
+            new ProcessRunRequest("cmd.exe", ["/c", "ping", "-n", "20", "127.0.0.1"])
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+                ReadyPollInterval = TimeSpan.FromMilliseconds(50),
+                ReadyWhen = _ => ++polls >= 2,
+            });
+
+        result.ReadySignalled.ShouldBeTrue();
+        result.TimedOut.ShouldBeFalse();
+        result.Duration.ShouldBeLessThan(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task A_ready_signal_that_never_comes_leaves_the_timeout_in_charge()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        ProcessRunner runner = new();
+
+        ProcessRunResult result = await runner.RunAsync(
+            new ProcessRunRequest("cmd.exe", ["/c", "ping", "-n", "20", "127.0.0.1"])
+            {
+                Timeout = TimeSpan.FromSeconds(1),
+                ReadyPollInterval = TimeSpan.FromMilliseconds(50),
+                ReadyWhen = _ => false,
+            });
+
+        result.TimedOut.ShouldBeTrue();
+        result.ReadySignalled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_process_that_exits_before_it_is_ready_still_reports_its_own_exit_code()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        ProcessRunner runner = new();
+
+        ProcessRunResult result = await runner.RunAsync(
+            new ProcessRunRequest("cmd.exe", ["/c", "exit /b 7"])
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+                ReadyPollInterval = TimeSpan.FromMilliseconds(20),
+                ReadyWhen = _ => false,
+            });
+
+        result.ExitCode.ShouldBe(7);
+        result.ReadySignalled.ShouldBeFalse();
+        result.TimedOut.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A predicate that throws is read as not-ready, never as a reason to tear down the launch -
+    /// the bargain <see cref="ProcessRunRequest.OnOutputLine"/> already strikes.
+    /// </summary>
+    [Fact]
+    public async Task A_readiness_predicate_that_throws_does_not_kill_the_process()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        ProcessRunner runner = new();
+
+        ProcessRunResult result = await runner.RunAsync(
+            new ProcessRunRequest("cmd.exe", ["/c", "echo glasscoder"])
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+                ReadyPollInterval = TimeSpan.FromMilliseconds(20),
+                ReadyWhen = _ => throw new InvalidOperationException("the watcher is broken"),
+            });
+
+        result.ExitCode.ShouldBe(0);
+        result.StandardOutput.ShouldContain("glasscoder");
+        result.ReadySignalled.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task The_real_runner_captures_stdout_and_the_exit_code()
     {

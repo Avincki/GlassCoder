@@ -119,9 +119,18 @@ public sealed class ProcessRunner : IProcessRunner
         }
 
         bool timedOut = false;
+        bool ready = false;
         try
         {
-            await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            if (request.ReadyWhen is { } readyWhen)
+            {
+                ready = await WaitForReadyOrExitAsync(
+                    process, readyWhen, request.ReadyPollInterval, timeoutSource.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -134,12 +143,68 @@ public sealed class ProcessRunner : IProcessRunner
             }
         }
 
+        // Ready means the process is still running and has told us what we waited to learn, so it
+        // is stopped on the same terms the timeout would have stopped it - just sooner.
+        if (ready)
+        {
+            Kill(process);
+        }
+
         return new ProcessRunResult(
-            timedOut ? -1 : process.ExitCode,
+            timedOut || ready ? -1 : process.ExitCode,
             stdout.ToString(),
             stderr.ToString(),
             Stopwatch.GetElapsedTime(start),
-            timedOut);
+            timedOut)
+        {
+            ReadySignalled = ready,
+        };
+    }
+
+    /// <summary>
+    /// Waits for whichever comes first: the predicate saying the process is ready, or the process
+    /// exiting. Returns whether it was the former. The timeout arrives as cancellation on the
+    /// token, so it surfaces through the same <see cref="OperationCanceledException"/> path a
+    /// plain wait uses and needs no second branch at the call site.
+    /// </summary>
+    private async Task<bool> WaitForReadyOrExitAsync(
+        Process process,
+        Func<int, bool> readyWhen,
+        TimeSpan interval,
+        CancellationToken cancellationToken)
+    {
+        // Never zero: a poll interval of nothing is a spin loop competing with the process it is
+        // waiting for, on a machine that is also compiling.
+        TimeSpan poll = interval > TimeSpan.Zero ? interval : TimeSpan.FromMilliseconds(200);
+
+        while (!process.HasExited)
+        {
+            if (IsReady(readyWhen, process.Id))
+            {
+                return true;
+            }
+
+            await Task.Delay(poll, cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Asks the predicate, treating a throw as "not yet". Guarded for the reason
+    /// <see cref="Watch"/> is: whoever was watching getting it wrong must not kill the launch.
+    /// </summary>
+    private bool IsReady(Func<int, bool> readyWhen, int processId)
+    {
+        try
+        {
+            return readyWhen(processId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "A readiness predicate threw and was read as not-ready");
+            return false;
+        }
     }
 
     private static void Append(StringBuilder builder, string? line)

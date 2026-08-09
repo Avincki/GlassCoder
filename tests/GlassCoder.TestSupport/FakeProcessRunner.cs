@@ -37,6 +37,19 @@ public sealed class FakeProcessRunner : IProcessRunner
         return this;
     }
 
+    /// <summary>
+    /// Queues a process that was stopped because <see cref="ProcessRunRequest.ReadyWhen"/> said it
+    /// was ready - the third outcome, and for <c>launch_app</c> the best one: a window appeared,
+    /// so there was no reason to keep waiting.
+    /// </summary>
+    /// <param name="elapsed">How long it took to get there, which is the point of the exercise.</param>
+    public FakeProcessRunner EnqueueReady(TimeSpan elapsed = default)
+    {
+        _scripted.Enqueue(
+            new ProcessRunResult(-1, string.Empty, string.Empty, elapsed, TimedOut: false) { ReadySignalled = true });
+        return this;
+    }
+
     /// <inheritdoc />
     public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default)
     {

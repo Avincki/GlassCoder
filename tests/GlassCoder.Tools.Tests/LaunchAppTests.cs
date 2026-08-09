@@ -130,6 +130,89 @@ public sealed class LaunchAppTests : IDisposable
         evidence.Latest.ShouldNotBeNull().ShouldContain("Runtime: FAILED");
     }
 
-    private LaunchAppTool Tool(IProcessRunner runner) =>
-        new(runner, _workspace.Guard("src"), new RuntimeEvidence());
+    /// <summary>
+    /// The saving this is for: a desktop application draws its window in a second or two, and the
+    /// tool used to sit out the whole ten regardless. Ten seconds a launch, every launch.
+    /// </summary>
+    [Fact]
+    public async Task A_window_is_better_evidence_than_surviving_the_clock_and_arrives_sooner()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady(TimeSpan.FromSeconds(1.4));
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true))
+            .LaunchAsync("src/App/App.csproj", timeoutSeconds: 10);
+
+        observation.Data!.ShowedWindow.ShouldBeTrue();
+        observation.Data.Started.ShouldBeTrue();
+        observation.Data.StayedUp.ShouldBeTrue();
+        observation.OutcomeOk.ShouldBeTrue();
+        observation.Summary.ShouldContain("drew a window");
+
+        // And it still refuses to claim the window is correct - only that there is one.
+        observation.Summary.ShouldContain("needs eyes on it");
+    }
+
+    [Fact]
+    public async Task The_built_executable_is_launched_directly_so_the_window_has_an_owner()
+    {
+        // Under `dotnet run` the window belongs to a grandchild and MainWindowHandle stays zero,
+        // so the polling would report "no window" for an application that drew one immediately.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        await Tool(runner, new StubWindows(true)).LaunchAsync("src/App/App.csproj");
+
+        ProcessRunRequest request = runner.Requests.Single();
+        request.FileName.ShouldEndWith("App.exe");
+        request.Arguments.ShouldBeEmpty();
+        request.ReadyWhen.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task An_app_that_stays_up_without_ever_drawing_anything_says_exactly_that()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueTimedOut();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(false))
+            .LaunchAsync("src/App/App.csproj", timeoutSeconds: 4);
+
+        observation.Data!.ShowedWindow.ShouldBeFalse();
+        observation.Data.StayedUp.ShouldBeTrue();
+        observation.Summary.ShouldContain("never drew a window");
+    }
+
+    /// <summary>
+    /// Watched-and-saw-nothing and never-looked are different facts, and only one of them is
+    /// evidence against the change. With no executable to launch there is nothing to watch, so
+    /// the tool falls back to what task 71 shipped and says no more than it did.
+    /// </summary>
+    [Fact]
+    public async Task With_no_executable_to_find_it_neither_watches_nor_claims_to_have()
+    {
+        FakeProcessRunner runner = new();
+        runner.EnqueueTimedOut();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true))
+            .LaunchAsync("src/App/App.csproj", timeoutSeconds: 4);
+
+        runner.Requests.Single().ReadyWhen.ShouldBeNull();
+        observation.Summary.ShouldNotContain("never drew a window");
+        observation.Summary.ShouldContain("still running");
+    }
+
+    private LaunchAppTool Tool(IProcessRunner runner, IWindowPresence? windows = null) =>
+        new(runner, _workspace.Guard("src"), new RuntimeEvidence(), windows);
+
+    private sealed class StubWindows(bool answer) : IWindowPresence
+    {
+        public bool HasVisibleWindow(int processId) => answer;
+    }
 }
