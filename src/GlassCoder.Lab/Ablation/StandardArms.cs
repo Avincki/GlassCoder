@@ -103,6 +103,41 @@ public static class StandardArms
         WithServers(learn: true, github: true));
 
     /// <summary>
+    /// The cost of Learn's mere presence (workplan task 61).
+    /// <para>
+    /// The two <c>*-tools-only</c> arms are the important ones, and the reason is a confound.
+    /// Reading <c>with-learn</c> against <c>baseline</c> measures two things at once: what it
+    /// costs to carry a tool - its schema on every request, and the model's willingness to reach
+    /// for it rather than think - and what its answers are worth. These arms register the tools
+    /// and return nothing, which is the first effect alone. If presence is meaningfully worse than
+    /// baseline on tool-call validity or steps-to-solve, retrieval must clear that deficit before
+    /// any result reads as a win.
+    /// </para>
+    /// </summary>
+    public static AblationArm LearnToolsOnly { get; } = new(
+        "learn-tools-only",
+        "Learn's tools registered and answering nothing. The cost of presence, without the answers.",
+        Stubbed(learn: true, github: false));
+
+    /// <summary>The same instrument, for GitHub - whose one tool costs more schema than Learn's two.</summary>
+    public static AblationArm GitHubToolsOnly { get; } = new(
+        "github-tools-only",
+        "GitHub's tool registered and answering nothing. The cost of presence, without the answers.",
+        Stubbed(learn: false, github: true));
+
+    /// <summary>
+    /// Run-to-run variance with no cache under it.
+    /// <para>
+    /// Worth running once and probably never again. If its variance is large, every uncached
+    /// result anyone has ever read was an anecdote - including the ones that argued for retrieval.
+    /// </para>
+    /// </summary>
+    public static AblationArm RetrievalNoCache { get; } = new(
+        "retrieval-no-cache",
+        "Learn on and answering live, so nothing is replayed. Run it twice and compare the two.",
+        LiveServers(learn: true, github: false));
+
+    /// <summary>
     /// Every optional capability off, and every one of them named.
     /// <para>
     /// The dictionary the arms are built from, so a lever is never inherited from whatever the
@@ -131,6 +166,11 @@ public static class StandardArms
             [$"{RetrievalOptions.SectionName}:MaxCallsPerRun"] = "3",
             [$"{RetrievalOptions.SectionName}:MaxResultChars"] = "3000",
             [$"{RetrievalOptions.SectionName}:MaxCallsWithoutAppliedChange"] = "2",
+
+            // The presence-only lever (task 61). Named here for the same reason as the four above:
+            // an arm that inherited it would answer nothing while looking exactly like one that
+            // answers everything, and the guard test below is what caught it going unnamed.
+            [$"{RetrievalOptions.SectionName}:AnswersDisabled"] = "false",
         };
 
     /// <summary>The explicit baseline with one key moved - which is what "one lever" means.</summary>
@@ -155,6 +195,25 @@ public static class StandardArms
         overrides[$"{RetrievalOptions.SectionName}:Enabled"] = "true";
         overrides[$"{RetrievalOptions.SectionName}:Learn:Enabled"] = learn ? "true" : "false";
         overrides[$"{RetrievalOptions.SectionName}:GitHub:Enabled"] = github ? "true" : "false";
+        return overrides;
+    }
+
+    /// <summary>Servers registered, every answer refused - the presence-only instrument.</summary>
+    private static Dictionary<string, string?> Stubbed(bool learn, bool github)
+    {
+        Dictionary<string, string?> overrides = WithServers(learn, github);
+        overrides[$"{RetrievalOptions.SectionName}:AnswersDisabled"] = "true";
+        return overrides;
+    }
+
+    /// <summary>
+    /// Servers answering live rather than from the corpus. The one arm that is deliberately not
+    /// hermetic, which is the whole question it asks - so it is named, never inherited.
+    /// </summary>
+    private static Dictionary<string, string?> LiveServers(bool learn, bool github)
+    {
+        Dictionary<string, string?> overrides = WithServers(learn, github);
+        overrides[$"{RetrievalOptions.SectionName}:Mode"] = nameof(RetrievalMode.Live);
         return overrides;
     }
 
@@ -194,6 +253,11 @@ public static class StandardArms
         WithLearn,
         WithCodeSearch,
         WithRetrieval,
+
+        // Read the two above against these, not against baseline alone: the difference between
+        // baseline and with-learn is presence *plus* answers, and only these separate them.
+        LearnToolsOnly,
+        GitHubToolsOnly,
     ];
 
     /// <summary>Every named arm, for selection by name.</summary>
@@ -203,6 +267,9 @@ public static class StandardArms
         WithLearn,
         WithCodeSearch,
         WithRetrieval,
+        LearnToolsOnly,
+        GitHubToolsOnly,
+        RetrievalNoCache,
         NoConstrainedDecoding,
         NoPreWriteVerification,
         NoContext,

@@ -154,6 +154,19 @@ public sealed class RetrievalPolicy : IRetrievalPolicy
                 "Answer from the workspace: grep, find_symbol and read_file, then build.");
         }
 
+        // The presence-only arms (workplan task 61). The tool is registered and the model can see
+        // it and reach for it; what it cannot get is an answer. That separates the cost of having
+        // a tool from the value of what it returns, which is the one confound a naive
+        // baseline-versus-with-learn comparison cannot see past. Refused here rather than by an
+        // empty corpus so the arm is configuration and not a directory somebody has to prepare.
+        if (options.AnswersDisabled)
+        {
+            return new RetrievalDenial(
+                ToolErrorCodes.RetrievalDisabled,
+                $"Retrieval from {request.Server} is registered but returning nothing in this run.",
+                "Answer from the workspace: grep, find_symbol and read_file, then build.");
+        }
+
         if (options.MaxCallsPerRun > 0 && run.Allowed >= options.MaxCallsPerRun)
         {
             return new RetrievalDenial(

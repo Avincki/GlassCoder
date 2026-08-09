@@ -97,6 +97,24 @@ public sealed class RetrievalOptions
     /// </summary>
     public string CacheDirectory { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Register the tools and let every call return nothing (workplan task 61).
+    /// <para>
+    /// The lever the two <c>*-tools-only</c> arms are built on, and the reason they are the
+    /// important ones. Comparing <c>baseline</c> with <c>with-learn</c> confounds two effects: the
+    /// cost of carrying a tool - its schema on every request, and the model's willingness to reach
+    /// for it instead of thinking - and the value of the answers it gives back. This lever
+    /// isolates the first. If presence alone is meaningfully worse than baseline on tool-call
+    /// validity or steps-to-solve, retrieval has to clear that deficit before any result reads as
+    /// a win.
+    /// </para>
+    /// <para>
+    /// Not a debug switch: an arm, and it belongs in configuration for the same reason every other
+    /// arm does - a lever an arm cannot name is a lever it does not control.
+    /// </para>
+    /// </summary>
+    public bool AnswersDisabled { get; set; }
+
     /// <summary>Microsoft Learn: authoritative, versioned, and free of an injection surface.</summary>
     public RetrievalServerOptions Learn { get; } = new()
     {

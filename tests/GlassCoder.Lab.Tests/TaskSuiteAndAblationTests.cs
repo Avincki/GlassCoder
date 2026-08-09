@@ -20,12 +20,84 @@ public sealed class TaskSuiteAndAblationTests : IDisposable
     public void Dispose() => _workspace.Dispose();
 
     [Fact]
-    public void The_suite_has_the_eight_tasks_from_the_specification_in_order()
+    public void The_suite_has_the_eight_tasks_from_the_specification_plus_the_retrieval_one_in_order()
     {
-        TaskSuiteDefinition.All.Count.ShouldBe(8);
-        TaskSuiteDefinition.All.Select(t => t.Order).ShouldBe([1, 2, 3, 4, 5, 6, 7, 8]);
-        TaskSuiteDefinition.All.Select(t => t.Id).Distinct().Count().ShouldBe(8);
+        TaskSuiteDefinition.All.Count.ShouldBe(9);
+        TaskSuiteDefinition.All.Select(t => t.Order).ShouldBe([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        TaskSuiteDefinition.All.Select(t => t.Id).Distinct().Count().ShouldBe(9);
         TaskSuiteDefinition.All.ShouldAllBe(t => !string.IsNullOrWhiteSpace(t.Stresses));
+    }
+
+    /// <summary>
+    /// Exactly one fixture needs an answer from outside the repository (workplan task 60).
+    /// <para>
+    /// The other eight are self-contained, which is what makes the suite hermetic - and also what
+    /// made it silent about retrieval, because a perfect retrieval tool scores zero on a task
+    /// whose answer is already in the tree. Two would be no worse; zero is what task 61 could not
+    /// measure with.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Exactly_one_fixture_declares_that_its_answer_is_outside_the_repository()
+    {
+        SuiteTask external = TaskSuiteDefinition.All
+            .Where(t => t.RequiresExternalDocs)
+            .ShouldHaveSingleItem();
+
+        external.Id.ShouldBe("suite-09-bounded-channel");
+        external.Goal.ShouldContain("System.Threading.Channels");
+
+        // And it stays hermetic in the way that matters: no package reference, so the fixture
+        // needs no restore and the repository is byte-identical every run.
+        external.Files["Fixture.csproj"].ShouldNotContain("PackageReference");
+    }
+
+    /// <summary>
+    /// The presence-only arms exist and do what their name says (workplan task 61).
+    /// <para>
+    /// They are the important ones. Reading <c>with-learn</c> against <c>baseline</c> measures the
+    /// cost of carrying a tool and the value of its answers at once; only these separate them.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_presence_only_arms_register_the_tools_and_refuse_the_answers()
+    {
+        foreach (AblationArm arm in new[] { StandardArms.LearnToolsOnly, StandardArms.GitHubToolsOnly })
+        {
+            arm.Settings[$"{RetrievalOptions.SectionName}:Enabled"].ShouldBe("true", arm.Name);
+            arm.Settings[$"{RetrievalOptions.SectionName}:AnswersDisabled"].ShouldBe("true", arm.Name);
+
+            // Still hermetic: a presence arm that reached the network would vary run to run and
+            // stop being comparable with the arm beside it.
+            arm.Settings[$"{RetrievalOptions.SectionName}:Mode"].ShouldBe(nameof(RetrievalMode.Replay), arm.Name);
+        }
+
+        StandardArms.LearnToolsOnly.Settings[$"{RetrievalOptions.SectionName}:Learn:Enabled"].ShouldBe("true");
+        StandardArms.GitHubToolsOnly.Settings[$"{RetrievalOptions.SectionName}:GitHub:Enabled"].ShouldBe("true");
+    }
+
+    [Fact]
+    public void The_no_cache_arm_is_the_one_that_deliberately_leaves_the_machine()
+    {
+        // Worth running once and probably never again: if its variance is large, every uncached
+        // result anyone has read was an anecdote. It is named rather than inherited, because an
+        // arm that reaches the network by accident is the failure the baseline pinning prevents.
+        StandardArms.RetrievalNoCache.Settings[$"{RetrievalOptions.SectionName}:Mode"]
+            .ShouldBe(nameof(RetrievalMode.Live));
+
+        StandardArms.Baseline.Settings[$"{RetrievalOptions.SectionName}:Mode"]
+            .ShouldBe(nameof(RetrievalMode.Replay), "every other arm stays hermetic");
+    }
+
+    [Fact]
+    public void The_external_fixture_starts_red_or_it_measures_nothing()
+    {
+        // A fixture that starts green makes every pass@1 computed from it meaningless. This one
+        // starts as a NotImplementedException, which no arm can pass by doing nothing.
+        SuiteTask external = TaskSuiteDefinition.Find("suite-09-bounded-channel").ShouldNotBeNull();
+
+        external.StartsGreen.ShouldBeFalse();
+        external.Files["Pipeline.cs"].ShouldContain("NotImplementedException");
     }
 
     [Fact]

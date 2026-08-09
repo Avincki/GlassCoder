@@ -23,7 +23,21 @@ public sealed record SuiteTask(
     string Stresses,
     string Goal,
     IReadOnlyDictionary<string, string> Files,
-    bool StartsGreen = false);
+    bool StartsGreen = false)
+{
+    /// <summary>
+    /// Whether the answer is outside the repository (workplan task 60).
+    /// <para>
+    /// Eight of the nine fixtures are self-contained, which is what makes them hermetic - and also
+    /// what makes them silent about retrieval: a perfect retrieval tool scores exactly zero on a
+    /// suite whose every answer is already in the tree, and every arm in task 61 would return the
+    /// same number for the same reason. This flag marks the one fixture built to need an outside
+    /// answer, and the run declares it through <c>DiagnosticRetrievalSignals.Require</c> instead
+    /// of waiting for a compiler to raise the right error.
+    /// </para>
+    /// </summary>
+    public bool RequiresExternalDocs { get; init; }
+}
 
 /// <summary>The outcome of running one suite task.</summary>
 /// <param name="Task">Which task.</param>

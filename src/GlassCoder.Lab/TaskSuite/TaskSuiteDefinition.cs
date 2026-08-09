@@ -1,7 +1,8 @@
 namespace GlassCoder.Lab.TaskSuite;
 
 /// <summary>
-/// The eight tasks from CLAUDE.md §16, ordered by the skill they stress (workplan task 21).
+/// The eight tasks from CLAUDE.md §16, ordered by the skill they stress (workplan task 21), plus a
+/// ninth whose answer is deliberately not in the repository (task 60).
 /// <para>
 /// Each fixture is a self-contained console project with <b>no package references</b>, whose
 /// <c>Main</c> asserts the required behaviour and returns a non-zero exit code when it does not
@@ -405,6 +406,62 @@ public static class TaskSuiteDefinition
                     return Check.Exit();
                     """,
             }),
+
+        // The ninth, and the only one whose answer is not in the tree (workplan task 60). Every
+        // fixture above is self-contained, which is what makes the suite hermetic - and also what
+        // makes it silent about retrieval: a perfect retrieval tool scores exactly zero on eight
+        // tasks that already contain their own answers, and every arm in task 61 returns the same
+        // number for the same reason.
+        //
+        // System.Threading.Channels was chosen over the other candidate - consuming an
+        // IAsyncEnumerable with cancellation - on the criterion the task set: the API surface a
+        // small local model is least likely to hold correctly. `Channel.CreateBounded` takes an
+        // options *object*, `BoundedChannelFullMode` is exactly the kind of enum name a model
+        // invents, and `Complete()` before `ReadAllAsync` is the ordering that separates code that
+        // works from code that deadlocks. It needs no package reference - Channels is in the
+        // shared framework - so the fixture stays free of restore, like the other eight.
+        new SuiteTask(
+            "suite-09-bounded-channel",
+            9,
+            "Use an API the repository does not contain",
+            "Knowledge the weights may not hold",
+            "Implement Pipeline.DrainAsync in Pipeline.cs so the checks in Program.cs pass. It must move "
+            + "every item from producer to consumer through a bounded channel of capacity 2, preserving "
+            + "order, without dropping items and without deadlocking when the producer outruns the "
+            + "consumer. Use System.Threading.Channels. Do not change Program.cs or Check.cs.",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["Fixture.csproj"] = Csproj,
+                ["Check.cs"] = Harness,
+                ["Pipeline.cs"] = """
+                    namespace Fixture;
+
+                    public static class Pipeline
+                    {
+                        /// <summary>
+                        /// Moves every item through a bounded channel of capacity 2 and returns them in
+                        /// the order they were produced. The capacity is smaller than the input on
+                        /// purpose: a writer that does not wait will drop items or deadlock.
+                        /// </summary>
+                        public static Task<IReadOnlyList<int>> DrainAsync(IReadOnlyList<int> items) =>
+                            throw new NotImplementedException();
+                    }
+                    """,
+                ["Program.cs"] = """
+                    using Fixture;
+
+                    int[] source = [1, 2, 3, 4, 5, 6, 7, 8];
+                    IReadOnlyList<int> drained = await Pipeline.DrainAsync(source);
+
+                    Check.Equal(source.Length, drained.Count, "every item arrives");
+                    Check.That(drained.SequenceEqual(source), "order is preserved");
+                    Check.Equal(0, (await Pipeline.DrainAsync([])).Count, "an empty input drains to nothing");
+                    return Check.Exit();
+                    """,
+            })
+        {
+            RequiresExternalDocs = true,
+        },
     ];
 
     /// <summary>Looks a task up by id.</summary>
