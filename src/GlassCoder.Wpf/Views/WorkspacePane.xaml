@@ -6,6 +6,7 @@
              Foreground="{StaticResource PaneForeground}">
   <UserControl.Resources>
     <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <conv:RatingToCheckedConverter x:Key="RatingToChecked" />
   </UserControl.Resources>
 
   <!-- Background on the control rather than the DockPanel, so the 8px margin is chrome too and
@@ -82,13 +83,49 @@
         <TextBlock Foreground="{StaticResource PaneForeground}" TextWrapping="Wrap"
                    Text="{Binding RatedApplication, StringFormat='How did {0} look? Nothing else in a run judges the screen.'}" />
 
-        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-          <ComboBox Width="64" ItemsSource="{Binding RatingScale}"
-                    SelectedItem="{Binding AppRating}"
-                    ToolTip="0 unusable, 5 exactly right. Recording is disabled until you choose." />
-          <TextBlock Text="0 unusable · 5 exactly right" VerticalAlignment="Center" Margin="10,0,0,0"
-                     Foreground="{StaticResource PaneMutedForeground}" />
+        <!--
+          The whole scale on screen, rather than five of six options behind a click. A dropdown
+          asks the operator to open it, read it, and then choose; this is one click on a row they
+          have already read. The two faces are what make it answerable without reading at all -
+          they say which end is which, which is the only thing a bare 0-to-5 row does not.
+        -->
+        <StackPanel Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
+          <TextBlock Text="🙁" FontFamily="Segoe UI Emoji" FontSize="15" Margin="0,0,8,0"
+                     VerticalAlignment="Center" ToolTip="0 - unusable" />
+
+          <!-- One GroupName across the six, so choosing one clears the last. Spelled out rather
+               than generated: ConverterParameter cannot be bound, so an ItemsControl over the
+               scale would need a MultiBinding to say the same six things. -->
+          <RadioButton GroupName="AppRating" Content="0" Margin="0,0,10,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=0}"
+                       ToolTip="0 - unusable" />
+          <RadioButton GroupName="AppRating" Content="1" Margin="0,0,10,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=1}" />
+          <RadioButton GroupName="AppRating" Content="2" Margin="0,0,10,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=2}" />
+          <RadioButton GroupName="AppRating" Content="3" Margin="0,0,10,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=3}" />
+          <RadioButton GroupName="AppRating" Content="4" Margin="0,0,10,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=4}" />
+          <RadioButton GroupName="AppRating" Content="5" Margin="0,0,8,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource PaneForeground}"
+                       IsChecked="{Binding AppRating, Mode=TwoWay, Converter={StaticResource RatingToChecked}, ConverterParameter=5}"
+                       ToolTip="5 - exactly right" />
+
+          <TextBlock Text="🙂" FontFamily="Segoe UI Emoji" FontSize="15"
+                     VerticalAlignment="Center" ToolTip="5 - exactly right" />
         </StackPanel>
+
+        <!-- Under the row rather than beside it: the pane is narrow, and eight items plus a
+             sentence is what makes a strip wrap in the one place it must not. -->
+        <TextBlock Text="0 unusable · 5 exactly right · recording is disabled until you choose"
+                   Margin="0,4,0,0" TextWrapping="Wrap"
+                   Foreground="{StaticResource PaneMutedForeground}" />
 
         <TextBox Text="{Binding AppComment, UpdateSourceTrigger=PropertyChanged}" Margin="0,6,0,0"
                  MinHeight="44" TextWrapping="Wrap" AcceptsReturn="True"

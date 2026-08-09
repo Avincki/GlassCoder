@@ -293,9 +293,6 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     /// <summary>Closes the strip without recording. A rating nobody wanted to give is noise.</summary>
     public RelayCommand SkipRatingCommand { get; }
 
-    /// <summary>The scores offered, worst first.</summary>
-    public IReadOnlyList<int> RatingScale { get; } = [0, 1, 2, 3, 4, 5];
-
     /// <summary>Whether the strip asking how the application looked is open.</summary>
     public bool IsRatingApp
     {
@@ -310,7 +307,10 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _ratedApplication, value);
     }
 
-    /// <summary>The score, 0 to 5. Null until one is chosen, which is what gates recording.</summary>
+    /// <summary>
+    /// The score, 0 to 5. Null until one is chosen, which is what gates recording - and what
+    /// clears the buttons when the strip opens again for the next application.
+    /// </summary>
     public int? AppRating
     {
         get => _appRating;
