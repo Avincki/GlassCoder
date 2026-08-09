@@ -7,6 +7,8 @@
     <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <conv:InverseBooleanToVisibilityConverter x:Key="NotToVisibility" />
     <conv:NotEmptyToVisibilityConverter x:Key="NotEmptyToVisibility" />
+    <conv:StageKindToBackgroundConverter x:Key="StageBackground" />
+    <conv:StageKindToBorderConverter x:Key="StageBorder" />
   </UserControl.Resources>
 
   <Grid Margin="8">
@@ -77,10 +79,16 @@
         Before the first retrospective: what this surface is, and how it differs from the review
         strip on the shell. Two things called an opinion on one window need telling apart, and the
         empty state is where there is room to do it.
+
+        Grey, and the only grey here: it stands down the moment the first stage answers, and what
+        replaces it is that stage's own colour. Gated on HasStages rather than HasResult, which is
+        the whole change - HasResult is not true until all three are over, and waiting for that is
+        what left this text on screen for a quarter of an hour with three reports finished behind
+        it.
       -->
       <Border Background="#F6F8FA" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="3"
               Padding="16" VerticalAlignment="Top"
-              Visibility="{Binding HasResult, Converter={StaticResource NotToVisibility}}">
+              Visibility="{Binding HasStages, Converter={StaticResource NotToVisibility}}">
         <StackPanel>
           <TextBlock Text="A look back at the finished run" FontWeight="SemiBold" FontSize="14" />
           <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#57606A"
@@ -90,13 +98,24 @@
         </StackPanel>
       </Border>
 
-      <!-- The stage reports. The harness stage opens; the two it was built from stay folded. -->
+      <!--
+        The stage reports, each appearing as its own session ends rather than all three at the
+        close. The newest opens and the one before it folds; when the whole thing finishes the
+        harness stage opens, and anything the operator had open stays open.
+
+        One colour per stage - red, green, blue after the empty state's grey - so which of the
+        three has just landed is answerable from across the room. It is progress, not judgement:
+        a stage that could not answer says so in the amber box below, which is this surface's
+        existing word for that.
+      -->
       <ScrollViewer VerticalScrollBarVisibility="Auto"
-                    Visibility="{Binding HasResult, Converter={StaticResource BoolToVisibility}}">
+                    Visibility="{Binding HasStages, Converter={StaticResource BoolToVisibility}}">
         <ItemsControl ItemsSource="{Binding Stages}">
           <ItemsControl.ItemTemplate>
             <DataTemplate>
-              <Border BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="3" Margin="0,0,0,8">
+              <Border BorderThickness="1" CornerRadius="3" Margin="0,0,0,8"
+                      Background="{Binding Stage.Kind, Converter={StaticResource StageBackground}}"
+                      BorderBrush="{Binding Stage.Kind, Converter={StaticResource StageBorder}}">
                 <Expander IsExpanded="{Binding IsExpanded, Mode=TwoWay}" Padding="10,6">
                   <Expander.Header>
                     <DockPanel LastChildFill="False" MinWidth="560">

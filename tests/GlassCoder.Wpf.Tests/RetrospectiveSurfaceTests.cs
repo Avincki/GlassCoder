@@ -164,6 +164,128 @@ public sealed class RetrospectiveSurfaceTests
     }
 
     [Fact]
+    public void A_stage_reaches_the_surface_as_it_finishes_rather_than_at_the_end()
+    {
+        // The point of the whole streamed path: three sessions take minutes each, and until this
+        // worked the empty state stayed on screen with two finished reports sitting behind it.
+        (bool HasStages, bool HasResult, int Stages, string First) after = UiThread.Run(dispatcher =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+
+            TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            StubReviewer reviewer = new()
+            {
+                Result = Result(),
+                Gate = gate,
+                Narration =
+                [
+                    new RetrospectiveActivity(RetrospectiveStageKind.Code, ClaudeCliEventKind.ToolCall, "Read src/A.cs"),
+                    Finished(RetrospectiveStageKind.Code, "The multiply logic is untested."),
+                ],
+            };
+
+            RetrospectiveViewModel model = Model(dispatcher, reviewer);
+            model.OfferRun(Run());
+            Settle(dispatcher, model);
+
+            model.RunCommand.Execute(null);
+
+            // Held mid-retrospective, which is the state being tested: one stage answered, the
+            // other two still running, no result at all.
+            UiThread.Pump(dispatcher, () => model.Stages.Count > 0).ShouldBeTrue(
+                "the finished stage should reach the surface");
+
+            (bool, bool, int, string) observed =
+                (model.HasStages, model.HasResult, model.Stages.Count, model.Activity[^1]);
+
+            gate.SetResult();
+            UiThread.Pump(dispatcher, () => !model.IsRunning);
+            return observed;
+        });
+
+        after.HasStages.ShouldBeTrue("the empty state must stand down for the first report");
+        after.HasResult.ShouldBeFalse("nothing has finished yet - that is the whole point");
+        after.Stages.ShouldBe(1, "only the stage that has actually finished");
+        after.First.ShouldStartWith("✓ ", customMessage: "a finished stage is not a warning");
+    }
+
+    [Fact]
+    public void The_newest_stage_opens_and_the_one_before_it_folds()
+    {
+        (bool CodeOpen, bool ProcessOpen) after = UiThread.Run(dispatcher =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+
+            TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            StubReviewer reviewer = new()
+            {
+                Result = Result(),
+                Gate = gate,
+                Narration =
+                [
+                    Finished(RetrospectiveStageKind.Code, "The multiply logic is untested."),
+                    Finished(RetrospectiveStageKind.Process, "Steps 18 to 39 were spent on layout tests."),
+                ],
+            };
+
+            RetrospectiveViewModel model = Model(dispatcher, reviewer);
+            model.OfferRun(Run());
+            Settle(dispatcher, model);
+
+            model.RunCommand.Execute(null);
+            UiThread.Pump(dispatcher, () => model.Stages.Count >= 2).ShouldBeTrue();
+
+            (bool, bool) observed = (model.Stages[0].IsExpanded, model.Stages[1].IsExpanded);
+
+            gate.SetResult();
+            UiThread.Pump(dispatcher, () => !model.IsRunning);
+            return observed;
+        });
+
+        after.ProcessOpen.ShouldBeTrue("the one that just landed is what the operator is waiting for");
+        after.CodeOpen.ShouldBeFalse("two open reports and a live log is more than the pane holds");
+    }
+
+    [Fact]
+    public void Finishing_keeps_open_whatever_the_operator_was_reading()
+    {
+        // Apply replaces the streamed stages with the result's own - the harness stage's proposals
+        // are ranked and capped by then, so they are not the same objects. Collapsing a report
+        // somebody is mid-way through, at the moment the thing they waited for arrives, is its own
+        // small insult.
+        bool codeStillOpen = UiThread.Run(dispatcher =>
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
+
+            TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            StubReviewer reviewer = new()
+            {
+                Result = Result(),
+                Gate = gate,
+                Narration = [Finished(RetrospectiveStageKind.Code, "The multiply logic is untested.")],
+            };
+
+            RetrospectiveViewModel model = Model(dispatcher, reviewer);
+            model.OfferRun(Run());
+            Settle(dispatcher, model);
+
+            model.RunCommand.Execute(null);
+            UiThread.Pump(dispatcher, () => model.Stages.Count > 0).ShouldBeTrue();
+
+            // What the operator is reading while stage two runs.
+            model.Stages[0].IsExpanded = true;
+
+            gate.SetResult();
+            UiThread.Pump(dispatcher, () => !model.IsRunning && model.HasResult).ShouldBeTrue();
+
+            model.Stages.Count.ShouldBe(3, "the finished result replaces the streamed one");
+            return model.Stages.Single(s => s.Stage.Kind == RetrospectiveStageKind.Code).IsExpanded;
+        });
+
+        codeStillOpen.ShouldBeTrue();
+    }
+
+    [Fact]
     public void The_work_order_waits_for_a_tick_and_for_somewhere_to_put_it()
     {
         (bool Before, bool AfterUnticking, string Tooltip) state = UiThread.Run(dispatcher =>
@@ -283,6 +405,10 @@ public sealed class RetrospectiveSurfaceTests
         Directory = "C:/workspace/.glasscoder/retrospectives/216360bf",
     };
 
+    /// <summary>The one activity that carries a finished stage, as the reviewer reports it.</summary>
+    private static RetrospectiveActivity Finished(RetrospectiveStageKind kind, string report) =>
+        new(kind, ClaudeCliEventKind.Note, "done") { Completed = Stage(kind, report) };
+
     private static RetrospectiveStage Stage(RetrospectiveStageKind kind, string report) => new()
     {
         Kind = kind,
@@ -306,10 +432,21 @@ public sealed class RetrospectiveSurfaceTests
 
         public IReadOnlyList<RetrospectiveActivity> Narration { get; init; } = [];
 
+        /// <summary>
+        /// Held between the narration and the result, for tests about the surface mid-run.
+        /// <para>
+        /// Without it a stub finishes before <see cref="Progress{T}"/>'s posts are drained, so
+        /// the final result lands first and there is no "two stages done, one to go" to observe -
+        /// which is the one state the real reviewer, three sessions at minutes each, spends
+        /// almost all of its time in.
+        /// </para>
+        /// </summary>
+        public TaskCompletionSource? Gate { get; init; }
+
         public Task<ReviewerAvailability> ProbeAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Availability);
 
-        public Task<Retrospective> ReviewAsync(
+        public async Task<Retrospective> ReviewAsync(
             RetrospectiveRequest request,
             IProgress<RetrospectiveActivity>? progress = null,
             CancellationToken cancellationToken = default)
@@ -319,7 +456,12 @@ public sealed class RetrospectiveSurfaceTests
                 progress?.Report(activity);
             }
 
-            return Task.FromResult(Result ?? Retrospective.NotTaken(request.RunId, "no script", DateTimeOffset.UnixEpoch));
+            if (Gate is not null)
+            {
+                await Gate.Task.ConfigureAwait(false);
+            }
+
+            return Result ?? Retrospective.NotTaken(request.RunId, "no script", DateTimeOffset.UnixEpoch);
         }
 
         public Retrospective? Load(string runId) => OnDisk;

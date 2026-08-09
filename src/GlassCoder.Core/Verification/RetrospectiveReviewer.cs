@@ -168,7 +168,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Persist(directory, code));
+            stages.Add(Announce(progress, Persist(directory, code)));
 
             RetrospectiveStage process = await RunStageAsync(
                 RetrospectiveStageKind.Process,
@@ -179,7 +179,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Persist(directory, process));
+            stages.Add(Announce(progress, Persist(directory, process)));
 
             // The only stage that reads outside the workspace, and only if it was told where
             // GlassCoder's own source is. Without that it still runs, on the two reports alone,
@@ -203,7 +203,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             // Persisted as the ranked list rather than the raw one, so what a restart reads back
             // is what this session showed - a proposal dropped here for having no title must not
             // reappear tomorrow.
-            stages.Add(Persist(directory, harness with { Recommendations = recommendations }));
+            stages.Add(Announce(progress, Persist(directory, harness with { Recommendations = recommendations })));
         }
         catch (OperationCanceledException)
         {
@@ -448,6 +448,30 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         RetrospectiveStageKind.Process => "2-process.md",
         _ => "3-harness.md",
     };
+
+    /// <summary>
+    /// Hands a finished stage to whoever is watching, and returns it unchanged.
+    /// <para>
+    /// The three sessions take minutes each, and until this existed none of their answers were
+    /// readable until all three were over - an operator watched a scrolling tool log for the best
+    /// part of a quarter of an hour with nothing to read at the end of the first two thirds of it.
+    /// Reported after <see cref="Persist"/> on purpose: what the surface is shown is the same
+    /// stage that is on disk, so what it displays and what a restart rehydrates cannot disagree.
+    /// </para>
+    /// </summary>
+    private static RetrospectiveStage Announce(
+        IProgress<RetrospectiveActivity>? progress, RetrospectiveStage stage)
+    {
+        progress?.Report(new RetrospectiveActivity(
+            stage.Kind,
+            ClaudeCliEventKind.Note,
+            stage.Reviewed ? $"{stage.Title} - done." : $"{stage.Title} - not reviewed.")
+        {
+            Completed = stage,
+        });
+
+        return stage;
+    }
 
     /// <summary>
     /// Writes a finished stage beside its siblings, so a crash in stage three does not cost the

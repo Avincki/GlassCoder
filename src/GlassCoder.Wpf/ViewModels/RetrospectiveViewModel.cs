@@ -265,8 +265,14 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         private set => SetProperty(ref _status, value);
     }
 
-    /// <summary>Whether a retrospective is on screen.</summary>
+    /// <summary>Whether a whole retrospective has finished.</summary>
     public bool HasResult => _result is not null;
+
+    /// <summary>
+    /// Whether there is a report to read yet - which is true from the first stage onward, not
+    /// only when all three are over. This is what the empty state stands down for.
+    /// </summary>
+    public bool HasStages => Stages.Count > 0;
 
     /// <summary>What the whole thing cost and how long it took.</summary>
     public string ResultHeadline => _result is not { } result
@@ -508,7 +514,15 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
     /// </summary>
     private void OnActivity(RetrospectiveActivity activity)
     {
-        string prefix = activity.Kind switch
+        // A stage that has just finished. Shown immediately rather than kept until all three are
+        // over: each session takes minutes, and a report nobody can read until the end is a report
+        // that arrives after the waiting it was meant to fill.
+        if (activity.Completed is { } finished)
+        {
+            ShowFinishedStage(finished);
+        }
+
+        string prefix = activity.Completed is not null ? "✓ " : activity.Kind switch
         {
             ClaudeCliEventKind.ToolCall => "· ",
             ClaudeCliEventKind.Note => "! ",
@@ -530,9 +544,37 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         };
     }
 
+    /// <summary>
+    /// Puts a stage on the surface the moment it finishes, in place of the empty state.
+    /// <para>
+    /// Expanded, because the operator is watching this one: it is the only thing on screen that
+    /// has an answer in it, and the next stage is going to take another few minutes. The one
+    /// before it folds - two open reports and a live log is more than the pane has room for, and
+    /// the folded one is a click away.
+    /// </para>
+    /// </summary>
+    private void ShowFinishedStage(RetrospectiveStage stage)
+    {
+        foreach (RetrospectiveStageViewModel earlier in Stages)
+        {
+            earlier.IsExpanded = false;
+        }
+
+        Stages.Add(new RetrospectiveStageViewModel(stage, expanded: true));
+        OnPropertyChanged(nameof(HasStages));
+    }
+
     private void Apply(Retrospective result, bool announce)
     {
         _result = result;
+
+        // What the operator had open survives the swap. The streamed stages are replaced here by
+        // the finished result's own - the harness stage's proposals are ranked and capped by then,
+        // so these are not the same objects - and collapsing a report somebody is mid-way through
+        // reading, at the moment the thing they were waiting for arrives, is its own small insult.
+        HashSet<RetrospectiveStageKind> open =
+            [.. Stages.Where(s => s.IsExpanded).Select(s => s.Stage.Kind)];
+
         Stages.Clear();
         Recommendations.Clear();
 
@@ -540,7 +582,8 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         {
             // The harness stage opens; the two it was built from stay folded. It is the one with
             // something to decide, and three open reports is a wall of prose.
-            Stages.Add(new RetrospectiveStageViewModel(stage, stage.Kind == RetrospectiveStageKind.Harness));
+            Stages.Add(new RetrospectiveStageViewModel(
+                stage, stage.Kind == RetrospectiveStageKind.Harness || open.Contains(stage.Kind)));
         }
 
         foreach (ReviewAction action in result.Recommendations)
@@ -551,6 +594,7 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         }
 
         OnPropertyChanged(nameof(HasResult));
+        OnPropertyChanged(nameof(HasStages));
         OnPropertyChanged(nameof(ResultHeadline));
         OnPropertyChanged(nameof(RunLabelForButton));
         OnPropertyChanged(nameof(CanWriteWorkOrder));
@@ -703,6 +747,7 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         Activity.Clear();
 
         OnPropertyChanged(nameof(HasResult));
+        OnPropertyChanged(nameof(HasStages));
         OnPropertyChanged(nameof(ResultHeadline));
         OnPropertyChanged(nameof(CanWriteWorkOrder));
         OnPropertyChanged(nameof(WorkOrderPath));

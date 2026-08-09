@@ -226,7 +226,21 @@ public sealed record RetrospectiveRequest(string RunId)
 public sealed record RetrospectiveActivity(
     RetrospectiveStageKind Stage,
     ClaudeCliEventKind Kind,
-    string Text);
+    string Text)
+{
+    /// <summary>
+    /// The stage that has just finished, on the one activity that announces it. Null on every
+    /// other line, which is all of them.
+    /// <para>
+    /// Here rather than on a second <see cref="IProgress{T}"/> because the ordering is the point:
+    /// a stage's report has to arrive after its own narration and before the next stage's first
+    /// line, and one channel is what makes that a guarantee rather than a race. It is also what
+    /// lets a surface show a finished report while the next stage is still running - three
+    /// sessions take minutes, and nothing was readable until all three were over.
+    /// </para>
+    /// </summary>
+    public RetrospectiveStage? Completed { get; init; }
+}
 
 /// <summary>
 /// Renders a run's steps as the digest the process stage reads (workplan task 67).
