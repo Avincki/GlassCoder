@@ -109,25 +109,45 @@ public sealed class PromptBudgetTests : IDisposable
     /// the wire. Worth knowing before anyone reads a number here as prose they can shorten.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// <strong>Raised once more, for <c>launch_app</c> (workplan task 71), and the argument is the
+    /// point.</strong>
+    /// <para>
+    /// The tool costs 626 characters, about 157 tokens on every request of every run. What it buys
+    /// is the only answer the harness has ever had to a refutation it has now received twice: runs
+    /// <c>008007e1</c> and <c>d5edbc59</c> were both refused for want of evidence the application
+    /// runs, and neither could produce any, because the loop had no way to start anything. The
+    /// second spent its recovery on two XAML attributes and a re-vote. A tool that turns an
+    /// unanswerable refusal into an answerable one is worth more than 157 tokens a step.
+    /// </para>
+    /// <para>
+    /// It was part-paid rather than absorbed, as this file's own instruction requires. 168
+    /// characters came off first: <c>run_tests</c> described its own return value ("reporting pass,
+    /// fail and skip counts and the names of failing tests" - the model receives all of that in the
+    /// result), <c>create_file</c> carried "the right tool for a generated stub", and
+    /// <c>launch_app</c>'s own text was cut by 61. Every remaining ceiling moved by exactly what
+    /// was left.
+    /// </para>
+    /// </summary>
     public static TheoryData<string, int> Profiles => new()
     {
-        // What a live desktop run advertises today: thirteen tools, git off. Measured 11,562.
-        { "default", 11_800 },
+        // What a live desktop run advertises today: fourteen tools, git off. Measured 12,082.
+        { "default", 12_200 },
 
         // The five git tools on top, at 2,418. Off in the operator's settings for the
-        // measurement phase. Measured 13,980 - the number the single ceiling used to guard.
-        { "git", 14_000 },
+        // measurement phase. Measured 14,500.
+        { "git", 14_600 },
 
-        // The with-learn arm: two Learn tools for 917 characters, measured 12,479. Learn
+        // The with-learn arm: two Learn tools for 917 characters, measured 12,999. Learn
         // advertises those two at 3,575; the rest was prose written to sell them to a general
         // agent, and locally authored descriptions are what task 54 said would delete it.
-        { "learn", 12_700 },
+        { "learn", 13_100 },
 
-        // with-retrieval: Learn and GitHub together, measured 14,356. GitHub's one tool costs
+        // with-retrieval: Learn and GitHub together, measured 14,876. GitHub's one tool costs
         // 1,877 on its own - more than Learn's two combined - because 1,547 of it is schema, and
         // a schema cannot be rewritten. That asymmetry is why task 62 registers exactly one of
         // its twenty-seven tools, and why this ceiling is the highest here.
-        { "learn+github", 14_600 },
+        { "learn+github", 15_000 },
     };
 
     /// <summary>

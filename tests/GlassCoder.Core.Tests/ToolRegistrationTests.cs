@@ -25,6 +25,11 @@ public sealed class ToolRegistrationTests
     [
         "update_todos", "list_changes", "read_file", "grep", "find_symbol", "glob", "list_projects",
         "create_file", "edit_file", "file_operation", "build", "dotnet_project", "run_tests",
+
+        // Workplan task 71. Advertised by default and deliberately: the refutation it answers -
+        // "no evidence the application runs" - is one the loop received twice with no way to reply,
+        // and a tool switched off by default would leave it exactly as unanswerable.
+        "launch_app",
     ];
 
     private static readonly string[] GitTools =

@@ -7,6 +7,23 @@ using ModelContextProtocol.Protocol;
 namespace GlassCoder.Tools.Retrieval;
 
 /// <summary>
+/// Where a fresh MCP tool list comes from (workplan tasks 57 and 76).
+/// <para>
+/// Its own interface, small on purpose: the catalogue depends on this rather than on the MCP
+/// client so that "registration never waits for a server" can be asserted against a server that
+/// never answers - which is the only kind the property is about.
+/// </para>
+/// </summary>
+public interface IRetrievalToolLister
+{
+    /// <summary>The tools a server advertises, with their schemas.</summary>
+    /// <param name="server">Which configured server to ask.</param>
+    /// <param name="cancellationToken">Cancels the listing.</param>
+    Task<IReadOnlyList<RetrievalToolDescriptor>> ListToolsAsync(
+        RetrievalServer server, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// The real upstream: one MCP session per enabled server, opened on demand and closed with the
 /// process (workplan task 57).
 /// <para>
@@ -21,7 +38,7 @@ namespace GlassCoder.Tools.Retrieval;
 /// agent acts on and never a reason for the run to end (CLAUDE.md §7).
 /// </para>
 /// </summary>
-public sealed class McpRetrievalUpstream : IRetrievalUpstream, IAsyncDisposable, IDisposable
+public sealed class McpRetrievalUpstream : IRetrievalUpstream, IRetrievalToolLister, IAsyncDisposable, IDisposable
 {
     /// <summary>
     /// How long a synchronous dispose waits for sessions to close. Bounded because shutdown must
@@ -331,11 +348,21 @@ public sealed class RetrievalCatalog
     }
 
     private readonly IRetrievalCache _cache;
-    private readonly McpRetrievalUpstream? _upstream;
+    private readonly IRetrievalToolLister? _upstream;
     private readonly ILogger _logger;
 
+    /// <summary>Servers with a background list in flight, so one server is never asked twice at once.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<RetrievalServer, bool> _refreshing = new();
+
     /// <summary>Creates the catalogue. A null upstream is Replay-only by construction.</summary>
-    public RetrievalCatalog(IRetrievalCache cache, McpRetrievalUpstream? upstream, ILogger? logger = null)
+    /// <param name="cache">The corpus, which is what registration actually reads.</param>
+    /// <param name="upstream">
+    /// Where a fresh tool list comes from. An interface rather than the concrete client so the
+    /// no-waiting property of workplan task 76 can be asserted against a server that never
+    /// answers, which is the only kind that matters here.
+    /// </param>
+    /// <param name="logger">Where an unreachable server is reported.</param>
+    public RetrievalCatalog(IRetrievalCache cache, IRetrievalToolLister? upstream, ILogger? logger = null)
     {
         _cache = cache;
         _upstream = upstream;
@@ -363,38 +390,80 @@ public sealed class RetrievalCatalog
             return [];
         }
 
-        // Record and Live ask the server, even when a list is already recorded. Preferring the
-        // recording here was a trap with no way out: a server that renames a tool leaves the
-        // operator switching to Record - which is what the About window tells them to do - and
-        // Record returning the same stale list, for ever.
+        // Nothing here connects (workplan task 76). This runs inside the DI factory for
+        // IToolRegistry, which the desktop resolves on the UI thread while the shell is being
+        // built - so a server that is slow, unreachable or behind a captive portal used to hold
+        // the window closed for as long as the bound allowed, at startup, which is exactly when a
+        // first-run operator is watching. Bounding an unbounded hang turned it into a shorter
+        // hang; it was never a fix.
         //
-        // The blocking wait is bounded. This runs inside the DI factory for IToolRegistry, which
-        // the desktop resolves on the UI thread, so an unbounded one is a frozen application with
-        // nothing on screen to say why.
-        IReadOnlyList<RetrievalToolDescriptor> live;
-        try
-        {
-            live = _upstream.ListToolsAsync(server).WaitAsync(ListTimeout).GetAwaiter().GetResult();
-        }
-        catch (TimeoutException)
-        {
-            _logger.LogWarning(
-                "The {Server} MCP server did not list its tools within {Timeout}. Its tools are not " +
-                "registered this run; set Retrieval:{Server}:Enabled to false, or use " +
-                "Retrieval:Mode=Replay against a recorded corpus.",
-                server, ListTimeout);
+        // The decision, of the three the task offered: **start without it and register late.**
+        // This run gets whatever is in the corpus - possibly nothing, said out loud - and a
+        // background refresh writes the corpus so the next run has it. Preferring the recording
+        // forever was the trap the old comment warned about; preferring it *while refreshing* is
+        // not, because the refresh is what breaks the loop.
+        IReadOnlyList<RetrievalToolDescriptor> known =
+            _cache.Get(key) is { } stored ? Deserialize(stored.Payload) : [];
 
-            // Fall back to whatever was recorded rather than to nothing: a stale list beats no
-            // retrieval at all when the network is what failed.
-            return _cache.Get(key) is { } fallback ? Deserialize(fallback.Payload) : [];
+        Refresh(server, key);
+
+        if (known.Count == 0)
+        {
+            _logger.LogInformation(
+                "No recorded tool list for the {Server} MCP server yet. Its tools are not registered " +
+                "this run; the list is being fetched in the background and will be available next run.",
+                server);
         }
 
-        if (live.Count > 0 && mode == RetrievalMode.Record)
+        return known;
+    }
+
+    /// <summary>
+    /// Asks the server for its tools without anyone waiting, and writes what comes back.
+    /// <para>
+    /// One in flight per server: the registry is built once per run, but a long-lived process that
+    /// rebuilt it would otherwise stack connections against a server that is already not answering.
+    /// Failures are logged and nothing else - the whole point is that this cannot make a caller
+    /// wait, and it equally must not make one fail.
+    /// </para>
+    /// </summary>
+    private void Refresh(RetrievalServer server, RetrievalCacheKey key)
+    {
+        if (_upstream is null || !_refreshing.TryAdd(server, true))
         {
-            _cache.Put(key, Serialize(live));
+            return;
         }
 
-        return live;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                IReadOnlyList<RetrievalToolDescriptor> live =
+                    await _upstream.ListToolsAsync(server).WaitAsync(ListTimeout).ConfigureAwait(false);
+
+                if (live.Count > 0)
+                {
+                    // Written in Live as well as Record. The corpus is what the next run reads, so
+                    // a Live arm that never wrote one would never learn a renamed tool either.
+                    _cache.Put(key, Serialize(live));
+                    _logger.LogInformation(
+                        "Recorded {Count} tool(s) from the {Server} MCP server for the next run", live.Count, server);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "The {Server} MCP server did not list its tools within {Timeout}. Its tools stay " +
+                    "unregistered; switch it off in settings, or use Retrieval:Mode=Replay against a " +
+                    "recorded corpus.",
+                    server, ListTimeout);
+            }
+            finally
+            {
+                _refreshing.TryRemove(server, out _);
+            }
+        });
     }
 
     private static PersistedDescriptor Persistable(RetrievalToolDescriptor descriptor) =>

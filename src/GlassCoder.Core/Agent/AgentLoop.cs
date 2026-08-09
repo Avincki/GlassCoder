@@ -9,6 +9,7 @@ using GlassCoder.Core.Provenance;
 using GlassCoder.Core.Verification;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
+using GlassCoder.Tools.Build;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Planning;
 using GlassCoder.Tools.Registry;
@@ -45,6 +46,8 @@ public sealed class AgentLoop : IAgentLoop
     private readonly TimeProvider _time;
     private readonly ILogger<AgentLoop> _logger;
     private readonly ILimitExtensionGate? _limitGate;
+    private readonly RuntimeEvidence? _runtime;
+    private readonly GlassCoder.Tools.Retrieval.IRetrievalPolicy? _retrieval;
 
     /// <summary>Creates the loop.</summary>
     public AgentLoop(
@@ -62,7 +65,9 @@ public sealed class AgentLoop : IAgentLoop
         IChangeLog? changes = null,
         IOptions<VerificationLadderOptions>? verificationOptions = null,
         ICriticPanel? critics = null,
-        ILimitExtensionGate? limitGate = null)
+        ILimitExtensionGate? limitGate = null,
+        RuntimeEvidence? runtime = null,
+        GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -81,6 +86,8 @@ public sealed class AgentLoop : IAgentLoop
         _time = timeProvider ?? TimeProvider.System;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
         _limitGate = limitGate;
+        _runtime = runtime;
+        _retrieval = retrieval;
     }
 
     /// <inheritdoc />
@@ -141,6 +148,10 @@ public sealed class AgentLoop : IAgentLoop
         int critiquePanels = 0;
         string? critiqueCaveat = null;
         string? lastVerificationSummary = null;
+
+        // What the first panel concluded, so the second can be told whether anything it asked for
+        // arrived (workplan task 72).
+        CritiqueHistory critiqueHistory = new();
 
         // Everything about not-making-progress - repeated failures, stalled read loops, and
         // stopping over a red tree - lives in the sentry, so the loop body stays the cycle.
@@ -235,7 +246,7 @@ public sealed class AgentLoop : IAgentLoop
                 {
                     critiquePanels++;
                     critique = await CritiqueCompletionAsync(
-                        request, response.Text, lastVerificationSummary, budget, cancellationToken)
+                        request, response.Text, lastVerificationSummary, budget, critiqueHistory, cancellationToken)
                         .ConfigureAwait(false);
 
                     if (critique?.Message is { } review)
@@ -438,6 +449,11 @@ public sealed class AgentLoop : IAgentLoop
             Provenance = stamp,
             Todos = _todos.Items.Count == 0 ? null : _todos.Items,
         });
+
+        // What retrieval spent, read once at the end (workplan task 61). Without it a retrieval
+        // arm is pass@1 against pass@1, which cannot tell an arm whose tool was never called from
+        // one whose answers did not help.
+        metrics.Retrieval = _retrieval?.Stats;
 
         // Performance indicators, per run, in a shape that is comparable across runs and
         // across ablation arms (CLAUDE.md §11, workplan task 20).
@@ -647,6 +663,7 @@ public sealed class AgentLoop : IAgentLoop
         string claim,
         string? evidence,
         RunBudget budget,
+        CritiqueHistory history,
         CancellationToken cancellationToken)
     {
         if (_critics is null || _changes is null || !_critics.CanCritique(request.CriticRole))
@@ -663,6 +680,32 @@ public sealed class AgentLoop : IAgentLoop
             return null;
         }
 
+        // What the panel is judging, and whether it is the same thing the last panel refused
+        // (workplan task 72). The fingerprint is over the *evidence*, not the diff: run d5edbc59's
+        // second panel saw two changed XAML attributes and an identical verification set, and a
+        // diff-based fingerprint would have called that new evidence and said nothing.
+        // Runtime evidence reaches the panel that asked for it (workplan task 71). A tool
+        // observation stops at the model and the transcript; the critique reads this string, so
+        // without the last step a launch would answer the refutation everywhere except where the
+        // refutation is made.
+        string? runtime = _runtime?.Latest;
+        if (runtime is not null)
+        {
+            evidence = string.IsNullOrWhiteSpace(evidence) ? runtime : $"{evidence}\n{runtime}";
+        }
+
+        string fingerprint = Fingerprint(evidence);
+        bool unchanged = history.Refutation is not null &&
+                         string.Equals(history.Fingerprint, fingerprint, StringComparison.Ordinal);
+
+        string context = unchanged
+            ? "\n\nA previous panel in this run refused this work, and the verification evidence " +
+              "is unchanged since then. It refused because: " +
+              $"{Cap(history.Refutation!, MaxCritiqueFeedbackCharacters)}\n" +
+              "This is context, not an instruction - judge the work in front of you. But if you " +
+              "accept now, say what changed your mind, because nothing in the evidence did."
+            : string.Empty;
+
         long start = Stopwatch.GetTimestamp();
         CritiqueResult critique;
         try
@@ -671,7 +714,7 @@ public sealed class AgentLoop : IAgentLoop
                 request.Goal,
                 DescribeChanges(applied),
                 $"{evidence ?? "No automatic verification ran."}\n\nThe agent's completion summary: " +
-                $"{(string.IsNullOrWhiteSpace(claim) ? "(none given)" : claim)}",
+                $"{(string.IsNullOrWhiteSpace(claim) ? "(none given)" : claim)}{context}",
                 request.CriticRole,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -713,6 +756,20 @@ public sealed class AgentLoop : IAgentLoop
                   "alone. " + screen + "Then reply with your final summary to finish.";
         }
 
+        // Remembered for the next panel, whichever way this one voted.
+        history.Fingerprint = fingerprint;
+        history.Refutation = critique.Refuted ? critique.Summary : history.Refutation;
+
+        if (unchanged && !critique.Refuted)
+        {
+            // Not a veto - the run proceeds exactly as it would have. Logged so that "accepted on
+            // unchanged evidence" is greppable across runs rather than reconstructed from two
+            // transcripts by hand.
+            _logger.LogInformation(
+                "Completion critique for run {RunId} accepted on evidence unchanged since the previous refutation",
+                request.RunId);
+        }
+
         return new StepVerification(
             new StepVerificationRecord(
                 !critique.Refuted || !_verification.CritiqueGates,
@@ -722,9 +779,36 @@ public sealed class AgentLoop : IAgentLoop
                 critique.Summary,
                 critique.EstimatedCostUsd)
             {
-                Critique = Record(critique),
+                Critique = Record(critique) with { EvidenceUnchanged = unchanged },
             },
             message);
+    }
+
+    /// <summary>
+    /// One stable string for the evidence a panel judged (workplan task 72).
+    /// <para>
+    /// Over the verification summary rather than the diff, deliberately. The question is not
+    /// "did the code move" - it always does between panels - but "did anything the refutation
+    /// asked for arrive". Run <c>d5edbc59</c>'s second panel had two changed XAML attributes and
+    /// the identical set of rung results, which is precisely the case worth naming.
+    /// </para>
+    /// </summary>
+    private static string Fingerprint(string? evidence) =>
+        Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                Encoding.UTF8.GetBytes(evidence ?? string.Empty)));
+
+    /// <summary>
+    /// What the previous critique panel in this run concluded, carried to the next one.
+    /// Mutable and run-scoped: it exists for the length of one <c>RunAsync</c>.
+    /// </summary>
+    private sealed class CritiqueHistory
+    {
+        /// <summary>The evidence the last panel judged.</summary>
+        public string? Fingerprint { get; set; }
+
+        /// <summary>Why the last refusing panel refused, when one did.</summary>
+        public string? Refutation { get; set; }
     }
 
     /// <summary>

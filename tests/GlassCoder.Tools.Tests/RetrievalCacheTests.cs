@@ -198,6 +198,52 @@ public sealed class RetrievalCacheTests : IDisposable
     }
 
     /// <summary>
+    /// Registration never waits for a server (workplan task 76).
+    /// <para>
+    /// This runs inside the DI factory for <c>IToolRegistry</c>, which the desktop resolves on the
+    /// UI thread while the shell is being built. A server that is slow, unreachable or behind a
+    /// captive portal used to hold the window closed for as long as the bound allowed, at startup,
+    /// which is exactly when a first-run operator is watching. Bounding an unbounded hang made it
+    /// a shorter hang; it was never a fix.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Registration_returns_at_once_however_long_the_server_takes()
+    {
+        RetrievalCache cache = new(Root);
+        cache.Put(
+            RetrievalCacheKey.From(RetrievalServer.Learn, RetrievalCatalog.ToolListKey, null),
+            RetrievalCatalog.Serialize([new RetrievalToolDescriptor("microsoft_docs_search", Schema("query"))]));
+
+        // An upstream that never answers. Before this task, Live spent ten seconds here.
+        NeverAnsweringUpstream upstream = new();
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        IReadOnlyList<RetrievalToolDescriptor> read =
+            new RetrievalCatalog(cache, upstream).Describe(RetrievalServer.Learn, RetrievalMode.Live);
+
+        clock.Stop();
+
+        // The corpus answers immediately; the connection happens behind the run.
+        read.Select(d => d.ServerTool).ShouldBe(["microsoft_docs_search"]);
+        clock.Elapsed.ShouldBeLessThan(
+            TimeSpan.FromSeconds(2), "registration must not wait on a network the operator cannot see");
+    }
+
+    [Fact]
+    public void A_server_never_recorded_contributes_nothing_rather_than_stalling()
+    {
+        // The honest state on a first run: no tools this time, said out loud, and the background
+        // fetch writes the corpus so the next run has them.
+        RetrievalCatalog catalogue = new(new RetrievalCache(Root), new NeverAnsweringUpstream());
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+
+        catalogue.Describe(RetrievalServer.Learn, RetrievalMode.Live).ShouldBeEmpty();
+
+        clock.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
     /// Live means what it says. The corpus used to be consulted before the mode was, so an
     /// operator who once ran Record and then switched to Live silently kept getting a page
     /// captured weeks earlier - for an API that may have changed since - with no indication it
@@ -289,6 +335,20 @@ public sealed class RetrievalCacheTests : IDisposable
         {
             Calls++;
             return Task.FromResult(RetrievalResult.Answered(payload));
+        }
+    }
+
+    /// <summary>
+    /// A server that never answers - the only kind workplan task 76 is about. Before that task
+    /// this held the desktop's window closed for ten seconds at startup.
+    /// </summary>
+    private sealed class NeverAnsweringUpstream : IRetrievalToolLister
+    {
+        public async Task<IReadOnlyList<RetrievalToolDescriptor>> ListToolsAsync(
+            RetrievalServer server, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+            return [];
         }
     }
 

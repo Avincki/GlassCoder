@@ -480,6 +480,95 @@ public sealed class AgentLoopVerificationTests
         record.Summary.ShouldContain("3/3 critics refuted");
     }
 
+    /// <summary>
+    /// The re-vote is told whether anything it asked for arrived (workplan task 72).
+    /// <para>
+    /// Between steps 22 and 27 of run <c>d5edbc59</c> the evidence set was identical - same rungs,
+    /// same summaries, no runtime anything - two XAML attributes changed, and two of three critics
+    /// flipped to accept. A gate that cannot tell motion from evidence is not stricter or looser;
+    /// it is reading a different question each time it is asked.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_second_panel_judging_unchanged_evidence_is_told_so()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(true, [], 3, "3/3 critics refuted: no runtime evidence.") { RespondingVotes = 3 });
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(false, [], 1, "2/3 critics accepted the change.") { RespondingVotes = 3 });
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+
+        // The second panel is handed what the first refused, and told the evidence has not moved.
+        string second = harness.Critics.Requests[1].Evidence;
+        second.ShouldContain("A previous panel in this run refused this work");
+        second.ShouldContain("no runtime evidence");
+        second.ShouldContain("say what changed your mind");
+
+        // The first panel cannot have been told any such thing.
+        harness.Critics.Requests[0].Evidence.ShouldNotContain("A previous panel");
+
+        // Information, not a veto: the run completes accepted, exactly as it would have.
+        result.Error.ShouldBeNull("this is context for the critics, never a gate");
+
+        // And the fact is on the record, so "accepted on unchanged evidence" is greppable across
+        // runs rather than reconstructed from two transcripts by hand.
+        StepCritiqueRecord record = harness.StepLogger.Steps
+            .Select(s => s.Verification?.Critique)
+            .Last(c => c is not null)
+            .ShouldNotBeNull();
+        record.EvidenceUnchanged.ShouldBeTrue();
+        record.Refuted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_panel_that_sees_new_evidence_is_not_told_anything_of_the_kind()
+    {
+        // The guard on the test above. If the notice fired on every re-vote it would say nothing
+        // at all. Note what it takes to clear it: not another edit - run d5edbc59 made one and the
+        // evidence still did not move - but a verification result that actually differs.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+
+        harness.Ladder.Enqueue(PassedReport());
+        harness.Ladder.Enqueue(new VerificationReport(
+            true,
+            VerificationRung.UnitTests,
+            null,
+            [
+                new RungResult(VerificationRung.Syntax, true, "Syntax ok.", 1),
+                new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+                new RungResult(VerificationRung.UnitTests, true, "4 tests passed.", 1),
+                new RungResult(VerificationRung.FullSuite, true, "4 tests passed.", 1),
+            ],
+            4));
+
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(true, [], 3, "3/3 critics refuted: no runtime evidence.") { RespondingVotes = 3 });
+        harness.Critics.Sequence.Enqueue(
+            new CritiqueResult(false, [], 1, "2/3 critics accepted the change.") { RespondingVotes = 3 });
+
+        await harness.RunAsync();
+
+        harness.Critics.Requests[1].Evidence.ShouldNotContain("A previous panel");
+    }
+
     [Fact]
     public async Task A_second_refutation_under_a_gating_critique_completes_with_a_caveat()
     {

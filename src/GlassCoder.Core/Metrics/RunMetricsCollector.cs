@@ -146,6 +146,16 @@ public sealed class RunMetricsCollector
         }
     }
 
+    /// <summary>
+    /// What retrieval spent this run (workplan task 61), or null when no policy was in play.
+    /// <para>
+    /// Set by the loop from <c>IRetrievalPolicy.Stats</c> before the record is built. The policy
+    /// has counted these since task 55 and nothing read them - its own summary said "read by the
+    /// metrics recorder" while no recorder did, which is the kind of comment that ages into a lie.
+    /// </para>
+    /// </summary>
+    public GlassCoder.Tools.Retrieval.RetrievalStats? Retrieval { get; set; }
+
     /// <summary>Builds the record for a finished run.</summary>
     public RunMetrics Build(AgentRunResult result, string source, bool? oraclePassed, DateTimeOffset recordedAt)
     {
@@ -181,6 +191,9 @@ public sealed class RunMetricsCollector
             Recoveries = Recoveries,
             DiagnosticsReported = DiagnosticsReported,
             DiagnosticsShown = DiagnosticsShown,
+            RetrievalCallsAllowed = Retrieval?.Allowed ?? 0,
+            RetrievalCallsBlocked = Retrieval?.Blocked ?? new Dictionary<string, int>(StringComparer.Ordinal),
+            RetrievalCharsReturned = Retrieval?.CharsReturned ?? 0,
         };
     }
 

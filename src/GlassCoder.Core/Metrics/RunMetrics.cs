@@ -75,6 +75,24 @@ public sealed record RunMetrics
     /// <summary>Tool-call validity rate - the best early diagnostic for a weak model.</summary>
     public double ToolCallValidityRate => ToolCallsTotal == 0 ? 1d : (double)ToolCallsValid / ToolCallsTotal;
 
+    /// <summary>
+    /// Retrieval calls the policy admitted (workplan task 61).
+    /// <para>
+    /// These three are what make a retrieval arm readable. Without them the comparison is pass@1
+    /// against pass@1, which cannot distinguish an arm whose tool was never called from one whose
+    /// answers did not help - and on a greenfield scaffold, where nothing external is in question,
+    /// blocked should greatly exceed allowed and a large allowed count is itself the finding.
+    /// </para>
+    /// </summary>
+    public int RetrievalCallsAllowed { get; init; }
+
+    /// <summary>Retrieval calls the policy refused, by <c>ToolErrorCodes</c> value.</summary>
+    public IReadOnlyDictionary<string, int> RetrievalCallsBlocked { get; init; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>Characters retrieval put into the conversation, which is the context it cost.</summary>
+    public int RetrievalCharsReturned { get; init; }
+
     /// <summary>Edits applied.</summary>
     public required int Edits { get; init; }
 

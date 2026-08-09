@@ -101,6 +101,11 @@ public static class ToolsServiceCollectionExtensions
         // the two against the same file, and a per-tool count would never reach its limit.
         services.TryAddSingleton<VerificationRefusalTracker>();
 
+        // What each file looked like when this run last read it, so an unchanged re-read says so
+        // rather than looking like progress (workplan task 70). Singleton and keyed by run, the
+        // same shape as the tracker above.
+        services.TryAddSingleton<FileReadMemo>();
+
         // Execution: a build is arbitrary code execution, so it goes through the sandbox seam.
         // The Dropbox marker rides that seam - a workspace inside Dropbox gets its build
         // output excluded from sync around every command, including folders born mid-run.
@@ -189,12 +194,18 @@ public static class ToolsServiceCollectionExtensions
         services.TryAddSingleton<RunTestsTool>();
         services.TryAddSingleton<DotnetProjectTool>();
 
+        // What running the application showed, carried to the panel that asks for it
+        // (workplan task 71). Keyed by run, like the refusal tracker and the read memo.
+        services.TryAddSingleton<RuntimeEvidence>();
+        services.TryAddSingleton<LaunchAppTool>();
+
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<CreateFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<EditFileTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<FileOperationTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<DotnetProjectTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<BuildTool>());
         services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<RunTestsTool>());
+        services.AddSingleton<IToolSet>(sp => sp.GetRequiredService<LaunchAppTool>());
         return services;
     }
 

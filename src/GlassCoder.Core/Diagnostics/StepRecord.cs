@@ -64,7 +64,21 @@ public sealed record StepCritiqueRecord(
     int RefutingVotes,
     int RespondingVotes,
     int UnavailableVotes,
-    IReadOnlyList<ReviewVoteRecord> Votes);
+    IReadOnlyList<ReviewVoteRecord> Votes)
+{
+    /// <summary>
+    /// Whether this panel judged the same evidence a previous panel had already refuted
+    /// (workplan task 72).
+    /// <para>
+    /// Recorded rather than acted on. Between steps 22 and 27 of run <c>d5edbc59</c> the evidence
+    /// set did not change - same rungs, same summaries, no runtime anything - two XAML attributes
+    /// moved, and two of three critics flipped from refute to accept. Whether that is a panel
+    /// being reasonable or a panel being talked round is a question about many runs, not one, and
+    /// it cannot be asked at all unless the fact is greppable.
+    /// </para>
+    /// </summary>
+    public bool EvidenceUnchanged { get; init; }
+}
 
 /// <summary>What one automatic verification climb concluded (workplan task 36).</summary>
 /// <param name="Passed">Whether every gating rung that ran passed.</param>

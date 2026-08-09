@@ -169,13 +169,22 @@ public static class ToolCatalog
 
     /// <summary>
     /// Why a switched-on retrieval tool is still absent. Always the corpus: registration reads
-    /// the recorded tool list so that a Replay run opens no socket, and a cold corpus therefore
-    /// has nothing to register.
+    /// the recorded tool list so that no run - Replay or otherwise - waits on a socket while the
+    /// window is being built (workplan task 76), and a cold corpus therefore has nothing to
+    /// register.
+    /// <para>
+    /// It says "yet" because that is now true. Outside Replay the list is being fetched behind
+    /// this run and will be there for the next one, so the honest state is temporary rather than
+    /// stuck - and the Retrieval tab's record button is the way to have it immediately.
+    /// </para>
     /// </summary>
     private static string? Unavailable(
         Retrieval.RetrievalOptions retrieval, Retrieval.RetrievalServerOptions settings) =>
         retrieval.Enabled && settings.Enabled
-            ? $"configured, but no recorded tool list - run once with Retrieval:Mode=Record"
+            ? retrieval.Mode == Retrieval.RetrievalMode.Replay
+                ? "configured, but no recorded tool list - Replay never connects, so record one first"
+                : "configured, but no recorded tool list yet - it is being fetched in the background " +
+                  "and will register next run; the Retrieval tab records it now"
             : null;
 
     /// <summary>

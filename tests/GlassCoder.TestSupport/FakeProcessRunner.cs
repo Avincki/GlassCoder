@@ -24,6 +24,19 @@ public sealed class FakeProcessRunner : IProcessRunner
         return this;
     }
 
+    /// <summary>
+    /// Queues a process that was still running when its timeout arrived and had to be killed.
+    /// <para>
+    /// Its own outcome for <c>launch_app</c> (workplan task 71), where this is the <em>success</em>
+    /// case: a desktop application that is still up after ten seconds started and did not crash.
+    /// </para>
+    /// </summary>
+    public FakeProcessRunner EnqueueTimedOut(string standardOutput = "", string standardError = "")
+    {
+        _scripted.Enqueue(new ProcessRunResult(-1, standardOutput, standardError, TimeSpan.Zero, TimedOut: true));
+        return this;
+    }
+
     /// <inheritdoc />
     public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default)
     {
