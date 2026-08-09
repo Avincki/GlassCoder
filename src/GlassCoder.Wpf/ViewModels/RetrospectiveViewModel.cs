@@ -7,11 +7,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
+using GlassCoder.Core.Configuration;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Verification;
 using GlassCoder.Wpf.Highlighting;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
+using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Wpf.ViewModels;
 
@@ -98,6 +100,7 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
     private readonly IRetrospectiveResultDialog? _dialog;
     private readonly IDesktopShell? _shell;
     private readonly ITranscriptBus? _transcript;
+    private readonly LoggingOptions? _logging;
     private readonly Dispatcher _dispatcher;
 
     private RetrospectiveRequest? _run;
@@ -124,7 +127,8 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         Dispatcher dispatcher,
         IRetrospectiveResultDialog? dialog = null,
         ITranscriptBus? transcript = null,
-        IDesktopShell? shell = null)
+        IDesktopShell? shell = null,
+        IOptions<LoggingOptions>? logging = null)
     {
         _reviewer = reviewer;
         _writer = writer;
@@ -132,6 +136,7 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         _dialog = dialog;
         _transcript = transcript;
         _shell = shell;
+        _logging = logging?.Value;
 
         RunCommand = new RelayCommand(
             async () => await RunAsync().ConfigureAwait(true),
@@ -149,6 +154,7 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         }
 
         _ = InitialiseAsync();
+        _ = RecallLastRunAsync();
     }
 
     /// <summary>The stage reports, in the order they ran.</summary>
@@ -348,6 +354,81 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
             Steps = record.Steps,
             TotalTokens = record.TotalTokens,
         }));
+
+    /// <summary>
+    /// Offers the last run in the durable transcript, so the surface has something to look back
+    /// at on a cold start.
+    /// <para>
+    /// Without this the surface only ever knew about runs that finished in <em>this</em> process,
+    /// because <see cref="ITranscriptBus.RunRecorded"/> is the only thing that told it - so
+    /// closing the application and reopening it left "No run yet" and a greyed button, with every
+    /// run of the last month sitting in the log a few metres away. Looking back at a finished run
+    /// is precisely the thing one does after coming back to it.
+    /// </para>
+    /// <para>
+    /// The live bus still wins: if a run finishes while this is reading, it has offered a fresher
+    /// run than anything on disk and this leaves it alone.
+    /// </para>
+    /// </summary>
+    private async Task RecallLastRunAsync()
+    {
+        if (_logging is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // Off the UI thread: today's log is already megabytes, and this runs during the
+            // window's own construction.
+            RunRecord? last = await Task.Run(() =>
+            {
+                string directory = AppPaths.ResolveDataDirectory(_logging.Directory);
+                if (!Directory.Exists(directory))
+                {
+                    return null;
+                }
+
+                // Newest file only. Reading the whole rolling set would parse a month of runs to
+                // answer a question about the last one.
+                string? newest = new DirectoryInfo(directory)
+                    .EnumerateFiles("*.jsonl")
+                    .OrderByDescending(f => f.LastWriteTimeUtc)
+                    .FirstOrDefault()?.FullName;
+
+                if (newest is null)
+                {
+                    return null;
+                }
+
+                // A run record is only written when a run ends, so the last one is the last run
+                // that finished - which is the only kind worth looking back at.
+                return TranscriptReader.ReadFile(newest)
+                    .Select(t => t.Run)
+                    .LastOrDefault(run => run is not null);
+            }).ConfigureAwait(true);
+
+            if (last is null || _run is not null)
+            {
+                return;
+            }
+
+            OfferRun(new RetrospectiveRequest(last.RunId)
+            {
+                TaskId = last.TaskId,
+                Goal = last.Goal,
+                StopReason = last.StopReason,
+                Steps = last.Steps,
+                TotalTokens = last.TotalTokens,
+            });
+        }
+        catch (Exception ex)
+        {
+            // A surface that cannot read the log is a surface with no run to offer, which it
+            // already knows how to say. It is not a reason to fail construction.
+            Status = $"Could not read the transcript for an earlier run: {ex.Message}";
+        }
+    }
 
     private async Task InitialiseAsync()
     {
