@@ -98,4 +98,29 @@ public sealed class SandboxOptions
         "NUGET_PACKAGES=/workspace/.glasscoder/nuget",
         "HOME=/tmp",
     ];
+
+    /// <summary>
+    /// Whether host commands ask the .NET CLI to keep MSBuild resident between invocations
+    /// (<c>DOTNET_CLI_USE_MSBUILD_SERVER</c>).
+    /// <para>
+    /// Measured on this machine against <c>MultiplyApp</c>, interleaved so neither arm got the
+    /// warm disk: <strong>a no-op incremental build goes from about 980 ms to about 400 ms</strong>.
+    /// What is being skipped is MSBuild's own start-up, which a harness that builds eight to ten
+    /// times a run pays eight to ten times.
+    /// </para>
+    /// <para>
+    /// The first build after a machine reboot pays roughly what it would have anyway - 1,092 ms
+    /// measured, against 989 ms with the server off - so there is no cold-start penalty to
+    /// amortise. The one genuinely first-ever start on a machine cost 7.9 s and did not
+    /// reproduce after <c>dotnet build-server shutdown</c>.
+    /// </para>
+    /// <para>
+    /// <strong>Host only, and deliberately not in <see cref="Environment"/>.</strong> That list
+    /// goes to the container, where every command gets a fresh one and a resident server has
+    /// nothing to be resident in. Switchable because it leaves a ~170 MB MSBuild process alive
+    /// holding handles under the workspace, and this repository already carries a bounded build
+    /// retry for lock flakes from things that do exactly that.
+    /// </para>
+    /// </summary>
+    public bool UseMsBuildServer { get; set; } = true;
 }

@@ -31,6 +31,14 @@ public sealed class LocalCommandExecutor : ICommandExecutor
     /// <inheritdoc />
     public Task<bool> IsAvailableAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
 
+    /// <summary>
+    /// Keeps MSBuild resident between invocations, which is worth about 580 ms of every host
+    /// build (see <see cref="SandboxOptions.UseMsBuildServer"/>). Only ever added to the command
+    /// this harness is actually launching, so nothing else on the machine inherits it.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string?> MsBuildServerEnvironment =
+        new Dictionary<string, string?>(StringComparer.Ordinal) { ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "1" };
+
     /// <inheritdoc />
     public async Task<CommandResult> ExecuteAsync(CommandRequest request, CancellationToken cancellationToken = default)
     {
@@ -41,6 +49,7 @@ public sealed class LocalCommandExecutor : ICommandExecutor
             {
                 WorkingDirectory = request.WorkingDirectory,
                 Timeout = request.Timeout ?? TimeSpan.FromSeconds(_options.CommandTimeoutSeconds),
+                Environment = UsesDotnet(request) ? MsBuildServerEnvironment : null,
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -52,4 +61,14 @@ public sealed class LocalCommandExecutor : ICommandExecutor
             result.TimedOut,
             Sandbox);
     }
+
+    /// <summary>
+    /// Whether this command is the .NET CLI, and so the only one the server setting means
+    /// anything to. Checked on the file name rather than applied to everything, because an
+    /// environment variable handed to <c>git</c> or a model's shell command is a side effect
+    /// nobody asked for.
+    /// </summary>
+    private bool UsesDotnet(CommandRequest request) =>
+        _options.UseMsBuildServer &&
+        Path.GetFileNameWithoutExtension(request.FileName).Equals("dotnet", StringComparison.OrdinalIgnoreCase);
 }

@@ -335,6 +335,58 @@ public sealed class SandboxAndParserTests
     }
 
     /// <summary>
+    /// Keeping MSBuild resident is worth about 580 ms of every host build - measured on this
+    /// machine, a no-op incremental build going from ~980 ms to ~400 ms. It is host-only on
+    /// purpose: the container gets a fresh one per command, where a resident server has nothing
+    /// to be resident in.
+    /// </summary>
+    [Fact]
+    public async Task A_host_dotnet_command_asks_for_the_msbuild_server()
+    {
+        SandboxOptions options = new() { Mode = SandboxMode.Local, AllowUnsandboxedExecution = true };
+        FakeProcessRunner runner = new();
+
+        await new LocalCommandExecutor(runner, GlassCoder.TestSupport.TempWorkspace.Wrap(options))
+            .ExecuteAsync(new CommandRequest("dotnet", ["build"]));
+
+        runner.Requests.Single().Environment
+            .ShouldNotBeNull()["DOTNET_CLI_USE_MSBUILD_SERVER"].ShouldBe("1");
+    }
+
+    [Fact]
+    public async Task Anything_that_is_not_dotnet_is_left_alone()
+    {
+        // An environment variable handed to git, or to a model's shell command, is a side effect
+        // nobody asked for and nobody would think to look for.
+        SandboxOptions options = new() { Mode = SandboxMode.Local, AllowUnsandboxedExecution = true };
+        FakeProcessRunner runner = new();
+
+        await new LocalCommandExecutor(runner, GlassCoder.TestSupport.TempWorkspace.Wrap(options))
+            .ExecuteAsync(new CommandRequest("git", ["status"]));
+
+        runner.Requests.Single().Environment.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_msbuild_server_can_be_switched_off()
+    {
+        // It leaves a ~170 MB MSBuild process alive holding handles under the workspace, and this
+        // repository already carries a bounded build retry for lock flakes from exactly that.
+        SandboxOptions options = new()
+        {
+            Mode = SandboxMode.Local,
+            AllowUnsandboxedExecution = true,
+            UseMsBuildServer = false,
+        };
+        FakeProcessRunner runner = new();
+
+        await new LocalCommandExecutor(runner, GlassCoder.TestSupport.TempWorkspace.Wrap(options))
+            .ExecuteAsync(new CommandRequest("dotnet", ["build"]));
+
+        runner.Requests.Single().Environment.ShouldBeNull();
+    }
+
+    /// <summary>
     /// The shipped configuration: <c>Mode: Docker</c> with the fallback permitted. This is the
     /// branch every build on a machine without a container runtime now takes, so it is worth a
     /// test of its own rather than being inferred from the two Local-mode cases above.

@@ -43,6 +43,9 @@ it was emptied every step, all day. It now ignores a change re-announced at its 
 implies `--no-restore`, so one flag is the whole saving, and the ladder is the case that pays:
 its Compile rung builds the target its UnitTests rung is about to test, moments earlier.
 
+**Host `dotnet` commands keep MSBuild resident.** Measured interleaved against `MultiplyApp` so
+neither arm got the warm disk: **a no-op incremental build goes from ~980 ms to ~400 ms.**
+
 **Decided**
 
 - **The instruction was replaced, not deleted.** "Trust the automatic verification" alone would
@@ -93,10 +96,22 @@ its Compile rung builds the target its UnitTests rung is about to test, moments 
   where the runner looked - and it would surface as a test failure, which is the most misleading
   shape it could take.
 
+- **The MSBuild server went on `LocalCommandExecutor`, not in `SandboxOptions.Environment`.**
+  That list is handed to `DockerRunSpec` and nowhere else, so setting it there would have
+  configured the one place a resident server cannot exist: a container built fresh per command.
+  It is also applied only when the command is `dotnet` - an environment variable handed to `git`
+  or to a model's shell command is a side effect nobody would think to look for.
+- **The 7.9-second first build nearly killed it, and was an artefact.** The very first
+  server start on this machine cost 7,896 ms, which would have meant a break-even around thirteen
+  invocations and a net loss for any single run. It did not reproduce: after
+  `dotnet build-server shutdown` a cold start costs 1,092 ms against 989 ms with the server off.
+  **One measurement was nearly enough to reject a good change.**
+- It stays switchable because it leaves a ~170 MB MSBuild process alive holding handles under the
+  workspace, and `BuildTool` already carries a bounded retry for lock flakes from things that do
+  exactly that. If those get worse, `Sandbox:UseMsBuildServer` is the first thing to turn off.
+
 **Open**
 
-- One further candidate was costed and not built: `DOTNET_CLI_USE_MSBUILD_SERVER=1`, worth about
-  a second per `dotnet` invocation on the host and nothing at all in a fresh container.
 - **The zero-hit finding is the one to re-check after the next live run.** Everything above is
   argued from logs and unit tests; whether the cache now actually serves a build is a thing only
   a run can say. Grep the next transcript for "unchanged since the last".
