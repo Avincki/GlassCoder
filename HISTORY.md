@@ -9,6 +9,97 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-09 — The retrospective was taken, thrown away, recovered, and then acted on
+
+The first whole retrospective ran on the evening of 2026-08-08 and **the operator saw two thirds
+of it**. Stage 3 read the harness for five minutes, called `StructuredOutput` successfully at
+20:30:37.643 - a full report and nine priority-ordered recommendations - and `ClaudeCliSession`
+discarded every word six-tenths of a second later, because the process exited 1. The exit was
+`--max-budget-usd 2` against a session that had spent about $5. What the log said about it, in
+full, was `The CLI failed with exit 1: `.
+
+Neither half of that was a token limit, which is what it looked like. The run itself completed
+cleanly at 28 steps / 267k.
+
+**The report was recovered by hand** from the CLI's own session log - Claude Code keeps every
+session at `~/.claude/projects/<slug>/<sessionId>.jsonl`, and the answer is the record whose
+`attachment.type` is `structured_output` - and written into
+`.glasscoder/retrospectives/d5edbc59.../` in the shape `Load` rehydrates from. Its nine
+recommendations, plus the two defects the incident itself exposed and the MCP thread, became
+workplan tasks 68-76. **Twelve of the fourteen open tasks were then implemented.** 889 tests
+green, from 840, on branch `work/retrospective-backlog`.
+
+**Settings changed first, because two of them made the feature untestable.**
+`Retrospective:MaxBudgetUsd` 2.00 → 8.00, `HarnessRepoPath` set at last, and
+`FileReview:Bare` true → **false** - tested directly against the CLI, which answers
+"Not logged in · Please run /login" and exits 1 under `--bare`, so the file review would have
+failed on every press since task 43.
+
+**Decided**
+
+- **A capped session keeps its answer, and the salvage is deliberately asymmetric.**
+  `structured_output` only exists when the model answered in the requested shape, so it is an
+  answer whatever ended the session. `result` is not: an unauthenticated session writes its
+  complaint there and sets `is_error`, and the obvious reading - "keep it if there is a result" -
+  would have filed a broken login as a review. `result` is trusted only when the CLI stopped
+  itself at a ceiling.
+- **Three premises in the retrospective's own report were wrong, and checking them made the
+  fixes smaller.** It claimed `run_tests` throws away the failing assertion's expected/actual; it
+  does not - `TestRunResult.Output` carries a tail. The gap is one level down, in the ladder's
+  rung summary, which is the path an inline `edit_file` verification reports through. **A
+  retrospective is evidence, not a verdict: check the citations before implementing from them.**
+- **`launch_app` runs through `IProcessRunner`, not `IDesktopShell`.** The plan named the wrong
+  seam - `IDesktopShell` is in `GlassCoder.Wpf`, and a tool in `GlassCoder.Tools` cannot reference
+  the UI layer without inverting the dependency direction task 1 set.
+- **For a desktop app, still running at the timeout is the success case.** A WPF application never
+  exits on its own, so surviving the clock is "started, drew its window, did not fall over". Read
+  the usual way round, every working app reports as a failure and every instant crash as a pass.
+- **The critique fingerprint is over the evidence, not the diff.** The diff always moves between
+  panels - run `d5edbc59` changed two XAML attributes - so a diff-based hash would have called
+  that new evidence and said nothing, which is the exact case worth naming.
+- **MCP registration starts without the server and registers late.** Preferring the recording
+  *forever* was the trap the old blocking call existed to avoid; preferring it *while refreshing*
+  is not, because the refresh is what breaks the loop.
+- **`dotnet_project` refuses a below-root solution instead of warning about it.** The warning was
+  correct, arrived in the same response that created the thing, and was read past. Its hint now
+  checks whether the root is writable first - under the default `src`/`tests` set, "create it at
+  the root instead" is advice the guard refuses.
+- **Tasks 48 and 53 were closed as bookkeeping, not work.** Both already carried written
+  decisions - 48's estimate literally reads "2d, or a decision not to" - and both went on being
+  counted as five days of open work. A decided question that reads as an unmade one gets
+  re-argued.
+- **Task 38 was left open on purpose, and it is the only one.** Its arms exist; its remaining
+  bullets are `glasscoder ablate --arms capabilities` against the Spark and the reading of what
+  comes back. Its acceptance says "measured JSONL evidence, not just code". Marking it done
+  because the arms compile would be the precise failure the retrospective was written to catch.
+
+**Two latent defects surfaced while testing rather than while designing.** The `edit_file`
+diagnosis reached past the end of its own array when every line of the target appeared but the
+block did not - `IndexOutOfRangeException`, reachable by any target ending in a newline whose
+lines all appear somewhere. And a failed CLI session was recorded as having cost nothing, which
+is most of why the original incident was hard to trace to a budget at all.
+
+**Closes an item this file parked.** The 2026-08-08 entry below logged run `122e11c6`'s
+`edit_file` refusal - *"None of its lines appear in the file"* - as "two wasted steps,
+self-recovered, one occurrence. Watch rather than fix." Run `d5edbc59` is occurrence two, same
+steps 9-12, same escape into a whole-file rewrite, and this time the rewrite is where nine unused
+`using` directives came from. By this repository's own decision rule that made it a fix.
+
+**Open**
+
+- **Nothing here has been run against a live worker.** Tasks 60 and 61 are built and deliberately
+  unmeasured; task 38 is unstarted for the same reason. `--arms retrieval` and
+  `--arms capabilities` over the nine fixtures is the work, and it is hours of the Spark.
+- **Task 60's fixture choice is a prediction.** The task asked for the two candidates to be
+  settled by running each against the worker with retrieval off and keeping whichever it got
+  wrong. If `baseline` passes `suite-09-bounded-channel` unaided it measures nothing and must be
+  swapped for the `IAsyncEnumerable` candidate - one arm on one task to find out.
+- **The cold-start recall on the Retrospective surface has no tests.** The seam it crosses is the
+  file system and the dispatcher, and the honest cover is a fake transcript directory.
+- Branch `work/retrospective-backlog` is six commits ahead of `main` and unpushed.
+
+---
+
 ## 2026-08-08 (mcp, later) — The switches become visible, and the screen gets a judge
 
 **Shipped** on `feature/mcp-services`, all from operator reports rather than from the plan: the
