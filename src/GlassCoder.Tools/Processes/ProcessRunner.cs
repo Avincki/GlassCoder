@@ -14,6 +14,30 @@ namespace GlassCoder.Tools.Processes;
 /// </remarks>
 public sealed class ProcessRunner : IProcessRunner
 {
+    /// <summary>
+    /// How every redirected stream is read and written. Without a BOM, because one written to a
+    /// child's stdin is three bytes of rubbish at the head of its prompt.
+    /// </summary>
+    /// <remarks>
+    /// Not a default worth leaving alone. On Windows .NET decodes a redirected stream with the
+    /// <em>console</em> code page - 1252 on this machine - and every tool this harness launches
+    /// emits UTF-8. So an em dash came back as <c>â€"</c>, an ellipsis as <c>â€¦</c>, and a
+    /// section sign as <c>Â§</c>; the retrospective then wrote that faithfully into its own
+    /// reports as UTF-8, which baked the damage in. The reports were unreadable in exactly the
+    /// places a reviewer had bothered to punctuate carefully.
+    /// <para>
+    /// Both directions matter. Stage 2 is handed stage 1's report on stdin and stage 3 is handed
+    /// both, so a mis-encoded write corrupts the <em>input</em> to the next session as well - the
+    /// later a stage ran, the more mangled its material was.
+    /// </para>
+    /// <para>
+    /// Safe for a tool that emits pure ASCII, which decodes identically either way, and lenient
+    /// by construction: invalid bytes become U+FFFD rather than throwing, because a run must not
+    /// fail over one unexpected byte in a build log.
+    /// </para>
+    /// </remarks>
+    private static readonly UTF8Encoding StreamEncoding = new(encoderShouldEmitUTF8Identifier: false);
+
     private readonly ILogger<ProcessRunner> _logger;
 
     /// <summary>Creates the runner.</summary>
@@ -32,9 +56,18 @@ public sealed class ProcessRunner : IProcessRunner
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = request.StandardInput is not null,
+            StandardOutputEncoding = StreamEncoding,
+            StandardErrorEncoding = StreamEncoding,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+        // Only when there is a stdin to encode: Process.Start refuses an encoding for a stream it
+        // was not asked to redirect.
+        if (startInfo.RedirectStandardInput)
+        {
+            startInfo.StandardInputEncoding = StreamEncoding;
+        }
 
         foreach (string argument in request.Arguments)
         {
