@@ -76,7 +76,28 @@ public static class ProjectLocator
         return null;
     }
 
-    /// <summary>Project files directly in <paramref name="directory"/>.</summary>
+    /// <summary>
+    /// Whether this is MSBuild scratch rather than a project anyone wrote.
+    /// <para>
+    /// WPF's markup compile writes <c>&lt;project&gt;_&lt;hash&gt;_wpftmp.csproj</c> beside the
+    /// real one and deletes it at the end - unless the build dies first, and then it stays. Run
+    /// <c>4c7de12b</c> left one, and step 18's <c>build src/MultiplyApp</c> came back
+    /// <c>MSB1011: this folder contains more than one project or solution file</c>, costing a step.
+    /// This repository's own <c>.gitignore</c> has carried a rule for these since before the
+    /// harness existed; nothing in the harness knew about them.
+    /// </para>
+    /// <para>
+    /// Filtered rather than reported, because no caller of this class wants one: not the build
+    /// target resolver, not the owning-project lookup, and not the analyzer deciding whether
+    /// implicit usings are on - that last one would read a 31 KB fully-expanded scratch project
+    /// to answer a question about the real one. Ordering saved run 4c7de12b from that by luck,
+    /// <c>'.'</c> sorting before <c>'_'</c>.
+    /// </para>
+    /// </summary>
+    public static bool IsScratch(string path) =>
+        Path.GetFileNameWithoutExtension(path.AsSpan()).EndsWith("_wpftmp", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Project files directly in <paramref name="directory"/>, excluding MSBuild scratch.</summary>
     public static IEnumerable<string> EnumerateProjects(string directory)
     {
         ArgumentNullException.ThrowIfNull(directory);
@@ -95,6 +116,11 @@ public static class ProjectLocator
 
             foreach (string file in found)
             {
+                if (IsScratch(file))
+                {
+                    continue;
+                }
+
                 yield return file;
             }
         }

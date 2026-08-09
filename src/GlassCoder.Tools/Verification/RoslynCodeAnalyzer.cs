@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Xml;
 using System.Xml.Linq;
@@ -349,7 +349,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
 
         try
         {
-            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            foreach (string project in ProjectLocator.EnumerateProjects(projectDirectory))
             {
                 foreach (XElement item in XDocument.Load(project)
                     .Descendants()
@@ -407,7 +407,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
     {
         try
         {
-            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            foreach (string project in ProjectLocator.EnumerateProjects(projectDirectory))
             {
                 string? value = XDocument.Load(project)
                     .Descendants()
@@ -440,7 +440,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
     {
         try
         {
-            foreach (string project in Directory.EnumerateFiles(projectDirectory, "*.csproj"))
+            foreach (string project in ProjectLocator.EnumerateProjects(projectDirectory))
             {
                 string? value = XDocument.Load(project)
                     .Descendants()
@@ -605,7 +605,7 @@ public sealed class RoslynCodeAnalyzer : ICodeAnalyzer
         {
             // A file that is being created may not have its directory yet, and enumerating one
             // that is not there throws. Walk past it: the project is further up regardless.
-            if (directory.Exists && directory.EnumerateFiles("*.csproj").Any())
+            if (directory.Exists && ProjectLocator.EnumerateProjects(directory.FullName).Any())
             {
                 return directory.FullName;
             }

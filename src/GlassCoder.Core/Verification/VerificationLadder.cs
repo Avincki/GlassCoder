@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using GlassCoder.Tools;
 using GlassCoder.Tools.Build;
 using GlassCoder.Tools.Guardrails;
@@ -66,6 +66,19 @@ public sealed record RungResult(
     /// the "nothing was verified" line stays in the summary the model and the critics read.
     /// </summary>
     public bool Unverified { get; init; }
+
+    /// <summary>
+    /// True when the rung passed but had something to say about the quality of what it verified -
+    /// today, task 66's suite notices.
+    /// <para>
+    /// A flag beside the text, because the text alone has nowhere to go.
+    /// <see cref="VerificationLadder"/> concatenates <c>tests.Notices</c> into
+    /// <see cref="Summary"/>, which reaches the model and the critics and stops there; run
+    /// 4c7de12b's notice was precise, arrived twice, was read by the completion panel, and moved
+    /// nothing, because no part of the machinery that decides whether a run may stop could see it.
+    /// </para>
+    /// </summary>
+    public bool Noticed { get; init; }
 }
 
 /// <summary>The outcome of climbing the ladder.</summary>
@@ -92,6 +105,9 @@ public sealed record VerificationReport(
 
     /// <summary>True when a rung ran but verified nothing - the asterisk on a green climb.</summary>
     public bool Unverified => Results.Any(r => !r.Skipped && r.Unverified);
+
+    /// <summary>True when a rung that passed still had something to say about what it verified.</summary>
+    public bool Noticed => Results.Any(r => !r.Skipped && r.Noticed);
 }
 
 /// <summary>Everything the ladder needs to know about what it is verifying.</summary>
@@ -365,6 +381,7 @@ public sealed class VerificationLadder : IVerificationLadder
                 return new RungResult(rung, tests.Ok, summary, Elapsed(start))
                 {
                     Unverified = tests.Ok && tests.Total == 0,
+                    Noticed = tests.Ok && tests.Total > 0 && !string.IsNullOrWhiteSpace(tests.Notices),
                 };
             }
 
@@ -380,6 +397,7 @@ public sealed class VerificationLadder : IVerificationLadder
                     request.ChangeDescription,
                     string.Join(Environment.NewLine, results.Where(r => !r.Skipped).Select(r => r.Summary)),
                     request.CriticRole,
+                    claim: null,
                     cancellationToken).ConfigureAwait(false);
 
                 // Whether a refutation blocks or merely warns is configuration: a critic is a

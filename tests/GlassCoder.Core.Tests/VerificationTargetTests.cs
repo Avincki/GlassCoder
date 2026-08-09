@@ -1,4 +1,4 @@
-using GlassCoder.Core.Agent;
+﻿using GlassCoder.Core.Agent;
 using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Build;
@@ -148,7 +148,7 @@ public sealed class VerificationTargetTests : IDisposable
         public string ResolveRole(string? role) => role ?? "critic";
 
         public Task<CritiqueResult> CritiqueAsync(
-            string goal, string change, string evidence, string? role = null, CancellationToken cancellationToken = default) =>
+            string goal, string change, string evidence, string? role = null, string? claim = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(new CritiqueResult(false, [], 0, "disabled"));
     }
 }

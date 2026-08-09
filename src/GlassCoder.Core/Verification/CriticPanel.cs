@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using GlassCoder.Models;
@@ -136,11 +136,22 @@ public interface ICriticPanel
     string ResolveRole(string? role);
 
     /// <summary>Asks the panel to try to refute the claim that a finished change meets its goal.</summary>
+    /// <param name="goal">What the change was supposed to achieve.</param>
+    /// <param name="change">The change itself.</param>
+    /// <param name="evidence">What the harness established: verification summary and runtime evidence.</param>
+    /// <param name="role">Which critic role to run on.</param>
+    /// <param name="claim">
+    /// The worker's own account of its work, rendered under its own heading. Separate from
+    /// <paramref name="evidence"/> on purpose - it is an assertion, and filing it as evidence is
+    /// how run 4c7de12b's panel came to reason from it.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation.</param>
     Task<CritiqueResult> CritiqueAsync(
         string goal,
         string change,
         string evidence,
         string? role = null,
+        string? claim = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -201,6 +212,7 @@ public sealed class CriticPanel : ICriticPanel
         string change,
         string evidence,
         string? role = null,
+        string? claim = null,
         CancellationToken cancellationToken = default)
     {
         string resolved = ResolveRole(role);
@@ -235,7 +247,7 @@ public sealed class CriticPanel : ICriticPanel
             new ParallelOptions { MaxDegreeOfParallelism = criticCount, CancellationToken = cancellationToken },
             async (index, token) =>
             {
-                CriticAnswer answer = await AskAsync(index, resolved, goal, change, evidence, token).ConfigureAwait(false);
+                CriticAnswer answer = await AskAsync(index, resolved, goal, change, evidence, claim, token).ConfigureAwait(false);
                 await answers.Writer.WriteAsync(answer, token).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
@@ -339,12 +351,28 @@ public sealed class CriticPanel : ICriticPanel
         };
     }
 
+    /// <summary>
+    /// The worker's own account of its work, under a heading that says what it is.
+    /// <para>
+    /// It used to be appended to <c>evidence</c> and rendered under the <c>Evidence:</c> heading,
+    /// one line below a system prompt telling critics to judge only the evidence in front of them.
+    /// In run <c>4c7de12b</c> the two accepting critics reasoned from exactly that. An assertion
+    /// filed as evidence is the harness misleading its own reviewers.
+    /// </para>
+    /// </summary>
+    private static string Claim(string? claim) =>
+        string.IsNullOrWhiteSpace(claim)
+            ? string.Empty
+            : $"The worker's own claim - this is an assertion, NOT evidence. Judge it against the " +
+              $"evidence above; it establishes nothing on its own:\n{claim}\n\n";
+
     private async Task<CriticAnswer> AskAsync(
         int index,
         string role,
         string goal,
         string change,
         string evidence,
+        string? claim,
         CancellationToken cancellationToken)
     {
         string lens = Lenses[index % Lenses.Length];
@@ -371,16 +399,18 @@ public sealed class CriticPanel : ICriticPanel
                 $"Judge it through this lens - {lens}. " +
                 "Judge only the change and evidence in front of you; default to refuted:true when the " +
                 "evidence cannot support the claim. " +
-                "The worker can only produce this evidence: builds, test runs, file contents and static " +
-                "checks. It cannot launch the application, interact with a UI, or capture a screen - a " +
-                "human operator does that separately - so the absence of runtime or visual proof is " +
-                "never, by itself, grounds to refute. Refute over evidence the worker could have " +
-                "produced and did not, or over what the produced evidence actually shows. " +
+                "The worker can produce this evidence: builds, test runs, file contents, static checks, " +
+                "and - since task 71 - it can launch the application and observe whether it started and " +
+                "drew a window. It cannot see what is on the screen or interact with it, so the absence " +
+                "of *visual* proof is never, by itself, grounds to refute; the absence of a *launch*, " +
+                "for a goal about a running application, now is. Refute over evidence the worker could " +
+                "have produced and did not, or over what the produced evidence actually shows. " +
                 "Judge the behaviour the goal asks for, not its word choice: a window presenting the " +
                 "required controls satisfies a goal that says 'dialog', and the like. " +
                 "Reply with JSON only: {\"refuted\": bool, \"confidence\": number between 0 and 1, \"reason\": string}."),
             new(ChatRole.User,
                 $"Goal:\n{goal}\n\nThe change:\n{change}\n\nEvidence:\n{evidence}\n\n" +
+                Claim(claim) +
                 "Can you refute the claim that this change meets the goal?"),
         ];
 

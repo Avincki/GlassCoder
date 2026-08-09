@@ -86,18 +86,30 @@ public sealed class BuildCache
             _statuses[change.Id] = change.Status;
         }
 
+        _logger.LogInformation(
+            "Build cache invalidated by change {ChangeId} ({Tool} on {Path}) moving to {Status}",
+            change.Id, change.Tool, change.Path, change.Status);
+
         Invalidate();
     }
 
     /// <summary>How many times the cache has been emptied. Useful in tests and traces.</summary>
     public int Generation { get; private set; }
 
+    /// <summary>Lookups served from memory this process.</summary>
+    public int Hits { get; private set; }
+
+    /// <summary>Lookups that had to do the work.</summary>
+    public int Misses { get; private set; }
+
     /// <summary>The cached result for a target, when the tree has not moved since.</summary>
     public bool TryGet(string target, bool allowRestore, out BuildResult? result)
     {
         lock (_gate)
         {
-            return _entries.TryGetValue(Key(target, allowRestore), out result);
+            bool hit = _entries.TryGetValue(Key(target, allowRestore), out result);
+            Report("build", Key(target, allowRestore), hit, _entries.Keys);
+            return hit;
         }
     }
 
@@ -122,8 +134,42 @@ public sealed class BuildCache
     {
         lock (_gate)
         {
-            return _tests.TryGetValue(Key(target, filter), out result);
+            bool hit = _tests.TryGetValue(Key(target, filter), out result);
+            Report("test", Key(target, filter), hit, _tests.Keys);
+            return hit;
         }
+    }
+
+    /// <summary>
+    /// Says what was asked for and what was held, which is the whole of this cache's
+    /// observability.
+    /// <para>
+    /// Written because its absence cost two investigations. The cache went a full day without
+    /// serving a single result and nothing said so; the only outward sign of a hit was a phrase in
+    /// a tool summary, and a miss looked exactly like a cache that had never been asked. Worse,
+    /// the two miss reasons need different fixes and could not be told apart: an empty cache means
+    /// something invalidated it, while a populated one means the caller named a target nobody had
+    /// built - which is the common case, since the ladder builds the top dependent and the model
+    /// builds what it edited, and those are rarely the same string.
+    /// </para>
+    /// <para>
+    /// Information rather than Debug, deliberately. The shipped log level is Information, so a
+    /// Debug line is a line that does not exist on the machine where the question gets asked.
+    /// </para>
+    /// </summary>
+    private void Report(string kind, string key, bool hit, IEnumerable<string> held)
+    {
+        if (hit)
+        {
+            Hits++;
+            _logger.LogInformation("Build cache HIT ({Kind}) for {Key}", kind, key);
+            return;
+        }
+
+        Misses++;
+        _logger.LogInformation(
+            "Build cache MISS ({Kind}) for {Key}; generation {Generation} holds [{Held}]",
+            kind, key, Generation, string.Join(", ", held));
     }
 
     /// <summary>

@@ -9,6 +9,84 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-09 (last) — The notice layer was finished and the consequence layer was empty
+
+Run `4c7de12b` was the first with the step-cost work live, and it did what it was built to do:
+24 steps against 25, **174s against 229s**, `launch_app` reporting `window=true` after **685 ms**
+instead of sleeping out ten seconds, and a completion panel that **accepted 2/3** where the run
+before it was refuted 3/3 twice for want of exactly that evidence.
+
+Its retrospective (`docs/retrospectives/retro-4c7de12b-20260809-191609.md`) found something
+sharper than a list of defects. **Every message this harness has built worked. None of them had
+anywhere to be recorded as outstanding.** Task 66's suite notice fired twice, was worded well,
+reached the critics, and moved nothing. Five ticked actions, all implemented.
+
+**The model-facing verdict stops saying "passed" over a rung that verified nothing.** The logger
+one call away already said `passed (0 tests)` to the operator; the model got the flatter
+rendering four times in that run, and the first line is where a reader stops when it is
+reassuring.
+
+**A suite notice now reaches `RunProgressSentry`.** `RungResult.Noticed` beside the existing
+`Unverified`, through `VerificationReport` and `ObserveVerification` into a sibling of the
+red-tree pair: one push-back at the first stop, then the run finishes with *"Completed over an
+unanswered test-suite notice"* in the record.
+
+**The worker's completion summary is no longer filed under `Evidence:`.** `ICriticPanel` takes a
+`claim` parameter rendered under its own heading saying what it is. It sat one line below a system
+prompt telling critics to judge only the evidence in front of them, and run `4c7de12b`'s two
+accepting critics reasoned from it.
+
+**The critic prompt stops denying `launch_app`.** Third recorded instance of a prompt asserting a
+limitation a later task removed.
+
+**Terminal control sequences are stripped where both streams are collected.** 21 of them reached
+the model in that run; step 9's Compile-rung failure summary was *nothing but* escapes, so the
+model was told verification FAILED and given no legible cause.
+
+Plus two from reviewing the run directly, neither in the retrospective's ticked set:
+
+**`ProjectLocator` ignores `*_wpftmp.csproj`.** The strange file in the test workspace was WPF
+markup-compile scratch left by a build that died, and it cost step 18: `build src/MultiplyApp`
+returned `MSB1011: this folder contains more than one project or solution file`, and step 19
+repeated the build with an explicit path. **`BuildCache` says what it was asked for and what it
+held**, at Information, with the key.
+
+**Decided**
+
+- **The notice is a challenge, never a gate.** This repository has paid twice for gates that
+  would not concede (`5c071f37`, `a408b61b`), and a suite notice is weaker evidence than a red
+  tree: it says the tests may be testing the wrong thing, which the model is entitled to dispute.
+- **A notice is cleared by the next climb that has nothing to say, not by the next green climb.**
+  Otherwise the one rung that raised it is outvoted by every rung after it, which is how it came
+  to move nothing.
+- **`*_wpftmp.csproj` is filtered rather than reported.** No caller wants one - not the build
+  target resolver, not the owning-project lookup, and not the analyzer deciding whether implicit
+  usings are on, which would otherwise read a 31 KB fully-expanded scratch project to answer a
+  question about the real one. Run `4c7de12b` escaped that by luck: `'.'` sorts before `'_'`.
+  This repository's own `.gitignore` has carried a rule since 2026-08-04; nothing in the harness
+  knew.
+- **The cache logs at Information, not Debug.** The shipped level is Information, so a Debug line
+  is a line that does not exist on the machine where the question gets asked. Its absence cost two
+  investigations: a miss looked identical to a cache nobody had asked, and the two miss reasons
+  need different fixes - an empty cache means something invalidated it, a populated one means the
+  caller named a target nobody built.
+- **Two of the retrospective's own corrections were checked and stand.** Step 2's refusal was
+  correct rather than a misread, and `ProjectLocator`'s root-solution branch genuinely cannot fire
+  under `WritablePaths: ["src","tests"]`.
+
+**Open**
+
+- Six unticked items remain in that file, deliberately: MSB1011 getting the MSB1003 treatment,
+  `list_changes` disclaiming what it does not see, the zero-match refusal consulting the read
+  memo, the root-solution carve-out, skipping the UnitTests rung when no test is declared, and
+  `update_todos` echoing an outstanding notice.
+- **The build cache is still unproven.** Its zero-hit day now has an explanation and a fix, and
+  the run since has neither confirmed nor refuted it: the model's two builds named targets the
+  ladder had not built, which is a correct miss. The next run's log will say plainly - grep for
+  `Build cache HIT`.
+
+---
+
 ## 2026-08-09 (later) — Two steps the run did not need, and a reference set read 450 times
 
 Sizing a move from the DGX Spark to an 8×RTX PRO 6000 server turned into a measurement of where

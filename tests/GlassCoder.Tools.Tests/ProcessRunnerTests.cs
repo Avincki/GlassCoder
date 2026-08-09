@@ -140,6 +140,50 @@ public sealed class ProcessRunnerTests
         result.ReadySignalled.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// The .NET CLI's progress reporter writes cursor-control sequences even into a redirected
+    /// pipe. Run 4c7de12b received 21 of them, and step 9's Compile-rung failure summary was
+    /// nothing but escapes - the model was told verification FAILED and given no legible cause.
+    /// Stripped at the one place both streams are collected, not in each parser.
+    /// </summary>
+    [Theory]
+    [InlineData("\x1B[?25l\x1B[1Fcsproj\x1B[?25h", "csproj")]
+    [InlineData("\x1B[120G\x1B[6D(0.1s)", "(0.1s)")]
+    [InlineData("\x1B[32mBuild succeeded.\x1B[0m", "Build succeeded.")]
+    // \u0007 rather than \x07: a \x escape is variable-length, so "\x07error"
+    // would parse as the single character \x07e followed by "rror".
+    [InlineData("\x1B]0;a title\u0007error CS0103: broken", "error CS0103: broken")]
+    [InlineData("nothing to strip", "nothing to strip")]
+    public void Terminal_control_sequences_are_stripped(string raw, string expected) =>
+        TerminalCodes.Strip(raw).ShouldBe(expected);
+
+    [Fact]
+    public void A_line_with_no_escapes_is_returned_unchanged()
+    {
+        // The overwhelmingly common case, and worth not allocating for.
+        const string Line = "error CS0246: The type or namespace name 'Widget' could not be found";
+
+        TerminalCodes.Strip(Line).ShouldBeSameAs(Line);
+    }
+
+    [Fact]
+    public async Task Captured_output_reaches_the_caller_without_control_sequences()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        ProcessRunner runner = new();
+
+        // cmd echoes the literal escape byte back through the redirected pipe.
+        ProcessRunResult result = await runner.RunAsync(
+            new ProcessRunRequest("cmd.exe", ["/c", "echo \x1B[32mglasscoder\x1B[0m"]));
+
+        result.StandardOutput.ShouldContain("glasscoder");
+        result.StandardOutput.ShouldNotContain("\x1B");
+    }
+
     [Fact]
     public async Task The_real_runner_captures_stdout_and_the_exit_code()
     {

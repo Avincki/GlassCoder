@@ -1,4 +1,4 @@
-using GlassCoder.Core.Agent;
+﻿using GlassCoder.Core.Agent;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
@@ -385,6 +385,7 @@ public sealed class RunReviewerTests
             string change,
             string evidence,
             string? role = null,
+            string? claim = null,
             CancellationToken cancellationToken = default)
         {
             Calls++;

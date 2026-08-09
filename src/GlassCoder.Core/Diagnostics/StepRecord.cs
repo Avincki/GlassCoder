@@ -97,6 +97,16 @@ public sealed record StepVerificationRecord(
 {
     /// <summary>The panel's full verdict, when the critique spoke on this step. Null otherwise.</summary>
     public StepCritiqueRecord? Critique { get; init; }
+
+    /// <summary>
+    /// Whether a rung ran and verified nothing, and whether one had something to say about what
+    /// it did verify. Persisted rather than derived, so a run can be grepped for the pattern
+    /// instead of reconstructed from summary prose.
+    /// </summary>
+    public bool Unverified { get; init; }
+
+    /// <inheritdoc cref="Unverified" />
+    public bool Noticed { get; init; }
 }
 
 /// <summary>

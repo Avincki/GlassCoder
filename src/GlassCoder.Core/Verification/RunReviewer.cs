@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using GlassCoder.Core.Agent;
@@ -201,6 +201,7 @@ public sealed class RunReviewer : IRunReviewer
             DescribeChanges(changes),
             DescribeEvidence(result, changes),
             result.CriticRole,
+            claim: null,
             cancellationToken).ConfigureAwait(false);
 
         double elapsed = Stopwatch.GetElapsedTime(start).TotalMilliseconds;

@@ -1,4 +1,4 @@
-using GlassCoder.Core.Verification;
+﻿using GlassCoder.Core.Verification;
 using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using Microsoft.Extensions.AI;
@@ -106,7 +106,12 @@ public sealed class CriticPanelTests
         await panel.CritiqueAsync("goal", "change", "evidence");
 
         prompts.Count.ShouldBe(3);
-        prompts.ShouldAllBe(p => p.Contains("cannot launch the application", StringComparison.Ordinal));
+
+        // Task 71 shipped launch_app and this prompt went on denying it for three tasks - the
+        // third recorded instance of a prompt asserting a limitation a later task removed. What
+        // is still true is narrower: the worker cannot SEE the window it drew.
+        prompts.ShouldAllBe(p => !p.Contains("cannot launch the application", StringComparison.Ordinal));
+        prompts.ShouldAllBe(p => p.Contains("drew a window", StringComparison.Ordinal));
         prompts.ShouldAllBe(p => p.Contains("never, by itself, grounds to refute", StringComparison.Ordinal));
 
         // Word-choice literalism refuted runs 008007e1 and f4ed50e0 over "dialog" versus
@@ -239,15 +244,43 @@ public sealed class CriticPanelTests
         Quorum = 2,
     };
 
-    private static CriticPanel Panel(Func<string, ChatResponse> respond) =>
-        new(Factory(respond), Options.Create(Settings()));
+    /// <summary>
+    /// The worker's own account of its work used to be appended to <c>evidence</c> and rendered
+    /// under the <c>Evidence:</c> heading, one line below a system prompt telling critics to judge
+    /// only the evidence in front of them. In run 4c7de12b the two accepting critics reasoned from
+    /// exactly that. A harness that files an assertion as evidence is misleading its own reviewers.
+    /// </summary>
+    [Fact]
+    public async Task The_workers_claim_is_not_rendered_as_evidence()
+    {
+        List<string> users = [];
+        CriticPanel panel = Panel(_ => Verdict(refuted: false, "fine"), users);
+
+        await panel.CritiqueAsync(
+            "goal", "change", "the build succeeded", claim: "I have fully implemented the dialog");
+
+        // The claim still reaches the critic - this is about where it is filed, not whether.
+        string user = users[0];
+        user.ShouldContain("I have fully implemented the dialog");
+
+        // Between "Evidence:" and the next heading there is evidence and nothing else.
+        int evidence = user.IndexOf("Evidence:", StringComparison.Ordinal);
+        int claim = user.IndexOf("The worker's own claim", StringComparison.Ordinal);
+        evidence.ShouldBeGreaterThan(-1);
+        claim.ShouldBeGreaterThan(evidence, "the claim belongs under its own heading, after the evidence");
+        user[evidence..claim].ShouldNotContain("I have fully implemented");
+    }
+
+    private static CriticPanel Panel(Func<string, ChatResponse> respond, List<string>? userMessages = null) =>
+        new(Factory(respond, userMessages: userMessages), Options.Create(Settings()));
 
     private static RoleAwareFactory Factory(
         Func<string, ChatResponse>? respond = null,
-        bool remoteRequiresKey = false)
+        bool remoteRequiresKey = false,
+        List<string>? userMessages = null)
     {
         respond ??= _ => Verdict(refuted: false, "fine");
-        LensScriptedClient client = new(respond);
+        LensScriptedClient client = new(respond, userMessages);
 
         return new RoleAwareFactory(new Dictionary<string, (IChatClient, ModelRoleOptions)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -267,7 +300,8 @@ public sealed class CriticPanelTests
     /// Answers according to the lens in the system prompt rather than call order. The critics run
     /// in parallel, so anything keyed on arrival order would be a flaky test.
     /// </summary>
-    private sealed class LensScriptedClient(Func<string, ChatResponse> respond) : IChatClient
+    private sealed class LensScriptedClient(Func<string, ChatResponse> respond, List<string>? userMessages = null)
+        : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
             IEnumerable<ChatMessage> messages,
@@ -275,6 +309,15 @@ public sealed class CriticPanelTests
             CancellationToken cancellationToken = default)
         {
             string system = messages.First(m => m.Role == ChatRole.System).Text ?? string.Empty;
+
+            if (userMessages is not null)
+            {
+                lock (userMessages)
+                {
+                    userMessages.Add(messages.First(m => m.Role == ChatRole.User).Text ?? string.Empty);
+                }
+            }
+
             return Task.FromResult(respond(system));
         }
 

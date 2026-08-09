@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Diagnostics;
 using GlassCoder.Core.Verification;
@@ -103,6 +103,72 @@ public sealed class AgentLoopVerificationTests
         result.FinalText.ShouldBe("done anyway");
         result.Error.ShouldNotBeNull();
         result.Error.ShouldContain("verification");
+    }
+
+    /// <summary>
+    /// Run 4c7de12b was told "Automatic verification of your change passed" four times over a body
+    /// reading "the test run exited cleanly but ran 0 tests - nothing was verified". The logger
+    /// one call away already said "passed (0 tests)" to the operator; the model got the flatter
+    /// rendering, and the first line is where a reader stops when it is reassuring.
+    /// </summary>
+    [Fact]
+    public async Task The_header_the_model_reads_does_not_claim_a_pass_over_a_zero_test_rung()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(UnverifiedReport());
+
+        await harness.RunAsync();
+
+        string header = harness.Client.Requests[1].Messages
+            .Last(m => m.Role == ChatRole.User && m.Text is not null && m.Text.Contains("Automatic verification"))
+            .Text!.Split('\n')[0];
+
+        header.ShouldNotContain("passed");
+        header.ShouldContain("verified nothing");
+    }
+
+    /// <summary>
+    /// Task 66's notice was precise, fired twice, reached the critics, and moved nothing, because
+    /// no structured flag survived onto the report - so the machinery that decides whether a run
+    /// may stop could not see it. One push-back, then the run finishes either way.
+    /// </summary>
+    [Fact]
+    public async Task A_stop_over_an_unanswered_suite_notice_is_challenged_once_then_recorded()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done anyway"));
+        harness.Ladder.Enqueue(NoticedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        result.StopReason.ShouldBe(AgentStopReason.Completed);
+        harness.Client.Requests.Count.ShouldBe(3, "the first stop over a live notice must be challenged");
+        harness.Client.Requests[2].Messages
+            .ShouldContain(m => m.Role == ChatRole.User && m.Text != null && m.Text.Contains("raised a notice"));
+
+        // Deliberately not a gate: it finishes, and the record says so.
+        result.FinalText.ShouldBe("done anyway");
+        result.Error.ShouldNotBeNull().ShouldContain("unanswered test-suite notice");
+    }
+
+    [Fact]
+    public async Task A_notice_that_the_next_climb_does_not_repeat_stops_being_outstanding()
+    {
+        // Cleared by a climb with nothing to say, not by any green climb: otherwise the one rung
+        // that raised it is outvoted by every rung after it.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"));
+        harness.Ladder.Enqueue(NoticedReport());
+        harness.Ladder.Enqueue(PassedReport());
+
+        AgentRunResult result = await harness.RunAsync();
+
+        harness.Client.Requests.Count.ShouldBe(3, "the notice was answered by the next climb");
+        result.Error.ShouldBeNull();
     }
 
     [Fact]
@@ -641,12 +707,17 @@ public sealed class AgentLoopVerificationTests
         result.StopReason.ShouldBe(AgentStopReason.Completed);
         result.FinalText.ShouldBe("done");
 
-        (string goal, string change, string evidence, string? role) = harness.Critics.Requests.ShouldHaveSingleItem();
+        (string goal, string change, string evidence, string? role, string? claim) =
+            harness.Critics.Requests.ShouldHaveSingleItem();
         goal.ShouldBe("Do the thing.");
         change.ShouldContain("src/C.cs", customMessage: "the panel judges the run's diffs, not a paraphrase");
         evidence.ShouldContain("3 tests passed.", customMessage: "the ladder's last word is the evidence");
-        evidence.ShouldContain("done", customMessage: "the claim under judgment is the agent's own summary");
         role.ShouldBe("critic-remote");
+
+        // The agent's own summary is still handed over, but as a claim rather than as evidence:
+        // filed under Evidence it is the harness telling its reviewers that an assertion is proof.
+        claim.ShouldBe("done");
+        evidence.ShouldNotContain("done");
 
         // Accepted: no extra message, no extra step - but the verdict lands in the step record,
         // vote by vote, with the lens each critic judged through.
@@ -720,6 +791,36 @@ public sealed class AgentLoopVerificationTests
         ],
         3);
 
+    /// <summary>A green climb whose test rung ran nothing - the shape run 4c7de12b hit four times.</summary>
+    private static VerificationReport UnverifiedReport() => new(
+        true,
+        VerificationRung.UnitTests,
+        null,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(
+                VerificationRung.UnitTests,
+                true,
+                "The test run exited cleanly but ran 0 tests - nothing was verified.",
+                1) { Unverified = true },
+        ],
+        2);
+
+    /// <summary>A green suite that passed and had something to say about what it covered.</summary>
+    private static VerificationReport NoticedReport() => new(
+        true,
+        VerificationRung.UnitTests,
+        null,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(
+                VerificationRung.UnitTests,
+                true,
+                "6 tests passed. Note: the tests exercise `MultiplyViewModel`, which no non-test source references.",
+                1) { Noticed = true },
+        ],
+        2);
+
     private static VerificationReport FailedReport() => new(
         false,
         VerificationRung.Compile,
@@ -783,7 +884,7 @@ public sealed class AgentLoopVerificationTests
     /// <summary>A panel that returns a scripted verdict and records what it was asked to judge.</summary>
     private sealed class FakeCriticPanel : ICriticPanel
     {
-        public List<(string Goal, string Change, string Evidence, string? Role)> Requests { get; } = [];
+        public List<(string Goal, string Change, string Evidence, string? Role, string? Claim)> Requests { get; } = [];
 
         public CritiqueResult Next { get; set; } =
             new(
@@ -809,9 +910,10 @@ public sealed class AgentLoopVerificationTests
             string change,
             string evidence,
             string? role = null,
+            string? claim = null,
             CancellationToken cancellationToken = default)
         {
-            Requests.Add((goal, change, evidence, role));
+            Requests.Add((goal, change, evidence, role, claim));
 
             // The real panel stamps the role it ran on; the record downstream carries it.
             CritiqueResult verdict = Sequence.Count > 0 ? Sequence.Dequeue() : Next;
@@ -832,6 +934,7 @@ public sealed class AgentLoopVerificationTests
             string change,
             string evidence,
             string? role = null,
+            string? claim = null,
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("the critic endpoint is down");
     }

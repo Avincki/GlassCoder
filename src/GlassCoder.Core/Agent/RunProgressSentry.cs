@@ -73,6 +73,8 @@ internal sealed class RunProgressSentry
     private bool _lastVerificationFailed;
     private string? _lastFailedRung;
     private bool _completionChallenged;
+    private bool _noticeOutstanding;
+    private bool _noticeChallenged;
 
     /// <summary>Feeds one step's tool calls and whether the step applied any change.</summary>
     public void ObserveStep(IReadOnlyList<ToolInvocation> invocations, bool changesApplied)
@@ -167,7 +169,7 @@ internal sealed class RunProgressSentry
     }
 
     /// <summary>Feeds the outcome of a post-step verification climb.</summary>
-    public void ObserveVerification(bool passed, string? failedRung)
+    public void ObserveVerification(bool passed, string? failedRung, bool noticed = false)
     {
         _lastVerificationFailed = !passed;
         _lastFailedRung = failedRung;
@@ -176,6 +178,11 @@ internal sealed class RunProgressSentry
             // A tree that went green earns back the right to be challenged if it goes red again.
             _completionChallenged = false;
         }
+
+        // A notice is not cleared by the next green climb - it is cleared by the next climb that
+        // has nothing to say. Otherwise the one rung that raised it is outvoted by every rung
+        // after it, which is how it came to move nothing in run 4c7de12b.
+        _noticeOutstanding = noticed;
     }
 
     /// <summary>The identical-failure nudge, exactly once per failure signature.</summary>
@@ -308,6 +315,34 @@ internal sealed class RunProgressSentry
         _lastVerificationFailed
             ? $"Completed while the last verification was still failing at {_lastFailedRung ?? "an early rung"}."
             : null;
+
+    /// <summary>
+    /// The push-back when the model stops over a green suite that verified the wrong thing -
+    /// returned once, on the same terms as <see cref="ChallengeCompletion"/>.
+    /// <para>
+    /// Deliberately not a gate. This repository has paid twice for gates that would not concede
+    /// (<c>5c071f37</c>, <c>a408b61b</c>), and a suite notice is weaker evidence than a red tree:
+    /// it says the tests may be testing the wrong thing, which the model is entitled to disagree
+    /// with. One sentence it has to answer, then the run finishes either way and the record says
+    /// what happened.
+    /// </para>
+    /// </summary>
+    public string? ChallengeNotice()
+    {
+        if (!_noticeOutstanding || _noticeChallenged || _lastVerificationFailed)
+        {
+            return null;
+        }
+
+        _noticeChallenged = true;
+        return "Before you stop: the last test run passed but the verification raised a notice about " +
+            "what it actually covered - re-read it above. Either address it, or say in your summary " +
+            "why the suite is adequate as it stands.";
+    }
+
+    /// <summary>What the run record should say when a completion goes through over a live notice.</summary>
+    public string? NoticeCaveat() =>
+        _noticeOutstanding ? "Completed over an unanswered test-suite notice." : null;
 
     /// <summary>
     /// A failure as the counter sees it: the tool and the first line of its error. The first

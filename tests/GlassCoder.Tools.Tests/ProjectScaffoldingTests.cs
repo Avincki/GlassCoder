@@ -52,6 +52,42 @@ public sealed class ProjectScaffoldingTests
         target.ShouldBe("src/App/App.csproj", "the tightest correct target is the project that owns the change");
     }
 
+    /// <summary>
+    /// WPF's markup compile writes <c>&lt;project&gt;_&lt;hash&gt;_wpftmp.csproj</c> beside the real
+    /// one and deletes it at the end - unless the build dies first. Run 4c7de12b left one, and
+    /// step 18's <c>build src/MultiplyApp</c> came back <c>MSB1011: this folder contains more than
+    /// one project or solution file</c>, costing a step. This repository's own .gitignore has had
+    /// a rule for these since before the harness existed; nothing in the harness knew about them.
+    /// </summary>
+    [Fact]
+    public void Msbuild_scratch_is_not_a_project()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/App_2e3zldbb_wpftmp.csproj", Project());
+        string changed = workspace.WriteFile("src/App/Program.cs", "class P { }");
+
+        ProjectLocator.EnumerateProjects(Path.Combine(workspace.Root, "src", "App"))
+            .ShouldHaveSingleItem()
+            .ShouldEndWith("App.csproj");
+
+        ProjectLocator.ResolveBuildTarget(workspace.Root, [changed]).ShouldBe("src/App/App.csproj");
+    }
+
+    [Fact]
+    public void Scratch_beside_a_project_that_sorts_after_it_is_still_ignored()
+    {
+        // Ordering saved run 4c7de12b by luck - '.' sorts before '_', so the real project came
+        // first. A project named to sort after its own scratch file would not have been so lucky.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/Zebra.csproj", Project());
+        workspace.WriteFile("src/App/App_2e3zldbb_wpftmp.csproj", Project());
+
+        ProjectLocator.EnumerateProjects(Path.Combine(workspace.Root, "src", "App"))
+            .ShouldHaveSingleItem()
+            .ShouldEndWith("Zebra.csproj");
+    }
+
     [Fact]
     public void A_change_spanning_projects_falls_back_to_the_solution()
     {

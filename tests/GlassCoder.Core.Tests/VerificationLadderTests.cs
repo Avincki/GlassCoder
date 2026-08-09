@@ -1,4 +1,4 @@
-using GlassCoder.Core.Verification;
+﻿using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Build;
 using GlassCoder.Tools.Execution;
@@ -204,6 +204,7 @@ public sealed class VerificationLadderTests : IDisposable
             string change,
             string evidence,
             string? role = null,
+            string? claim = null,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new CritiqueResult(false, [], 0, "disabled"));
     }

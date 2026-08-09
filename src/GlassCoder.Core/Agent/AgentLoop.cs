@@ -227,7 +227,9 @@ public sealed class AgentLoop : IAgentLoop
                 // Once, not every time: a model that maintains "done" over a red tree after
                 // being told is stuck, and looping the challenge would spend the rest of the
                 // budget restating it.
-                if (sentry.ChallengeCompletion() is { } challenge)
+                // The red-tree challenge first, then the suite notice: a failing rung is the more
+                // urgent thing to be told, and only one push-back is spent per stop attempt.
+                if ((sentry.ChallengeCompletion() ?? sentry.ChallengeNotice()) is { } challenge)
                 {
                     budget.CountStep();
                     messages.Add(new ChatMessage(ChatRole.User, challenge));
@@ -286,6 +288,11 @@ public sealed class AgentLoop : IAgentLoop
                     caveats.Add(caveat);
                 }
 
+                if (sentry.NoticeCaveat() is { } noticeCaveat)
+                {
+                    caveats.Add(noticeCaveat);
+                }
+
                 if (caveats.Count > 0)
                 {
                     error = string.Join(" ", caveats);
@@ -339,7 +346,8 @@ public sealed class AgentLoop : IAgentLoop
                 // corrects after a failing tool call. Rejected-at-the-gate is the write
                 // tools' job; reverting applied work is a human's.
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
-                sentry.ObserveVerification(verification.Record.Passed, verification.Record.FailedRung);
+                sentry.ObserveVerification(
+                    verification.Record.Passed, verification.Record.FailedRung, verification.Record.Noticed);
                 lastVerificationSummary = verification.Record.Summary;
             }
 
@@ -615,8 +623,17 @@ public sealed class AgentLoop : IAgentLoop
         // removing the reference too - the goal quietly went with it. The recovery that keeps
         // the work has to be named at the moment the wrong one looks easier.
         bool deleted = applied.Any(c => c.BeforeText.Length > 0 && c.AfterText.Length == 0);
+
+        // The header the model reads used to say "passed" whatever the body said underneath, while
+        // the logger one call up already distinguished "passed (0 tests)" for the operator. Run
+        // 4c7de12b got "passed" four times over "the test run exited cleanly but ran 0 tests -
+        // nothing was verified", which is the one place a reader stops if the first line is
+        // reassuring. Same condition, same words, both audiences.
         string message = report.Passed
-            ? $"Automatic verification of your change passed (reached {report.HighestRungReached}).\n{report.Summary}"
+            ? report.Unverified
+                ? $"Automatic verification of your change reached {report.HighestRungReached}, " +
+                  $"which verified nothing.\n{report.Summary}"
+                : $"Automatic verification of your change passed (reached {report.HighestRungReached}).\n{report.Summary}"
             : $"Automatic verification of your change FAILED at {report.FailedRung}.\n{report.Summary}\n" +
               "The change is written but does not verify. Fix the reported problems before continuing." +
               (deleted
@@ -634,6 +651,8 @@ public sealed class AgentLoop : IAgentLoop
                 report.Critique?.EstimatedCostUsd ?? 0m)
             {
                 Critique = report.Critique is { } rungCritique ? Record(rungCritique) : null,
+                Unverified = report.Unverified,
+                Noticed = report.Noticed,
             },
             message);
     }
@@ -727,9 +746,9 @@ public sealed class AgentLoop : IAgentLoop
             critique = await _critics.CritiqueAsync(
                 request.Goal,
                 DescribeChanges(applied),
-                $"{evidence ?? "No automatic verification ran."}\n\nThe agent's completion summary: " +
-                $"{(string.IsNullOrWhiteSpace(claim) ? "(none given)" : claim)}{context}",
+                $"{evidence ?? "No automatic verification ran."}{context}",
                 request.CriticRole,
+                string.IsNullOrWhiteSpace(claim) ? null : claim,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

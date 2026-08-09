@@ -96,8 +96,12 @@ public sealed class ProcessRunner : IProcessRunner
         using Process process = new() { StartInfo = startInfo, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, e) =>
         {
-            Append(stdout, e.Data);
-            Watch(request.OnOutputLine, e.Data);
+            // Stripped once and given to both: whoever is watching the stream live is reading it
+            // on a surface, and a progress pane rendering raw cursor codes is the same defect one
+            // layer over.
+            string? line = e.Data is null ? null : TerminalCodes.Strip(e.Data);
+            Append(stdout, line);
+            Watch(request.OnOutputLine, line);
         };
         process.ErrorDataReceived += (_, e) => Append(stderr, e.Data);
 
@@ -207,11 +211,17 @@ public sealed class ProcessRunner : IProcessRunner
         }
     }
 
+    /// <summary>
+    /// Collects one line, without the terminal control sequences the .NET CLI writes even into a
+    /// redirected pipe. Stripped here because this is the single point both streams pass through:
+    /// see <see cref="TerminalCodes"/> for what run 4c7de12b's model was handed instead of a
+    /// compile error.
+    /// </summary>
     private static void Append(StringBuilder builder, string? line)
     {
         if (line is not null)
         {
-            builder.AppendLine(line);
+            builder.AppendLine(TerminalCodes.Strip(line));
         }
     }
 
