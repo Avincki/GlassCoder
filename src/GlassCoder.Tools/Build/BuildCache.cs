@@ -31,13 +31,29 @@ public sealed class BuildCache
     private readonly Lock _gate = new();
     private readonly Dictionary<string, BuildResult> _entries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TestRunResult> _tests = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ChangeStatus> _statuses = new(StringComparer.Ordinal);
     private readonly ILogger<BuildCache> _logger;
 
     /// <summary>Creates the cache and subscribes it to the change log.</summary>
     /// <param name="changes">
-    /// The change log. Every proposal and status move invalidates, which is deliberately
-    /// pessimistic: a rejected write cannot change the build, but distinguishing that from one
-    /// that can is not worth being wrong about.
+    /// The change log. Every proposal and every status <em>move</em> invalidates, which is
+    /// deliberately pessimistic: a rejected write cannot change the build, but distinguishing that
+    /// from one that can is not worth being wrong about.
+    /// <para>
+    /// A change re-announced at the status it already had is the exception, and it is the reason
+    /// this cache had never once been read in production. <c>IChangeLog.Update</c> raises
+    /// <c>Changed</c> for any write to a change, including a pure bookkeeping one - and
+    /// <c>AgentLoop</c> ends every verified step by writing the ladder's summary back onto each
+    /// applied change at its existing status. That arrives immediately after the ladder's own
+    /// Compile and UnitTests rungs have filled this, so the cache was emptied a few milliseconds
+    /// after being populated, every step, all day. Two runs on 2026-08-09 recorded zero hits
+    /// between them.
+    /// </para>
+    /// <para>
+    /// The filter is on the transition rather than on the status, so nothing about which statuses
+    /// touch the tree has to be assumed - a re-assertion moved no bytes whatever it says, and
+    /// everything else invalidates exactly as before.
+    /// </para>
     /// </param>
     /// <param name="logger">Where hits are reported, so a suspiciously fast build is explainable.</param>
     public BuildCache(IChangeLog? changes = null, ILogger<BuildCache>? logger = null)
@@ -46,8 +62,31 @@ public sealed class BuildCache
 
         if (changes is not null)
         {
-            changes.Changed += (_, _) => Invalidate();
+            changes.Changed += (_, change) => OnChanged(change);
         }
+    }
+
+    /// <summary>
+    /// Invalidates unless this change is being re-announced at the status it already carried.
+    /// </summary>
+    private void OnChanged(CodeChange change)
+    {
+        if (change is null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            if (_statuses.TryGetValue(change.Id, out ChangeStatus seen) && seen == change.Status)
+            {
+                return;
+            }
+
+            _statuses[change.Id] = change.Status;
+        }
+
+        Invalidate();
     }
 
     /// <summary>How many times the cache has been emptied. Useful in tests and traces.</summary>

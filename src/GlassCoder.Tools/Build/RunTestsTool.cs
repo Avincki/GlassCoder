@@ -3,6 +3,7 @@ using GlassCoder.Tools.Execution;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Tools.Verification;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace GlassCoder.Tools.Build;
@@ -63,6 +64,7 @@ public sealed class RunTestsTool : IToolSet
     private readonly BuildCache? _cache;
     private readonly RoslynCodeAnalyzer? _analyzer;
     private readonly ToolsOptions _tools;
+    private readonly ILogger<RunTestsTool> _logger;
 
     /// <summary>Creates the tool.</summary>
     /// <param name="executor">The sandboxed command seam.</param>
@@ -77,13 +79,15 @@ public sealed class RunTestsTool : IToolSet
     /// reason: without it a green suite simply reports as it always did.
     /// </param>
     /// <param name="tools">Sweep caps for those notices.</param>
+    /// <param name="logger">Where a rebuild-and-retry is reported, so a slow run is explainable.</param>
     public RunTestsTool(
         ICommandExecutor executor,
         IPathGuard guard,
         IOptions<SandboxOptions> sandbox,
         BuildCache? cache = null,
         RoslynCodeAnalyzer? analyzer = null,
-        IOptions<ToolsOptions>? tools = null)
+        IOptions<ToolsOptions>? tools = null,
+        ILogger<RunTestsTool>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(sandbox);
 
@@ -93,6 +97,7 @@ public sealed class RunTestsTool : IToolSet
         _cache = cache;
         _analyzer = analyzer;
         _tools = tools?.Value ?? new ToolsOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RunTestsTool>.Instance;
     }
 
     /// <summary>Runs the tests for a project, solution or directory.</summary>
@@ -130,31 +135,41 @@ public sealed class RunTestsTool : IToolSet
         bool isDirectory = Directory.Exists(verdict.FullPath);
         string workingDirectory = isDirectory ? verdict.FullPath : System.IO.Path.GetDirectoryName(verdict.FullPath)!;
 
-        List<string> arguments = ["test", "--nologo"];
-        if (!isDirectory)
-        {
-            arguments.Insert(1, System.IO.Path.GetFileName(verdict.FullPath));
-        }
+        // This exact target built clean and nothing has changed since, so `dotnet test` has no
+        // work to do before running - and doing it anyway is most of what a test run costs on a
+        // small project. The ladder is the main beneficiary: its Compile rung builds the target
+        // its UnitTests rung is about to test, moments earlier.
+        bool skipBuild = !listOnly && _cache is not null &&
+            _cache.TryGet(verdict.RelativePath!, allowRestore: true, out _);
 
-        if (!string.IsNullOrWhiteSpace(filter))
+        CommandResult result;
+        for (int attempt = 0; ; attempt++)
         {
-            arguments.Add("--filter");
-            arguments.Add(filter);
-        }
+            bool noBuild = skipBuild && attempt == 0;
 
-        if (listOnly)
-        {
-            arguments.Add("--list-tests");
-        }
+            result = await _executor.ExecuteAsync(
+                new CommandRequest("dotnet", Arguments(verdict, isDirectory, filter, listOnly, noBuild))
+                {
+                    WorkingDirectory = workingDirectory,
+                    RequiresNetwork = true,
+                    Timeout = TimeSpan.FromSeconds(_sandbox.CommandTimeoutSeconds),
+                },
+                cancellationToken).ConfigureAwait(false);
 
-        CommandResult result = await _executor.ExecuteAsync(
-            new CommandRequest("dotnet", arguments)
+            // A --no-build run that never reached a test is the one failure this optimisation can
+            // manufacture: the cache says the target built, but its output is not where the runner
+            // looked - cleaned by hand, or by something else sharing the folder. Pay for the build
+            // once rather than report it as a test failure, which is what it would look like.
+            if (!noBuild || result.FailureReason is not null || result.TimedOut ||
+                TestOutputParser.Parse(result.CombinedOutput).Total > 0 || result.ExitCode == 0)
             {
-                WorkingDirectory = workingDirectory,
-                RequiresNetwork = true,
-                Timeout = TimeSpan.FromSeconds(_sandbox.CommandTimeoutSeconds),
-            },
-            cancellationToken).ConfigureAwait(false);
+                break;
+            }
+
+            _logger.LogWarning(
+                "Tests for {Path} ran with --no-build and executed nothing; rebuilding and retrying once",
+                verdict.RelativePath);
+        }
 
         if (result.FailureReason is not null)
         {
@@ -245,6 +260,38 @@ public sealed class RunTestsTool : IToolSet
     /// context window spent on something a filter expression would have narrowed.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// The <c>dotnet test</c> command line. <c>--no-build</c> implies <c>--no-restore</c>, so the
+    /// one flag is the whole saving.
+    /// </summary>
+    private static List<string> Arguments(
+        PathGuardResult verdict, bool isDirectory, string? filter, bool listOnly, bool noBuild)
+    {
+        List<string> arguments = ["test", "--nologo"];
+        if (!isDirectory)
+        {
+            arguments.Insert(1, System.IO.Path.GetFileName(verdict.FullPath!));
+        }
+
+        if (noBuild)
+        {
+            arguments.Add("--no-build");
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            arguments.Add("--filter");
+            arguments.Add(filter);
+        }
+
+        if (listOnly)
+        {
+            arguments.Add("--list-tests");
+        }
+
+        return arguments;
+    }
+
     private static ToolObservation<TestRunResult> Discovered(string path, CommandResult result)
     {
         IReadOnlyList<string> all = TestOutputParser.ParseDiscovered(result.CombinedOutput);

@@ -32,6 +32,17 @@ gained `ReadyWhen`, a predicate over the child's process id that the runner poll
 the wait early; `IWindowPresence` answers it from `Process.MainWindowHandle`. Measured against
 the real `MultiplyApp`: **904 ms, against the 10,000 ms this used to cost every single launch.**
 
+**`BuildCache` had never been read. Not rarely - never.** Both runs on 2026-08-09 record zero
+hits between them, a day after task 74 shipped it. `IChangeLog.Update` raises `Changed` for any
+write to a change including a purely bookkeeping one, and `AgentLoop` ends every verified step by
+writing the ladder's summary back onto each applied change *at the status it already had*. That
+lands milliseconds after the ladder's own Compile and UnitTests rungs have filled the cache, so
+it was emptied every step, all day. It now ignores a change re-announced at its existing status.
+
+**`run_tests` passes `--no-build` when the same target already built clean.** `--no-build`
+implies `--no-restore`, so one flag is the whole saving, and the ladder is the case that pays:
+its Compile rung builds the target its UnitTests rung is about to test, moments earlier.
+
 **Decided**
 
 - **The instruction was replaced, not deleted.** "Trust the automatic verification" alone would
@@ -67,11 +78,28 @@ the real `MultiplyApp`: **904 ms, against the 10,000 ms this used to cost every 
   to find never polls, and claiming "it never drew a window" there would manufacture evidence
   against a change that may be fine. Three summaries, not two.
 
+- **"Seed the cache from the ladder" was the wrong fix to a real problem.** The ladder already
+  fills it - its rungs call `BuildTool` and `RunTestsTool`, which own the cache - so the plan was
+  to build something that existed. What the logs said, and the source did not, was that the cache
+  was being emptied immediately afterwards. **Grep the logs for the mechanism actually firing
+  before designing around where it does not.**
+- **The invalidation filter is on the transition, not on the status.** Deciding which statuses
+  touch the working tree would have meant assuming something about every tool that writes one; a
+  change re-announced at the status it already carried moved no bytes whatever that status says,
+  and everything else invalidates exactly as it did before. Conservative in the direction that
+  matters: a missed hit costs seconds, a stale hit costs correctness.
+- **`--no-build` rebuilds and retries once if the run executed no tests.** That is the single
+  failure the optimisation can manufacture - the cache says the target built, its output is not
+  where the runner looked - and it would surface as a test failure, which is the most misleading
+  shape it could take.
+
 **Open**
 
-- Three further candidates were costed and not built: seeding `BuildCache` from the ladder's own
-  rungs, `--no-build` on `run_tests` when the build is fresh, and
-  `DOTNET_CLI_USE_MSBUILD_SERVER=1`.
+- One further candidate was costed and not built: `DOTNET_CLI_USE_MSBUILD_SERVER=1`, worth about
+  a second per `dotnet` invocation on the host and nothing at all in a fresh container.
+- **The zero-hit finding is the one to re-check after the next live run.** Everything above is
+  argued from logs and unit tests; whether the cache now actually serves a build is a thing only
+  a run can say. Grep the next transcript for "unchanged since the last".
 - **Nothing here has been measured against a live worker**, and the prompt change is the kind that
   only a run can judge. The next run is the test.
 

@@ -296,6 +296,119 @@ public sealed class BuildCacheTests
         executor.Commands.Count.ShouldBe(2);
     }
 
+    /// <summary>
+    /// Why this cache had never once been read in production. <c>AgentLoop</c> ends every verified
+    /// step by writing the ladder's summary back onto each applied change - at the status it
+    /// already had - and <c>IChangeLog.Update</c> raises <c>Changed</c> for any write at all. That
+    /// arrives a few milliseconds after the ladder's own Compile and UnitTests rungs have filled
+    /// this, so it was emptied on every step. Two runs on 2026-08-09 recorded zero hits between
+    /// them, and the mechanism had shipped a day earlier.
+    /// </summary>
+    [Fact]
+    public async Task A_verification_summary_written_onto_an_applied_change_does_not_empty_the_cache()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        ChangeLog changes = new();
+        BuildTool build = Build(workspace, executor, changes);
+
+        CodeChange change = changes.Propose("src/App.cs", "edit_file", "before", "after");
+        changes.Update(change.Id, ChangeStatus.Applied);
+
+        await build.BuildAsync("src");
+
+        // Exactly what AgentLoop:604 does: same status, plus what the ladder found.
+        changes.Update(change.Id, ChangeStatus.Applied, verificationSummary: "passed at rung UnitTests");
+
+        await build.BuildAsync("src");
+
+        executor.Commands.Count.ShouldBe(1, "re-announcing a change at its existing status moved no bytes");
+    }
+
+    [Fact]
+    public async Task A_real_status_move_still_empties_it()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        ChangeLog changes = new();
+        BuildTool build = Build(workspace, executor, changes);
+
+        CodeChange change = changes.Propose("src/App.cs", "edit_file", "before", "after");
+        changes.Update(change.Id, ChangeStatus.Applied);
+
+        await build.BuildAsync("src");
+
+        // Written and then undone: the tree moved, whatever the cache remembers is wrong.
+        changes.Update(change.Id, ChangeStatus.Reverted);
+
+        await build.BuildAsync("src");
+
+        executor.Commands.Count.ShouldBe(2);
+    }
+
+    /// <summary>
+    /// The build a test run does not have to do again. The ladder is the case that pays: its
+    /// Compile rung builds the target its UnitTests rung is about to test, moments earlier.
+    /// </summary>
+    [Fact]
+    public async Task Tests_after_a_green_build_of_the_same_target_skip_the_build()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0).Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        BuildCache cache = new(new ChangeLog());
+        (BuildTool build, RunTestsTool tests) = Pair(workspace, executor, cache);
+
+        await build.BuildAsync("src");
+        await tests.RunTestsAsync("src");
+
+        executor.Commands[^1].Arguments.ShouldContain("--no-build");
+    }
+
+    [Fact]
+    public async Task Tests_with_no_fresh_build_behind_them_still_build()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        BuildCache cache = new(new ChangeLog());
+        (_, RunTestsTool tests) = Pair(workspace, executor, cache);
+
+        await tests.RunTestsAsync("src");
+
+        executor.Commands[^1].Arguments.ShouldNotContain("--no-build");
+    }
+
+    /// <summary>
+    /// The one failure this optimisation can manufacture: the cache says the target built, but its
+    /// output is not where the runner looked. Paying for the build once beats reporting it as a
+    /// test failure, which is what a run that executed nothing looks like.
+    /// </summary>
+    [Fact]
+    public async Task A_skipped_build_that_runs_no_tests_is_rebuilt_and_retried_once()
+    {
+        using TempWorkspace workspace = new();
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(0)
+            .Enqueue(1, "MSBUILD : error MSB1009: Project file does not exist.")
+            .Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        BuildCache cache = new(new ChangeLog());
+        (BuildTool build, RunTestsTool tests) = Pair(workspace, executor, cache);
+
+        await build.BuildAsync("src");
+        ToolObservation<TestRunResult> observation = await tests.RunTestsAsync("src");
+
+        executor.Commands.Count.ShouldBe(3);
+        executor.Commands[1].Arguments.ShouldContain("--no-build");
+        executor.Commands[2].Arguments.ShouldNotContain("--no-build");
+        observation.Data!.Total.ShouldBe(7);
+    }
+
+    private static (BuildTool Build, RunTestsTool Tests) Pair(
+        TempWorkspace workspace, ICommandExecutor executor, BuildCache cache) =>
+        (new BuildTool(executor, workspace.Guard("src"), Summarizer(), Options.Create(new SandboxOptions()), cache),
+         new RunTestsTool(executor, workspace.Guard("src"), Options.Create(new SandboxOptions()), cache));
+
     private static BuildTool Build(TempWorkspace workspace, ICommandExecutor executor, ChangeLog changes) =>
         new(executor, workspace.Guard("src"), Summarizer(), Options.Create(new SandboxOptions()), new BuildCache(changes));
 
