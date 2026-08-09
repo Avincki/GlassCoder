@@ -334,6 +334,12 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             {
                 DurationMs = answer.DurationMs,
                 Model = _options.Model,
+
+                // Carried even though the stage produced nothing: a session cut off after four
+                // minutes of paid work was recorded as costing $0 with no session to go and read,
+                // which is how the first retrospective's failure became so hard to diagnose.
+                SessionId = answer.SessionId,
+                CostUsd = answer.CostUsd,
             };
         }
 
@@ -350,7 +356,11 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             SessionId = answer.SessionId,
             DurationMs = answer.DurationMs,
             CostUsd = answer.CostUsd,
-            Failure = report.Length > 0 ? null : "The reviewer returned nothing.",
+
+            // A stage that hit its spend ceiling after answering keeps its report and carries the
+            // caveat, which is the whole of workplan task 68: the surface renders `Failure` beside
+            // the report rather than instead of it.
+            Failure = report.Length > 0 ? answer.Caveat : "The reviewer returned nothing.",
             Recommendations = payload?.Recommendations ?? [],
         };
     }
@@ -378,11 +388,19 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
         if (ranked.Count == 0)
         {
+            const string nothingToTick =
+                "The reviewer wrote a report but proposed nothing to tick. Its findings " +
+                "are below; there is no work order to write from them.";
+
+            // A stage that was cut off at its ceiling proposed nothing *because* it was cut off,
+            // and that is the more useful half of the sentence. Both are kept rather than one
+            // overwriting the other.
             return (
                 stage with
                 {
-                    Failure = "The reviewer wrote a report but proposed nothing to tick. Its findings " +
-                              "are below; there is no work order to write from them.",
+                    Failure = stage.Failure is { Length: > 0 } caveat
+                        ? $"{caveat} {nothingToTick}"
+                        : nothingToTick,
                 },
                 []);
         }
@@ -600,12 +618,33 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         "specific finding with a line number over three general observations. Say plainly where " +
         "the code is sound; inventing work here is worse than finding nothing.";
 
+    /// <summary>
+    /// Stage 2 diagnoses and does not prescribe (workplan task 75).
+    /// <para>
+    /// It has the transcript and the code review; it does not have <c>WORKPLAN.md</c> or
+    /// <c>HISTORY.md</c>, and no <c>--add-dir</c> on the harness. Asked for recommendations
+    /// anyway, the 2026-08-08 stage 2 produced five, of which three were already shipped - the
+    /// 0-test label, the <c>edit_file</c> diagnostics from task 45, and task 65's runtime launch -
+    /// and its diagnosis of the <c>edit_file</c> cause contradicted what HISTORY records for the
+    /// identical incident. Stage 3 caught all three, because it had the files.
+    /// </para>
+    /// <para>
+    /// So recommending happens once, in the stage that can check whether the thing is already
+    /// built. What stage 2 is uniquely able to see - where steps went without progress, and
+    /// whether the verification it got was the verification it needed - is what it is now asked
+    /// for and nothing else.
+    /// </para>
+    /// </summary>
     private const string ProcessSystemPrompt =
         "You are reviewing how an autonomous coding agent worked, not only what it produced. Your " +
         "reader is the engineer who builds the agent, and what they need is where effort went " +
         "that did not have to. You have read-only tools and the run's own transcript digest. " +
         "Ground every claim in a step number. Do not repeat the code review you have been given - " +
-        "use it, by connecting what the run did to what the code turned out to be.";
+        "use it, by connecting what the run did to what the code turned out to be. " +
+        "Diagnose; do not prescribe. You cannot see the harness's source, its workplan or its " +
+        "history, so you cannot tell a missing capability from one that shipped last week - a " +
+        "later stage has those files and does the recommending. Describe what happened and what " +
+        "the agent was missing at that moment, and stop there.";
 
     private const string HarnessSystemPrompt =
         "You are advising on GlassCoder itself - the harness that ran this agent - not on the code " +
@@ -683,6 +722,13 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
               anything in the run could have caught them.
             - What the run did well, plainly. A process review that only finds fault is not
               usable as evidence.
+
+            Do not recommend changes to GlassCoder, and do not write a list of improvements for
+            its owner. You cannot see its source, its workplan or its history from here, so you
+            cannot tell a capability that is missing from one that shipped last week - and a
+            later stage, which has those files, does the recommending from this report. Your value
+            is the diagnosis: what happened, in which step, and what the agent could not see at
+            the time.
 
             Do not change anything, and do not restate the code review - use it.
             """;

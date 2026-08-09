@@ -134,6 +134,63 @@ public sealed class RetrospectiveTests
         runner.Requests[3].StandardInput.ShouldNotBeNull().ShouldContain("did not complete");
     }
 
+    /// <summary>
+    /// Recommending happens once, in the stage that can check (workplan task 75).
+    /// <para>
+    /// Stage 2 has the transcript and the code review and nothing else - no `WORKPLAN.md`, no
+    /// `HISTORY.md`, no `--add-dir` on the harness. Asked for improvements anyway, the 2026-08-08
+    /// stage 2 listed five and three were already shipped.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_process_stage_is_told_to_diagnose_rather_than_prescribe()
+    {
+        using TempWorkspace workspace = new();
+        FakeProcessRunner runner = Probed()
+            .Enqueue(0, Report("The code is sound."))
+            .Enqueue(0, Report("Steps 9 to 12 were edit thrash."))
+            .Enqueue(0, Recommendations());
+
+        await Reviewer(runner, workspace).ReviewAsync(Request());
+
+        string stageTwo = runner.Requests[2].StandardInput.ShouldNotBeNull();
+        stageTwo.ShouldContain("Do not recommend changes to GlassCoder");
+        stageTwo.ShouldContain("does the recommending");
+
+        // Stage 3 is the one that still asks for them, and it is the one with the files.
+        runner.Requests[3].StandardInput.ShouldNotBeNull().ShouldContain("`recommendations` are concrete improvements");
+    }
+
+    /// <summary>
+    /// The defect this task was written from (workplan task 68). On 2026-08-08 stage 3 answered in
+    /// full and was thrown away, because the CLI exits non-zero when it stops itself at
+    /// <c>--max-budget-usd</c> and the session read only the exit code. A stage that answered and
+    /// was then cut off is a reviewed stage with an asterisk, not a stage that did not happen.
+    /// </summary>
+    [Fact]
+    public async Task A_stage_stopped_at_its_ceiling_keeps_its_report_and_says_it_was_capped()
+    {
+        using TempWorkspace workspace = new();
+        FakeProcessRunner runner = Probed()
+            .Enqueue(0, Report("The code is sound."))
+            .Enqueue(0, Report("The run was efficient."))
+            .Enqueue(1, Capped(Recommendations("What the harness should learn.")));
+
+        Retrospective result = await Reviewer(runner, workspace).ReviewAsync(Request());
+
+        RetrospectiveStage harness = result.Stages[2];
+        harness.Reviewed.ShouldBeTrue("the report was produced and paid for before the ceiling was reached");
+        harness.Report.ShouldContain("What the harness should learn");
+        harness.Failure.ShouldNotBeNull().ShouldContain("Reached maximum budget");
+
+        // The tickable list survives with it, which is the half a work order is written from.
+        result.Recommendations.Select(r => r.Id).ShouldBe(["screen-oracle"]);
+
+        // And it is on disk like any other finished stage, so a restart still shows it.
+        File.Exists(Path.Combine(result.Directory, "3-harness.md")).ShouldBeTrue();
+        File.Exists(Path.Combine(result.Directory, "recommendations.json")).ShouldBeTrue();
+    }
+
     [Fact]
     public async Task Cancelling_keeps_whatever_finished()
     {
@@ -333,6 +390,19 @@ public sealed class RetrospectiveTests
         + cost.ToString(System.Globalization.CultureInfo.InvariantCulture)
         + ",\"result\":\"see structured output\",\"structured_output\":{\"report\":"
         + JsonSerializer.Serialize(report) + ",\"recommendations\":[" + items + "]}}";
+
+    /// <summary>
+    /// The same envelope as the CLI writes it when it stops itself at its spend ceiling: the answer
+    /// is present and complete, <c>is_error</c> is set, and the reason lives in <c>errors</c> and
+    /// <c>subtype</c> rather than in <c>result</c> - which is why the original failure text was
+    /// empty.
+    /// </summary>
+    private static string Capped(string envelope) =>
+        envelope.Replace(
+            "\"is_error\":false",
+            "\"is_error\":true,\"subtype\":\"error_max_budget_usd\",\"terminal_reason\":\"budget_exhausted\"," +
+            "\"errors\":[\"Reached maximum budget ($2)\"]",
+            StringComparison.Ordinal);
 
     /// <summary>An <see cref="ITranscriptBus"/> holding a scripted run, and nothing else.</summary>
     private sealed class RecordingTranscript : ITranscriptBus

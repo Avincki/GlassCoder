@@ -417,6 +417,10 @@ public sealed class ClaudeCodeFileReviewer : IFileReviewer
             SessionId = answer.SessionId,
             DurationMs = answer.DurationMs,
             EstimatedCostUsd = answer.CostUsd,
+
+            // A review that ran out of budget mid-thought is still a review; the caveat rides the
+            // status line so nobody reads a partial answer as a complete one.
+            Failure = answer.Caveat,
         };
     }
 

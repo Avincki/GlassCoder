@@ -181,6 +181,17 @@ public sealed record ClaudeCliResult
     /// <summary>Why the call is not usable, when it is not.</summary>
     public string? Failure { get; init; }
 
+    /// <summary>
+    /// What is wrong with an answer that is nonetheless usable - a session that reached its spend
+    /// ceiling after answering, most of all.
+    /// <para>
+    /// Distinct from <see cref="Failure"/> on purpose: this rides an answer the caller should keep
+    /// and qualify, where a failure is the absence of one. The first retrospective produced a full
+    /// report and lost it because there was no way to say "this succeeded, and here is the asterisk".
+    /// </para>
+    /// </summary>
+    public string? Caveat { get; init; }
+
     /// <summary>Whether the answer came back as a stream rather than one buffered envelope.</summary>
     public bool Streamed { get; init; }
 
@@ -353,17 +364,49 @@ public sealed class ClaudeCliSession
 
         if (result.ExitCode != 0 || envelope.IsError)
         {
-            string detail = Scrub(result.StandardError).Trim();
-            if (detail.Length == 0)
+            string detail = FailureDetail(result.StandardError, envelope);
+
+            // A session that answered and then hit a ceiling it was given has done the work and
+            // been charged for it; the non-zero exit is about the ceiling, not about the answer.
+            // Discarding it here is what cost the first retrospective its harness report.
+            string? answer = SalvageableAnswer(envelope);
+            if (answer is not null)
             {
-                detail = envelope.Result?.Trim() ?? string.Empty;
+                _logger.LogWarning(
+                    "The CLI exited {ExitCode} after answering ({Subtype}/{TerminalReason}): {Detail}",
+                    result.ExitCode, envelope.Subtype, envelope.TerminalReason, detail);
+
+                return new ClaudeCliResult
+                {
+                    Succeeded = true,
+                    Result = envelope.Result,
+                    StructuredOutput = envelope.StructuredOutput,
+                    SessionId = envelope.SessionId,
+                    CostUsd = envelope.CostUsd,
+                    DurationMs = elapsed,
+                    Streamed = watcher is { SawStreamEvent: true },
+                    Caveat = "The session stopped at a limit before it was finished" +
+                             (detail.Length > 0 ? $": {Truncate(detail, 200)}" : ".") +
+                             " What it had produced by then is below.",
+                };
             }
 
-            _logger.LogWarning("The CLI failed with exit {ExitCode}: {Detail}", result.ExitCode, detail);
+            _logger.LogWarning(
+                "The CLI failed with exit {ExitCode} ({Subtype}/{TerminalReason}): {Detail}",
+                result.ExitCode, envelope.Subtype, envelope.TerminalReason, detail);
+
             return ClaudeCliResult.Failed(
                 $"The session failed (exit {result.ExitCode})." +
                 (detail.Length > 0 ? $" {Truncate(detail, 500)}" : string.Empty),
-                elapsed) with { Streamed = watcher is { SawStreamEvent: true } };
+                elapsed) with
+            {
+                Streamed = watcher is { SawStreamEvent: true },
+
+                // A session that failed still spent whatever it spent, and a stage recorded at
+                // $0.00 reads as one that cost nothing rather than one that was cut off.
+                CostUsd = envelope.CostUsd,
+                SessionId = envelope.SessionId,
+            };
         }
 
         return new ClaudeCliResult
@@ -462,6 +505,69 @@ public sealed class ClaudeCliSession
         };
     }
 
+    /// <summary>
+    /// Why the CLI stopped, in the operator's terms.
+    /// <para>
+    /// The order matters and was learned the hard way. This used to read stderr and then
+    /// <c>result</c>, which produced the empty sentence <c>"The CLI failed with exit 1: "</c> for
+    /// the one failure shape that says nothing on either: a session stopped by its own budget
+    /// writes no <c>result</c> at all, and puts the reason in <c>errors</c> and <c>subtype</c>.
+    /// </para>
+    /// </summary>
+    private static string FailureDetail(string? standardError, Envelope envelope)
+    {
+        string detail = Scrub(standardError).Trim();
+        if (detail.Length > 0)
+        {
+            return detail;
+        }
+
+        if (envelope.Errors.Count > 0)
+        {
+            return Scrub(string.Join("; ", envelope.Errors)).Trim();
+        }
+
+        // Only an error-shaped subtype: "success" as an explanation for a failure would be worse
+        // than saying nothing.
+        if (envelope.Subtype is { Length: > 0 } subtype &&
+            subtype.StartsWith("error", StringComparison.Ordinal))
+        {
+            return envelope.TerminalReason is { Length: > 0 } reason ? $"{subtype} ({reason})" : subtype;
+        }
+
+        // Last, because a session that never authenticated also puts its complaint here.
+        return Scrub(envelope.Result).Trim();
+    }
+
+    /// <summary>
+    /// The answer inside a failed envelope, when there is one worth keeping.
+    /// <para>
+    /// Deliberately asymmetric. <c>structured_output</c> only exists when the model answered in the
+    /// requested shape, so it is an answer whatever ended the session. <c>result</c> is not: an
+    /// unauthenticated session puts <c>"Not logged in · Please run /login"</c> there and sets
+    /// <c>is_error</c>, and treating that as a review would turn a broken login into a report
+    /// saying so. It is therefore trusted only when the CLI stopped itself at a ceiling it was
+    /// given, which is a statement about spend and not about the work.
+    /// </para>
+    /// </summary>
+    private static string? SalvageableAnswer(Envelope envelope)
+    {
+        if (!string.IsNullOrWhiteSpace(envelope.StructuredOutput))
+        {
+            return envelope.StructuredOutput;
+        }
+
+        return StoppedAtItsCeiling(envelope) && !string.IsNullOrWhiteSpace(envelope.Result)
+            ? envelope.Result
+            : null;
+    }
+
+    /// <summary>Whether the CLI stopped itself at a limit, rather than something going wrong.</summary>
+    private static bool StoppedAtItsCeiling(Envelope envelope) =>
+        string.Equals(envelope.TerminalReason, "budget_exhausted", StringComparison.Ordinal) ||
+        (envelope.Subtype?.StartsWith("error_max_budget", StringComparison.Ordinal) ?? false) ||
+        (envelope.Subtype?.StartsWith("error_max_turns", StringComparison.Ordinal) ?? false);
+
     /// <summary>Redacts secrets from anything on its way to a person.</summary>
     public static string Scrub(string? value) => SecretRedactor.Scrub(value) ?? string.Empty;
 
@@ -523,7 +629,29 @@ public sealed class ClaudeCliSession
                     : 0m,
             IsError = root.TryGetProperty("is_error", out JsonElement error)
                 && error.ValueKind == JsonValueKind.True,
+
+            // Where a self-imposed stop says so. None of these are in `result`, which is why a
+            // capped session used to fail with an empty explanation.
+            Subtype = Text(root, "subtype"),
+            TerminalReason = Text(root, "terminal_reason"),
+            Errors = ReadErrors(root),
         };
+    }
+
+    private static IReadOnlyList<string> ReadErrors(JsonElement root)
+    {
+        if (!root.TryGetProperty("errors", out JsonElement errors) || errors.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return
+        [
+            .. errors.EnumerateArray()
+                .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() : e.GetRawText())
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .Select(text => text!)
+        ];
     }
 
     private static string? Text(JsonElement element, string name) =>
@@ -543,6 +671,15 @@ public sealed class ClaudeCliSession
         public decimal CostUsd { get; init; }
 
         public bool IsError { get; init; }
+
+        /// <summary>How the envelope classifies itself - <c>error_max_budget_usd</c> and friends.</summary>
+        public string? Subtype { get; init; }
+
+        /// <summary>Why the session ended - <c>budget_exhausted</c> and friends.</summary>
+        public string? TerminalReason { get; init; }
+
+        /// <summary>What the CLI wants said about the failure, when it says anything.</summary>
+        public IReadOnlyList<string> Errors { get; init; } = [];
     }
 
     /// <summary>

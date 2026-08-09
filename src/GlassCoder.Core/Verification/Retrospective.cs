@@ -48,8 +48,16 @@ public sealed class RetrospectiveOptions
     /// </remarks>
     public IList<string> AllowedTools { get; set; } = new List<string> { "Read", "Grep", "Glob" };
 
-    /// <summary>Spend ceiling for one stage, so three stages cost at most three of these.</summary>
-    public decimal MaxBudgetUsd { get; set; } = 2.00m;
+    /// <summary>
+    /// Spend ceiling for one stage, so three stages cost at most three of these.
+    /// <para>
+    /// Raised from 2.00 once there was a measurement instead of a guess. The first whole
+    /// retrospective (run <c>d5edbc59</c>, 2026-08-08) cost $0.68 and $0.48 for stages 1 and 2 and
+    /// about $5 for stage 3, which reads <c>WORKPLAN.md</c>, <c>HISTORY.md</c> and whatever source
+    /// its recommendations touch. At 2.00 the expensive stage could only ever be cut off.
+    /// </para>
+    /// </summary>
+    public decimal MaxBudgetUsd { get; set; } = 8.00m;
 
     /// <summary>
     /// How long one stage may take. Longer than a file review's, because a stage reads a whole
