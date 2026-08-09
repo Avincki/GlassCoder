@@ -69,6 +69,17 @@ public sealed class AgentOptions
     /// <summary>
     /// System prompt used when a run does not supply one. Context assembly (task 12) will take
     /// this over; until then it is the whole of the always-loaded context.
+    /// <para>
+    /// It no longer tells the model to run build and run_tests before finishing. That instruction
+    /// was written before the ladder verified applied changes, and it outlived its reason: in run
+    /// <c>16febe5e</c> step 20's edit was verified through Compile, Analyzers and UnitTests, and
+    /// steps 21 and 22 then called <c>build</c> and <c>run_tests</c> over the same untouched tree.
+    /// <see cref="GlassCoder.Tools.Build.BuildCache"/> makes the answers cheap, but it cannot make
+    /// the steps free - each one is a model round trip against a re-sent prompt, which is the
+    /// expensive half. So the instruction now points at the verification that already ran, and
+    /// keeps the manual route open for the case that needs it: a change nothing verified, or a
+    /// rung that reported it verified nothing.
+    /// </para>
     /// </summary>
     public string SystemPrompt { get; set; } =
         "You are GlassCoder, a coding agent working in a local repository. " +
@@ -77,6 +88,9 @@ public sealed class AgentOptions
         "Prefer grep and glob to locate code before reading whole files. " +
         "Update todos only at phase boundaries - plan once, then mark groups of work done together, " +
         "not after every file. " +
-        "Before declaring the goal met, run build and run_tests and cite their results in your summary. " +
+        "Applied changes are verified for you - compile, analyzers and tests - and the result comes back " +
+        "on the observation. Cite that verification in your summary instead of repeating it: call build " +
+        "or run_tests yourself only when nothing verified your last change, or when the verification " +
+        "reported that nothing was verified. " +
         "When the goal is met, reply with a short plain-text summary and no tool call.";
 }

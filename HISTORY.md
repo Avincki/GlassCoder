@@ -9,6 +9,58 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-09 (later) — Two steps the run did not need, and a reference set read 450 times
+
+Sizing a move from the DGX Spark to an 8×RTX PRO 6000 server turned into a measurement of where
+run `16febe5e`'s 229 seconds actually went. Decode scales with memory bandwidth, about 6.6× - but
+only part of a step is decode, so the honest end-to-end figure was ~2.5×, with a hard ceiling
+near 3.4× until the non-model half of a step gets cheaper. **Two of the cheaper things were
+built.**
+
+**The system prompt no longer tells the model to run build and run_tests before finishing.**
+That instruction predates the ladder verifying applied changes, and it is why steps 21 and 22
+existed: step 20's edit had already passed Compile, Analyzers and UnitTests, and the next two
+steps asked the same two questions of the same untouched tree. `BuildCache` makes the answers
+cheap; it cannot make the steps free, and the model round trip against a re-sent prompt is the
+expensive half.
+
+**`RoslynCodeAnalyzer` caches the assemblies it scavenges from `bin`**, keyed on path, write time
+and length - the key `CachedTree` already used for syntax trees, one line above.
+
+**Decided**
+
+- **The instruction was replaced, not deleted.** "Trust the automatic verification" alone would
+  have been wrong: the `UnitTests` rung reported *unverified* ten times against passed five on
+  2026-08-09, because a rung that runs zero tests is not a green one. The prompt keeps the manual
+  route for exactly that case - nothing verified the change, or the verification said it verified
+  nothing.
+- **The user settings file had to be edited too, and this is the second time.** `Agent.SystemPrompt`
+  is set explicitly in `%APPDATA%\GlassCoder\settings.json`, so the code default is dead text on
+  this machine. Backup at `settings.json.bak-20260809b`.
+- **The stated reason for `CreateFromImage` was wrong, and the test said so.** The claim was that
+  `CreateFromFile` memory-maps the assembly and would leave every DLL under `bin` locked, breaking
+  the next build. Flipping the implementation back proved otherwise - Roslyn shares the file for
+  write and delete, and the test passes either way. `CreateFromImage` stayed on a narrower
+  argument: a cached entry outlives the compile that made it and should own its bytes rather than
+  depend on a file the build may replace. The test is kept as the invariant, no longer as a
+  discriminator, and it says so.
+- **The saving was a tenth of what was claimed, because the wrong rung was blamed.** The Compile
+  rung's 1,925 ms is `dotnet build` through `BuildTool`; the Roslyn analyzer is the *Analyzers*
+  rung at 188 ms. Measured with the framework references pre-warmed: 163 DLLs / 9.8 MB goes 66 ms
+  → 8 ms, and 450 DLLs / 87 MB goes 139 ms → 12 ms. Tens of milliseconds a compile, scaling with
+  the bin, and worth most on the `LocateInReferences` path a CS0246 storm hammers.
+
+**Open**
+
+- Four further candidates were costed and not built: seeding `BuildCache` from the ladder's own
+  rungs, `--no-build` on `run_tests` when the build is fresh, `DOTNET_CLI_USE_MSBUILD_SERVER=1`,
+  and `launch_app` polling for a drawn window instead of sleeping out its ten-second timeout.
+  The last is the largest single constant in a run that launches anything.
+- **Nothing here has been measured against a live worker**, and the prompt change is the kind that
+  only a run can judge. The next run is the test.
+
+---
+
 ## 2026-08-09 — The retrospective was taken, thrown away, recovered, and then acted on
 
 The first whole retrospective ran on the evening of 2026-08-08 and **the operator saw two thirds

@@ -367,4 +367,83 @@ public sealed class RoslynCodeAnalyzerTests : IDisposable
         report.Ok.ShouldBeTrue();
         report.DurationMs.ShouldBeLessThan(3000);
     }
+
+    [Fact]
+    public void A_name_is_located_in_an_assembly_scavenged_from_build_output()
+    {
+        // The scavenged half of the reference set, read as an image rather than a file. If
+        // CreateFromImage produced metadata the compilation could not read, this is where it shows.
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+        WriteAssembly("proj/bin/Debug/Gadgets.dll", "namespace Demo.Parts; public sealed class Gadget { }");
+
+        IReadOnlyDictionary<string, ReferencedSymbol> found = Analyzer().LocateInReferences(caller, ["Gadget"]);
+
+        found.ShouldContainKey("Gadget");
+        found["Gadget"].Namespace.ShouldBe("Demo.Parts");
+    }
+
+    [Fact]
+    public void A_cached_reference_does_not_lock_the_assembly_it_was_read_from()
+    {
+        // The invariant a reference cache could plausibly break: a build must stay free to
+        // overwrite and delete its own output while the analyzer is still holding a reference to
+        // it. Both Roslyn creation paths satisfy this today - CreateFromFile shares the file for
+        // write and delete - so this passes either way and is here to keep it that way, not to
+        // discriminate between them. The analyzer is held past the assertions on purpose: it is
+        // what keeps the cache entry, and therefore the metadata, alive.
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+        string dll = WriteAssembly("proj/bin/Debug/Gadgets.dll", "namespace Demo.Parts; public sealed class Gadget { }");
+
+        RoslynCodeAnalyzer analyzer = Analyzer();
+        analyzer.LocateInReferences(caller, ["Gadget"]).ShouldContainKey("Gadget");
+
+        Should.NotThrow(() => File.WriteAllBytes(dll, EmitAssembly("namespace Demo.Parts; public sealed class Gadget { }")));
+        Should.NotThrow(() => File.Delete(dll));
+
+        GC.KeepAlive(analyzer);
+    }
+
+    [Fact]
+    public void A_rebuilt_assembly_replaces_the_reference_the_cache_was_holding()
+    {
+        _workspace.WriteFile("proj/Proj.csproj", ImplicitUsingsProject);
+        string caller = _workspace.WriteFile("proj/Caller.cs", "namespace Demo; public sealed class Caller { }");
+        string dll = WriteAssembly("proj/bin/Debug/Gadgets.dll", "namespace Demo.Parts; public sealed class Gadget { }");
+
+        RoslynCodeAnalyzer analyzer = Analyzer();
+        analyzer.LocateInReferences(caller, ["Gadget"]).ShouldContainKey("Gadget");
+        analyzer.LocateInReferences(caller, ["Sprocket"]).ShouldBeEmpty();
+
+        // A rebuild at the same path. Keyed on path alone the cache would go on answering with
+        // the assembly the build has just replaced, which is the stale-reference bug the write
+        // time and the length exist to prevent - the names differ in length, so either check
+        // alone is enough to catch this one.
+        File.WriteAllBytes(dll, EmitAssembly("namespace Demo.Parts; public sealed class Sprocket { }"));
+
+        analyzer.LocateInReferences(caller, ["Sprocket"]).ShouldContainKey("Sprocket");
+    }
+
+    /// <summary>Emits a real assembly into the project's build output and returns its path.</summary>
+    private string WriteAssembly(string relativePath, string source)
+    {
+        string full = Path.Combine(_workspace.Root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllBytes(full, EmitAssembly(source));
+        return full;
+    }
+
+    private static byte[] EmitAssembly(string source)
+    {
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "Gadgets",
+            [CSharpSyntaxTree.ParseText(source)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        using MemoryStream stream = new();
+        compilation.Emit(stream).Success.ShouldBeTrue();
+        return stream.ToArray();
+    }
 }
