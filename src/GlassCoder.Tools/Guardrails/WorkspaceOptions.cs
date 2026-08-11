@@ -29,6 +29,44 @@ public sealed class WorkspaceOptions
     public IList<string> WritablePaths { get; } = [];
 
     /// <summary>
+    /// File names a run may write <em>at the repository root only</em>, even when the root itself
+    /// is not in <see cref="WritablePaths"/>.
+    /// <para>
+    /// A repository's own furniture belongs at the root and nowhere else, and the shipped writable
+    /// set is <c>src</c> and <c>tests</c>. Run <c>46231701</c> met the consequence: task 73
+    /// correctly refused a solution below the root, the root was not writable, so its own advice
+    /// was to skip the solution - and under that configuration "no solution at all" was the only
+    /// reachable state. <c>dotnet test</c> from the root had no target, <c>bin</c> and <c>obj</c>
+    /// sat unignored in a synced tree, and <c>ProjectLocator</c>'s root-solution branch had been
+    /// unreachable code for months.
+    /// </para>
+    /// <para>
+    /// Deliberately file names, not another writable path. Opening the root would let a run
+    /// scatter source files across it, which is the mess a src/tests split exists to prevent.
+    /// Patterns take <c>*</c> and <c>?</c> and are matched against the file name alone, so no
+    /// entry here can reach into a subdirectory.
+    /// </para>
+    /// <para>
+    /// What is <em>not</em> on the list is as deliberate: no <c>.editorconfig</c> and no
+    /// <c>NuGet.config</c>. One can switch analyzers off and the other can move where packages
+    /// come from, and neither is furniture a run needs to build what it was asked for.
+    /// <c>Directory.Build.props</c> is admitted with that risk noted - it is how a multi-project
+    /// workspace shares a target framework, which is a thing runs legitimately need.
+    /// </para>
+    /// </summary>
+    public IList<string> WritableRootFiles { get; } =
+    [
+        "*.sln",
+        "*.slnx",
+        ".gitignore",
+        "Directory.Build.props",
+        "Directory.Build.targets",
+        "Directory.Packages.props",
+        "global.json",
+        "README.md",
+    ];
+
+    /// <summary>
     /// Globs excluded from every access, matched against the repo-relative path with forward
     /// slashes. These are the directories where an agent can only do harm or waste context.
     /// </summary>

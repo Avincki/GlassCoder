@@ -62,9 +62,25 @@ internal sealed class RunProgressSentry
     /// <summary>Identical failing test results before the model is told its edits are not landing.</summary>
     private const int NudgeAfterRepeatedTestFailures = 3;
 
+    /// <summary>
+    /// Consecutive verifications served entirely from cache, with nothing applied in between,
+    /// before the model is told it is re-confirming rather than verifying. Two, because the first
+    /// repeat is a reasonable double-check and the second is a habit.
+    /// </summary>
+    private const int NudgeAfterCachedVerifications = 2;
+
+    /// <summary>The calls that answer "does it still work". A cached answer from either is a
+    /// question the run has already had answered.</summary>
+    private static readonly HashSet<string> VerificationTools =
+        new(StringComparer.Ordinal) { "build", "run_tests" };
+
     private readonly Dictionary<string, (string Line, int Count)> _testOutcomes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _nudgedTestOutcomes = new(StringComparer.OrdinalIgnoreCase);
     private string? _testFailureToNudge;
+
+    private int _cachedVerifications;
+    private bool _nudgedAboutCachedVerification;
+    private bool _cachedVerificationToNudge;
 
     private int _stalledSteps;
     private string? _lastRepeatedCall;
@@ -82,6 +98,7 @@ internal sealed class RunProgressSentry
         _failureToNudge = null;
         _pathReadToNudge = null;
         _testFailureToNudge = null;
+        _cachedVerificationToNudge = false;
 
         // Tracked before the applied-change reset, and deliberately not reset by it: runs
         // ea9a1f66 and 216360bf edited between every one of their identical "N of M tests
@@ -99,8 +116,15 @@ internal sealed class RunProgressSentry
             _nudgedFailures.Clear();
             _pathReads.Clear();
             _nudgedPathReads.Clear();
+
+            // A change is the one event that makes verifying worth doing again, so it re-arms
+            // the nudge as well as clearing the count.
+            _cachedVerifications = 0;
+            _nudgedAboutCachedVerification = false;
             return;
         }
+
+        ObserveCachedVerifications(invocations);
 
         foreach (ToolInvocation invocation in invocations)
         {
@@ -193,6 +217,69 @@ internal sealed class RunProgressSentry
               "read the file again and quote from what it returns, use create_file with overwrite: true to " +
               "replace the whole file, or work on something else."
             : null;
+
+    /// <summary>
+    /// Counts verifications answered out of the build cache with nothing applied in between.
+    /// <para>
+    /// Task 74 made the redundant verification cheap and left the redundancy: the tools say
+    /// "unchanged since the last build, so this result was reused" and run <c>46231701</c> spent
+    /// steps 18, 22 and 23 asking anyway - four of twenty-six steps re-confirming the one axis
+    /// never in doubt, in a run where the axis that <em>was</em> in doubt got nothing.
+    /// </para>
+    /// <para>
+    /// Keyed on the cache flag the observation carries, never on the sentence it prints. The
+    /// wording is synthesis and detection must not depend on it - the same rule the failure
+    /// counter follows for the same reason.
+    /// </para>
+    /// </summary>
+    private void ObserveCachedVerifications(IReadOnlyList<ToolInvocation> invocations)
+    {
+        foreach (ToolInvocation invocation in invocations)
+        {
+            if (invocation.Status != ToolCallStatus.Succeeded ||
+                !VerificationTools.Contains(invocation.ToolName))
+            {
+                continue;
+            }
+
+            // A verification that actually ran is work, whatever it found, and it re-arms the
+            // counter: the next cached answer is a fresh first repeat, not the third of a streak.
+            if (!invocation.ServedFromCache)
+            {
+                _cachedVerifications = 0;
+                continue;
+            }
+
+            _cachedVerifications++;
+            if (_cachedVerifications >= NudgeAfterCachedVerifications && !_nudgedAboutCachedVerification)
+            {
+                _nudgedAboutCachedVerification = true;
+                _cachedVerificationToNudge = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The redundant-verification nudge, once per stretch. It names what is <em>not</em> verified
+    /// rather than what has been re-confirmed, because the run already knows the second and the
+    /// first is what it is spending steps instead of answering.
+    /// </summary>
+    public string? RedundantVerificationNudge()
+    {
+        if (!_cachedVerificationToNudge)
+        {
+            return null;
+        }
+
+        string open = _noticeOutstanding
+            ? "the verification's notice about what your tests actually cover is still unanswered"
+            : "what nothing has exercised is still unexercised - the paths your tests do not reach, " +
+              "and whether the application runs at all, which launch_app answers";
+
+        return $"That is {_cachedVerifications} verifications in a row answered from cache with nothing changed " +
+            "in between, so each one re-confirmed a result you already had. Compiling is not the open question: " +
+            $"{open}. Spend the next step there instead.";
+    }
 
     /// <summary>Feeds the test outcomes of one step into the repeated-failure tracker.</summary>
     private void ObserveTestOutcomes(IReadOnlyList<ToolInvocation> invocations)

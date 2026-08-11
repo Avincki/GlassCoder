@@ -116,6 +116,12 @@ static async Task<int> RunGoalAsync(IHost host, HostCommand command, Cancellatio
     Console.WriteLine($"{result.StopReason} after {result.Steps} steps, {result.TotalTokens} tokens, "
         + $"{CommandLine.Duration(result.Elapsed)}, tool-call validity {result.ToolCallValidityRate:P0}");
 
+    // The exit code says which category of failure this was; this says which failure it was.
+    if (!string.IsNullOrWhiteSpace(result.Error))
+    {
+        Console.WriteLine(result.Error);
+    }
+
     if (!string.IsNullOrWhiteSpace(result.FinalText))
     {
         Console.WriteLine();

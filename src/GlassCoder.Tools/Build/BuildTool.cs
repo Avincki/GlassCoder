@@ -105,7 +105,8 @@ public sealed class BuildTool : IToolSet
                 ToolName,
                 cached!,
                 "Build succeeded (unchanged since the last build, so this result was reused). "
-                    + "Edit something before building again.");
+                    + "Edit something before building again.",
+                reused: true);
         }
 
         bool isDirectory = Directory.Exists(verdict.FullPath);

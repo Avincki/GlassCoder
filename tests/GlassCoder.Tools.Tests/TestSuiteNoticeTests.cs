@@ -96,6 +96,41 @@ public sealed class TestSuiteNoticeTests : IDisposable
         notice.ShouldNotContain("reference no type declared outside");
     }
 
+    /// <summary>
+    /// Run <c>46231701</c>: this clause used to end "have it call this instead", the agent spent
+    /// one line making the click handler call the extracted method, and the notice went quiet over
+    /// a suite that still reached none of the logic that runs. A remedy the detector can see
+    /// satisfied is not a remedy, so the clause must not prescribe one.
+    /// </summary>
+    [Fact]
+    public void The_orphan_clause_does_not_prescribe_a_change_the_product_alone_can_satisfy()
+    {
+        Product("public class MultiplyViewModel { public double Multiply(double a, double b) => a * b; }");
+        Product(
+            "public class MainWindow { private double Click(double a, double b) { return a * b; } }",
+            "MainWindow.xaml.cs");
+
+        Tests("""
+            public class MultiplyViewModelTests
+            {
+                [Fact]
+                public void Multiply_works()
+                {
+                    Assert.Equal(15.0, new MultiplyViewModel().Multiply(5.0, 3.0));
+                }
+            }
+            """);
+
+        string notice = Describe();
+
+        notice.ShouldNotContain("have it call this instead");
+        notice.ShouldContain("without testing anything more");
+
+        // The diagnosis survives the reword - what was dropped is the shortcut, not the finding.
+        notice.ShouldContain("the shipped path is untested");
+        notice.ShouldContain("the error branches");
+    }
+
     [Fact]
     public void A_type_the_markup_names_is_not_an_orphan()
     {

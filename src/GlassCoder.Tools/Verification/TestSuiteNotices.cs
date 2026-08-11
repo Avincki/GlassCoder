@@ -105,6 +105,15 @@ public static class TestSuiteNotices
     /// The shape clause one misses. The type is real and really called, and nothing that ships
     /// mentions it - so breaking the product cannot make the suite red.
     /// </para>
+    /// <para>
+    /// The wording carries a scar. It used to end "if the product duplicates that logic rather
+    /// than calling it, have it call this instead", and run 46231701 did exactly that: one line
+    /// in a click handler, which moved the type into <see cref="Survey.ProductIdentifiers"/> and
+    /// silenced this clause while the parse, format and error branches it authored stayed
+    /// unreachable by any test. A remedy this detector can see satisfied is a remedy that costs
+    /// one line and buys nothing. The clause now names the trap instead of prescribing the
+    /// shortcut: diagnosis is ours, the fix is the model's to find.
+    /// </para>
     /// </summary>
     private static string OrphanTypeNotice(Survey survey)
     {
@@ -124,8 +133,10 @@ public static class TestSuiteNotices
         }
 
         return $" Note: the tests exercise {Join(orphans)}, which no non-test source references - " +
-               "so the shipped path is untested even though the suite is green. If the product " +
-               "duplicates that logic rather than calling it, have it call this instead.";
+               "so the shipped path is untested even though the suite is green. Making the product " +
+               "call it would silence this note without testing anything more: the tests have to " +
+               "reach the logic that actually runs - the parsing, the formatting, the error " +
+               "branches - and not only the expression that was extracted.";
     }
 
     /// <summary>Clause three: an assertion whose expected value is computed from its own inputs.</summary>

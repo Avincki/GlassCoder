@@ -63,6 +63,13 @@ public sealed record ToolInvocation
     /// </summary>
     public bool OutcomeOk { get; init; } = true;
 
+    /// <summary>
+    /// Whether the answer came from a cache instead of the work being done again. Carried up for
+    /// the progress machinery, which is the only caller that can tell a re-confirmation from a
+    /// verification.
+    /// </summary>
+    public bool ServedFromCache { get; init; }
+
     /// <summary>Whether this call counts as valid for the tool-call validity rate.</summary>
     public bool IsValid => Status is ToolCallStatus.Succeeded or ToolCallStatus.Failed;
 }

@@ -833,16 +833,42 @@ public sealed class ProjectScaffoldingTests
         executor.Commands.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// The writable set is src and tests, and the root allow-list now admits a solution there -
+    /// so the honest advice is the one the refusal was always written to give. Until run
+    /// 46231701 this branch was unreachable: the root was closed, the hint said skip it, and "no
+    /// solution at all" was the only state the shipped configuration could produce.
+    /// </summary>
     [Fact]
-    public async Task The_refusal_does_not_suggest_a_root_the_workspace_cannot_write_to()
+    public async Task The_refusal_sends_the_solution_to_the_root_the_allow_list_opens()
     {
-        // The writable set here is src, so "create it at the root instead" would be advice the
-        // guard refuses - one wasted step traded for another.
         using TempWorkspace workspace = new();
         workspace.CreateDirectory("src");
 
         ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
             new ScriptedCommandExecutor(), workspace.Guard("src"), new ChangeLog(),
+            Options.Create(new SandboxOptions()))
+            .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
+
+        observation.Error!.Hint.ShouldContain("Create it at the root");
+        observation.Error.Hint.ShouldContain("Every.slnx");
+        observation.Error.Hint.ShouldContain("add_to_solution");
+    }
+
+    [Fact]
+    public async Task The_refusal_still_does_not_suggest_a_root_the_workspace_cannot_write_to()
+    {
+        // With the allow-list emptied the root really is closed, and "create it at the root
+        // instead" would be advice the guard refuses - one wasted step traded for another. The
+        // hint asks the guard rather than assuming, which is why it survived the change above.
+        using TempWorkspace workspace = new();
+        workspace.CreateDirectory("src");
+
+        WorkspaceOptions options = workspace.Options("src");
+        options.WritableRootFiles.Clear();
+
+        ToolObservation<DotnetProjectResult> observation = await new DotnetProjectTool(
+            new ScriptedCommandExecutor(), new PathGuard(Options.Create(options)), new ChangeLog(),
             Options.Create(new SandboxOptions()))
             .RunAsync(DotnetProjectOperation.NewSolution, "src/Every.sln");
 

@@ -45,7 +45,10 @@ public sealed class XamlNoticeTests : IDisposable
 
         notice.ShouldContain("Layout note");
         notice.ShouldContain("Height=300");
-        notice.ShouldContain("Run app");
+
+        // The note fired in run 46231701 and the app was never launched in 26 steps, because the
+        // sentence pointed at a button the model cannot press. It has to name the tool it has.
+        notice.ShouldContain("launch_app");
     }
 
     [Fact]

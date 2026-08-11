@@ -1,3 +1,4 @@
+using System.IO.Enumeration;
 using Microsoft.Extensions.FileSystemGlobbing;
 using Microsoft.Extensions.Options;
 
@@ -22,6 +23,7 @@ public sealed class PathGuard : IPathGuard
 
     private readonly string[] _readableRoots;
     private readonly string[] _writableRoots;
+    private readonly string[] _writableRootFiles;
     private readonly Matcher? _deniedMatcher;
     private readonly bool _followSymbolicLinks;
 
@@ -39,6 +41,7 @@ public sealed class PathGuard : IPathGuard
             : [.. workspace.ReadablePaths.Select(ResolveRoot).Distinct(StringComparer.Ordinal)];
 
         _writableRoots = [.. workspace.WritablePaths.Select(ResolveRoot).Distinct(StringComparer.Ordinal)];
+        _writableRootFiles = [.. workspace.WritableRootFiles.Where(name => !string.IsNullOrWhiteSpace(name))];
         _followSymbolicLinks = workspace.FollowSymbolicLinks;
 
         if (workspace.DeniedGlobs.Count > 0)
@@ -80,7 +83,9 @@ public sealed class PathGuard : IPathGuard
                 "No writable paths are configured, so every write is rejected. Configure GlassCoder:Workspace:WritablePaths to opt in.");
         }
 
-        if (!IsUnderAnyRoot(full, roots))
+        // The root-file allow-list is reached only once a writable set exists, so "nothing is
+        // configured" still means "nothing is writable" - the invariant the whole guard rests on.
+        if (!IsUnderAnyRoot(full, roots) && !(access == PathAccess.Write && IsWritableRootFile(full)))
         {
             return PathGuardResult.Deny(
                 $"Path '{path}' resolves to '{full}', which is outside the {Describe(access)} set: {string.Join(", ", roots)}.");
@@ -113,6 +118,35 @@ public sealed class PathGuard : IPathGuard
     }
 
     private static string Describe(PathAccess access) => access == PathAccess.Write ? "writable" : "readable";
+
+    /// <summary>
+    /// Whether this is one of the declared repository artifacts, sitting directly at the root.
+    /// <para>
+    /// Matched on the file name against a path whose parent is the root itself, which is what
+    /// keeps this from being a second writable root: no pattern here can name a directory, and
+    /// nothing one level down is eligible however it is spelled.
+    /// </para>
+    /// </summary>
+    private bool IsWritableRootFile(string full)
+    {
+        if (_writableRootFiles.Length == 0 ||
+            !string.Equals(Path.GetDirectoryName(full), RepoRoot, PathComparison))
+        {
+            return false;
+        }
+
+        string name = Path.GetFileName(full);
+        foreach (string pattern in _writableRootFiles)
+        {
+            if (FileSystemName.MatchesSimpleExpression(
+                pattern, name, ignoreCase: PathComparison == StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private string ResolveRoot(string configured) =>
         Normalise(Path.GetFullPath(configured, RepoRoot));
@@ -159,14 +193,20 @@ public sealed class PathGuard : IPathGuard
     /// allowed roots. Returns the offending target, or null when the path is clean.
     /// </summary>
     /// <remarks>
-    /// The walk stops at the allowed root. A root that is itself a link is a deliberate
-    /// configuration choice, not an escape attempt - and checking above it would make the
-    /// guard depend on how the machine happens to mount the repository.
+    /// The walk stops at the allowed root, and at the repository root above it. A root that is
+    /// itself a link is a deliberate configuration choice, not an escape attempt - and checking
+    /// above it would make the guard depend on how the machine happens to mount the repository.
+    /// The repository root is a stop for the same reason and one more: a file admitted by the
+    /// root allow-list sits above every writable root, so without it the walk climbed out of the
+    /// workspace and up the user profile, where the first junction or unreadable directory it met
+    /// denied a write that was perfectly legitimate.
     /// </remarks>
-    private static string? FindEscapingLink(string full, IReadOnlyList<string> roots)
+    private string? FindEscapingLink(string full, IReadOnlyList<string> roots)
     {
         string? current = full;
-        while (!string.IsNullOrEmpty(current) && !IsRoot(current, roots))
+        while (!string.IsNullOrEmpty(current) &&
+            !IsRoot(current, roots) &&
+            !current.Equals(RepoRoot, PathComparison))
         {
             try
             {

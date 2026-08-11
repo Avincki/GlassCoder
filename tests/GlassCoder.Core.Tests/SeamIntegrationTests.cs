@@ -120,6 +120,9 @@ public sealed class SeamIntegrationTests : IDisposable
 
         result.StopReason.ShouldBe(AgentStopReason.ModelError);
         result.Error.ShouldNotBeNullOrWhiteSpace();
+        // Across the real seam, not a fake: the endpoint that could not be reached is the one
+        // piece of the failure the exception alone never carries.
+        result.Error.ShouldContain("http://127.0.0.1:1/v1");
     }
 
     private ServiceProvider BuildProvider(string? endpoint = null)

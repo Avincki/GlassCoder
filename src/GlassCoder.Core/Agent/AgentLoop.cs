@@ -202,10 +202,16 @@ public sealed class AgentLoop : IAgentLoop
             }
             catch (Exception ex)
             {
+                // "ModelError" names the stop, not the cause, and `ex.Message` alone names the
+                // symptom without the endpoint it happened against. What a reader needs to act -
+                // which role, which endpoint, and which of the half-dozen distinct failures this
+                // was - is spread across the exception chain and the role's settings, so it is
+                // assembled here rather than left for whoever reads the transcript to reconstruct.
+                TimeSpan failedAfter = Stopwatch.GetElapsedTime(modelStart);
                 stopReason = AgentStopReason.ModelError;
-                error = ex.Message;
-                _logger.LogError(ex, "Model call failed on step {StepIndex}", budget.Steps);
-                LogStep(step, messages, response: null, [], Stopwatch.GetElapsedTime(modelStart), stopReason.ToString(), error);
+                error = ModelCallFailure.Describe(role, roleOptions, ex, failedAfter).Message;
+                _logger.LogError(ex, "Model call failed on step {StepIndex}: {Failure}", budget.Steps, error);
+                LogStep(step, messages, response: null, [], failedAfter, stopReason.ToString(), error);
                 break;
             }
 
@@ -375,6 +381,11 @@ public sealed class AgentLoop : IAgentLoop
                 messages.Add(new ChatMessage(ChatRole.User, testFailureNudge));
             }
 
+            if (sentry.RedundantVerificationNudge() is { } cachedVerificationNudge)
+            {
+                messages.Add(new ChatMessage(ChatRole.User, cachedVerificationNudge));
+            }
+
             // Told once, when it starts to matter. A run that spends its last steps re-checking
             // finished work rather than finishing it is the common way a step limit is reached,
             // and the agent cannot pace itself against a ceiling it cannot see.
@@ -479,9 +490,13 @@ public sealed class AgentLoop : IAgentLoop
         runActivity?.SetTag("glasscoder.steps", budget.Steps);
         runActivity?.SetTag("glasscoder.total_tokens", budget.TotalTokens);
 
+        // The closing line carries the failure detail with it: a reader who tails the log sees the
+        // stop and its cause together, rather than the stop here and the reason forty stack-trace
+        // lines earlier.
         _logger.LogInformation(
-            "Run {RunId} stopped: {StopReason} after {Steps} steps, {TotalTokens} tokens, {Elapsed:F1}s, tool-call validity {Validity:P0}",
-            request.RunId, stopReason, budget.Steps, budget.TotalTokens, result.Elapsed.TotalSeconds, result.ToolCallValidityRate);
+            "Run {RunId} stopped: {StopReason} after {Steps} steps, {TotalTokens} tokens, {Elapsed:F1}s, tool-call validity {Validity:P0}{Failure}",
+            request.RunId, stopReason, budget.Steps, budget.TotalTokens, result.Elapsed.TotalSeconds, result.ToolCallValidityRate,
+            error is null ? string.Empty : $" · {error}");
 
         return result;
     }
@@ -776,7 +791,9 @@ public sealed class AgentLoop : IAgentLoop
             const string screen =
                 "If the refutation concerns what is visible on screen, fix the layout in the XAML " +
                 "(SizeToContent, Height, margins) - tests that parse XAML text prove nothing about " +
-                "rendering, and only the operator's Run app confirms what shows. ";
+                "rendering. Then call launch_app: it starts the application and reports whether it " +
+                "came up and drew a window, which is the evidence a refutation like that is asking " +
+                "for. ";
             string reasons = Cap(critique.Summary, MaxCritiqueFeedbackCharacters);
             message = _verification.CritiqueGates
                 ? $"A critique panel refuted the finished work: {reasons}\n" +

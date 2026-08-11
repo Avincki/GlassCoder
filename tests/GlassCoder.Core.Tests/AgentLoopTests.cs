@@ -196,6 +196,12 @@ public sealed class AgentLoopTests
 
         result.StopReason.ShouldBe(AgentStopReason.ModelError);
         result.Error.ShouldContain("connection refused");
+
+        // ModelError is one enum value over several unrelated failures, so the run has to say
+        // which role and which endpoint it was: without them the transcript records that
+        // something went wrong and nothing about where to go and fix it.
+        result.Error.ShouldContain("worker");
+        result.Error.ShouldContain("http://localhost/v1");
     }
 
     [Fact]

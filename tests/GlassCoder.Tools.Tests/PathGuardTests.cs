@@ -128,4 +128,66 @@ public sealed class PathGuardTests : IDisposable
         guard.Resolve("src/Program.cs", PathAccess.Read).Allowed.ShouldBeTrue();
         guard.Resolve("secrets/keys.txt", PathAccess.Read).Allowed.ShouldBeFalse();
     }
+
+    /// <summary>
+    /// Run <c>46231701</c>: with src and tests writable and a solution correctly refused below the
+    /// root, no run could produce a solution anywhere - so none was produced, and
+    /// <c>dotnet test</c> from the root had nothing to run.
+    /// </summary>
+    [Fact]
+    public void A_repository_artifact_is_writable_at_the_root_the_writable_set_does_not_reach()
+    {
+        PathGuard guard = _workspace.Guard("src");
+
+        guard.Resolve("MultiplyApp.slnx", PathAccess.Write).Allowed.ShouldBeTrue();
+        guard.Resolve("MultiplyApp.sln", PathAccess.Write).Allowed.ShouldBeTrue();
+        guard.Resolve(".gitignore", PathAccess.Write).Allowed.ShouldBeTrue();
+        guard.Resolve("Directory.Build.props", PathAccess.Write).Allowed.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void The_root_allow_list_admits_nothing_but_the_artifacts_it_names()
+    {
+        PathGuard guard = _workspace.Guard("src");
+
+        // The whole reason this is a file-name list: the root stays closed to source.
+        guard.Resolve("Program.cs", PathAccess.Write).Allowed.ShouldBeFalse();
+        guard.Resolve("MainWindow.xaml", PathAccess.Write).Allowed.ShouldBeFalse();
+        guard.Resolve(".editorconfig", PathAccess.Write).Allowed.ShouldBeFalse();
+        guard.Resolve("NuGet.config", PathAccess.Write).Allowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void An_artifact_name_one_level_down_is_still_refused()
+    {
+        // The refusal task 73 exists for. A solution is admitted because it is at the root, not
+        // because of what it is called - otherwise this would hand back the orphan it prevents.
+        PathGuard guard = _workspace.Guard("docs");
+
+        guard.Resolve("docs/MultiplyApp.slnx", PathAccess.Write).Allowed.ShouldBeTrue("docs is writable");
+        guard.Resolve("tests/MultiplyApp.slnx", PathAccess.Write).Allowed.ShouldBeFalse();
+        guard.Resolve("src/App/App.slnx", PathAccess.Write).Allowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_workspace_with_no_writable_paths_still_writes_nothing_at_all()
+    {
+        // The invariant the guard rests on outranks the allow-list: an unconfigured harness is a
+        // harmless one, and a root artifact is not the exception that opens it.
+        PathGuard guard = new(Options.Create(new WorkspaceOptions { RepoRoot = _workspace.Root }));
+
+        guard.Resolve("MultiplyApp.slnx", PathAccess.Write).Allowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void The_root_allow_list_can_be_emptied_by_configuration()
+    {
+        WorkspaceOptions options = new() { RepoRoot = _workspace.Root };
+        options.WritablePaths.Add("src");
+        options.WritableRootFiles.Clear();
+        PathGuard guard = new(Options.Create(options));
+
+        guard.Resolve("MultiplyApp.slnx", PathAccess.Write).Allowed.ShouldBeFalse();
+        guard.Resolve("src/Program.cs", PathAccess.Write).Allowed.ShouldBeTrue();
+    }
 }

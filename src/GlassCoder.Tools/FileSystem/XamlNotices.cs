@@ -66,7 +66,7 @@ public static class XamlNotices
         return testProject
             ? " Note: a XAML file in a test project is almost never loadable by tests - markup belongs " +
               "to the app project. Test behaviour through the app's own types; rendering is confirmed " +
-              "by the operator's Run app, not by tests."
+              "by launch_app, and by the operator's Run app, not by tests."
             : string.Empty;
     }
 
@@ -107,7 +107,7 @@ public static class XamlNotices
             return $" Layout note: fixed Height={height.ToString("0", CultureInfo.InvariantCulture)} with " +
                 $"{controls} controls in {rows} rows can clip content at runtime - consider " +
                 "SizeToContent=\"Height\" or a taller window. Compile and tests cannot see clipping; " +
-                "only the operator's Run app can.";
+                "launch_app can, and the operator's Run app is the richer second look.";
         }
         catch (XmlException)
         {

@@ -129,7 +129,11 @@ public sealed class ToolRegistryTests
         invocation.Status.ShouldBe(ToolCallStatus.UnknownTool);
         invocation.ErrorMessage.ShouldContain("There is no shell");
         invocation.ErrorMessage.ShouldContain("create_file");
-        invocation.ErrorMessage.ShouldContain("Run app button");
+
+        // It used to end by telling the model the application was the operator's to start, which
+        // stopped being true when task 71 shipped launch_app. The answer to "there is no shell"
+        // is the list of tools that do the jobs a shell would - all of them.
+        invocation.ErrorMessage.ShouldContain("launch_app");
         invocation.ErrorMessage.ShouldNotContain("Did you mean");
     }
 

@@ -182,7 +182,7 @@ public sealed class ToolRegistry : IToolRegistry
             {
                 message = $"There is no shell and no '{call.Name}' tool. Copy a file by reading it and " +
                     "writing it with create_file; delete or move one with file_operation; run tests with " +
-                    "run_tests. The application is launched by the operator's Run app button, never by you.";
+                    "run_tests; start the application with launch_app.";
             }
             else
             {
@@ -272,6 +272,16 @@ public sealed class ToolRegistry : IToolRegistry
                         !element.TryGetProperty("outcomeOk", out JsonElement flag) ||
                         flag.ValueKind != JsonValueKind.False,
                     _ => true,
+                },
+
+                // Same wire shape, mirrored: present only when true.
+                ServedFromCache = result switch
+                {
+                    IToolObservation observation => observation.Reused,
+                    JsonElement { ValueKind: JsonValueKind.Object } element =>
+                        element.TryGetProperty("reused", out JsonElement reused) &&
+                        reused.ValueKind == JsonValueKind.True,
+                    _ => false,
                 },
             };
         }

@@ -27,6 +27,16 @@ public interface IToolObservation
     /// </summary>
     bool OutcomeOk => Ok;
 
+    /// <summary>
+    /// Whether this answer came from a cache rather than from doing the work again.
+    /// <para>
+    /// A fact about the call, not about the result, and the progress machinery is the only
+    /// caller that needs it: a verification served from cache re-confirms something the run
+    /// already knew, and two in a row with nothing changed between them is a run marking time.
+    /// </para>
+    /// </summary>
+    bool Reused => false;
+
     /// <summary>Name of the tool that produced this observation.</summary>
     string Tool { get; }
 
@@ -87,6 +97,21 @@ public sealed class ToolObservation<TData> : IToolObservation
     [JsonPropertyOrder(5)]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? OutcomeOnWire => OutcomeOk ? null : false;
+
+    /// <summary>Whether this answer was served from a cache - see <see cref="IToolObservation.Reused"/>.</summary>
+    [JsonIgnore]
+    public bool Reused { get; init; }
+
+    /// <summary>
+    /// The wire shadow of <see cref="Reused"/>, on the same terms as <see cref="OutcomeOnWire"/>
+    /// and for the same reason: the AI function layer serialises the observation before the
+    /// registry sees it again, so a flag that is not on the wire exists only in unit tests.
+    /// Present only when true, so nothing changes for the calls that did the work.
+    /// </summary>
+    [JsonPropertyName("reused")]
+    [JsonPropertyOrder(6)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ReusedOnWire => Reused ? true : null;
 }
 
 /// <summary>A machine-readable failure inside an observation.</summary>
@@ -173,8 +198,8 @@ public static class Observation
     /// while the model still reads an ordinary observation.
     /// </summary>
     public static ToolObservation<TData> Ok<TData>(
-        string tool, TData data, string? summary = null, bool outcomeOk = true) =>
-        new() { Ok = true, Tool = tool, Data = data, Summary = summary, OutcomeOk = outcomeOk };
+        string tool, TData data, string? summary = null, bool outcomeOk = true, bool reused = false) =>
+        new() { Ok = true, Tool = tool, Data = data, Summary = summary, OutcomeOk = outcomeOk, Reused = reused };
 
     /// <summary>A failed observation. Never throw instead of calling this.</summary>
     public static ToolObservation<TData> Fail<TData>(string tool, string code, string message, string? hint = null) =>

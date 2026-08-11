@@ -607,3 +607,155 @@ public sealed class RepeatedFailureTests
                 $"'src/A.cs' was not written: it would not compile.\nAttempt {++_attempt} detail.");
     }
 }
+
+/// <summary>
+/// Re-confirming what the cache already answered (run 46231701).
+/// <para>
+/// Task 74 gave <c>build</c> and <c>run_tests</c> a memory and told the model it was reading a
+/// reused result. Steps 18, 22 and 23 spent themselves anyway - four of twenty-six on the one
+/// axis never in doubt, in a run whose evidence critic dissented over an axis nothing had
+/// touched. Making the redundant step cheap did not make it stop.
+/// </para>
+/// <para>
+/// Detection keys on the observation's cache flag, never on the sentence the tool prints: prose
+/// that synthesis writes must not be prose that detection reads.
+/// </para>
+/// </summary>
+public sealed class RedundantVerificationTests
+{
+    [Fact]
+    public async Task Two_cached_verifications_with_nothing_between_them_earn_one_nudge()
+    {
+        RecordingStepLogger transcript = new();
+
+        await Loop(transcript,
+            FakeChatClient.ToolCall("build"),
+            FakeChatClient.ToolCall("build"),
+            FakeChatClient.ToolCall("build"),
+            FakeChatClient.Text("done"))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "keep checking" });
+
+        List<string> nudges = Nudges(transcript);
+
+        nudges.Count.ShouldBe(1, "once, like the step-budget warning - repeating it spends the budget it warns about");
+        nudges[0].ShouldContain("answered from cache");
+        nudges[0].ShouldContain("Compiling is not the open question");
+
+        // It names what is unverified rather than what has been re-confirmed, because the run
+        // already knows the second.
+        nudges[0].ShouldContain("launch_app");
+    }
+
+    [Fact]
+    public async Task One_cached_verification_says_nothing()
+    {
+        RecordingStepLogger transcript = new();
+
+        await Loop(transcript, FakeChatClient.ToolCall("build"), FakeChatClient.Text("done"))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "check once" });
+
+        Nudges(transcript).ShouldBeEmpty("checking once is checking, not marking time");
+    }
+
+    [Fact]
+    public async Task A_verification_that_actually_ran_re_arms_the_counter()
+    {
+        // The cache answers, then the same call really builds, then the cache answers again -
+        // one repeat either side of real work, not two in a row.
+        RecordingStepLogger transcript = new();
+
+        await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(
+                FakeChatClient.ToolCall("build"),
+                FakeChatClient.ToolCall("build"),
+                FakeChatClient.ToolCall("build"),
+                FakeChatClient.Text("done"))),
+            new ToolRegistry([new CachedBuildTools(new ChangeLog(), true, false, true)]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 10, MaxStalledSteps = 0 }))
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "mixed" });
+
+        Nudges(transcript).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task An_applied_change_resets_the_count()
+    {
+        // The one event that makes verifying worth doing again.
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+
+        await new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient(
+                FakeChatClient.ToolCall("build"),
+                FakeChatClient.ToolCall("apply"),
+                FakeChatClient.ToolCall("build"),
+                FakeChatClient.Text("done"))),
+            new ToolRegistry([new CachedBuildTools(changes)]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 10, MaxStalledSteps = 0 }),
+            changes: changes)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "edit and check" });
+
+        Nudges(transcript).ShouldBeEmpty();
+    }
+
+    private static List<string> Nudges(RecordingStepLogger transcript) =>
+    [
+        .. transcript.Steps
+            .SelectMany(s => s.Prompt)
+            .Select(m => m.Text ?? string.Empty)
+            .Where(t => t.Contains("answered from cache", StringComparison.Ordinal))
+            .Distinct()
+    ];
+
+    /// <summary>
+    /// The stall limit is off on purpose: an identical call repeated verbatim is exactly what it
+    /// exists to cut short, and this test needs the run to keep going long enough to be nudged.
+    /// </summary>
+    private static AgentLoop Loop(RecordingStepLogger transcript, params ChatResponse[] responses) => new(
+        new FakeChatClientFactory(new FakeChatClient(responses)),
+        new ToolRegistry([new CachedBuildTools(new ChangeLog())]),
+        transcript,
+        TestContextAssembler.Create(),
+        new RecordingMetricsRecorder(),
+        Options.Create(new AgentOptions { MaxSteps = 10, MaxStalledSteps = 0 }));
+
+    /// <summary>
+    /// One <c>build</c> whose answers come from the cache or not, per the scripted sequence -
+    /// which is how the real tool behaves. The last entry repeats once the script runs out; no
+    /// script at all means every answer is a cached one.
+    /// </summary>
+    private sealed class CachedBuildTools(IChangeLog changes, params bool[] cached) : IToolSet
+    {
+        private int _call;
+
+        [GlassCoderTool("build")]
+        [System.ComponentModel.Description("Builds, sometimes from the cache, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Build()
+        {
+            bool fromCache = cached.Length == 0 || cached[Math.Min(_call++, cached.Length - 1)];
+
+            return GlassCoder.Tools.Observation.Ok(
+                "build",
+                "ok",
+                fromCache
+                    ? "Build succeeded (unchanged since the last build, so this result was reused)."
+                    : "Build succeeded.",
+                reused: fromCache);
+        }
+
+        [GlassCoderTool("apply")]
+        [System.ComponentModel.Description("Applies one change, for tests.")]
+        public GlassCoder.Tools.ToolObservation<string> Apply()
+        {
+            CodeChange change = changes.Propose("src/File.cs", "apply", "before", "after");
+            changes.Update(change.Id, ChangeStatus.Applied);
+            return GlassCoder.Tools.Observation.Ok("apply", "ok");
+        }
+    }
+}

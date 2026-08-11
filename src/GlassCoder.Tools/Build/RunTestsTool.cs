@@ -129,7 +129,8 @@ public sealed class RunTestsTool : IToolSet
                 ToolName,
                 remembered!,
                 $"All {remembered!.Total} tests passed (unchanged since the last run, so this result "
-                    + "was reused). Change something before running them again.");
+                    + "was reused). Change something before running them again.",
+                reused: true);
         }
 
         bool isDirectory = Directory.Exists(verdict.FullPath);

@@ -267,7 +267,8 @@ public sealed class RunMetricsCollector
     /// </summary>
     private static int CountedEntries(JsonElement? data)
     {
-        if (data is null || !data.Value.TryGetProperty("diagnostics", out JsonElement text) ||
+        if (data is not { ValueKind: JsonValueKind.Object } payload ||
+            !payload.TryGetProperty("diagnostics", out JsonElement text) ||
             text.ValueKind != JsonValueKind.String)
         {
             return 0;
@@ -323,14 +324,19 @@ public sealed class RunMetricsCollector
             : null;
     }
 
+    // Both readers check the payload is an object first. TryGetProperty throws on anything else,
+    // and metrics are a bystander here: a tool whose payload is not the shape this expected must
+    // cost a missing number, never the run.
     private static bool? Flag(JsonElement? data, string property) =>
-        data is not null && data.Value.TryGetProperty(property, out JsonElement value) &&
+        data is { ValueKind: JsonValueKind.Object } payload &&
+        payload.TryGetProperty(property, out JsonElement value) &&
         value.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? value.GetBoolean()
             : null;
 
     private static int Count(JsonElement? data, string property) =>
-        data is not null && data.Value.TryGetProperty(property, out JsonElement value) &&
+        data is { ValueKind: JsonValueKind.Object } payload &&
+        payload.TryGetProperty(property, out JsonElement value) &&
         value.ValueKind == JsonValueKind.Number
             ? value.GetInt32()
             : 0;

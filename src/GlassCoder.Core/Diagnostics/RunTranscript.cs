@@ -106,6 +106,14 @@ public sealed class RunTranscript
             text.AppendLine();
             text.AppendLine(culture,
                 $"=== {Run.StopReason} after {Run.Steps} steps · {Run.TotalTokens} tokens · {Run.ElapsedMs:F0} ms · tool-call validity {ValidityRate(Run):P0} ===");
+
+            // The footer is what a reader skims to, and a stop reason on its own names a category
+            // rather than a cause. The failing step carries the same text above; repeating it here
+            // means the answer is where the eye lands.
+            if (Run.Error is not null)
+            {
+                text.AppendLine(culture, $"{Run.Error}");
+            }
         }
 
         if (Review is not null)

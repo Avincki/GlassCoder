@@ -55,6 +55,18 @@ public sealed class FakeOpenAiServer : IDisposable
     /// <summary>Status <c>GET /v1/models</c> answers with. Set it to 401 to fake a rejected key.</summary>
     public int ModelsStatusCode { get; set; } = 200;
 
+    /// <summary>
+    /// Status <c>POST /v1/chat/completions</c> answers with. Set it to fake a server that is up
+    /// and refuses - the failure the harness has to describe, and one no faked
+    /// <see cref="Microsoft.Extensions.AI.IChatClient"/> can produce, because the exception type
+    /// and its response body come from the real SDK.
+    /// </summary>
+    public int ChatStatusCode { get; set; } = 200;
+
+    /// <summary>Body sent with a non-200 <see cref="ChatStatusCode"/>. Shaped like vLLM's.</summary>
+    public string ChatErrorBody { get; set; } =
+        """{"object":"error","message":"This model's maximum context length is 8192 tokens.","type":"BadRequestError","code":400}""";
+
     /// <summary>Queues a plain assistant message.</summary>
     public FakeOpenAiServer EnqueueText(string text)
     {
@@ -186,8 +198,11 @@ public sealed class FakeOpenAiServer : IDisposable
                 // Routed by path so a connection check can ask what is served before it asks for
                 // a completion; everything else keeps answering chat completions as before.
                 bool modelList = received.Path.EndsWith("/models", StringComparison.Ordinal);
-                int status = modelList ? ModelsStatusCode : 200;
-                byte[] payload = Encoding.UTF8.GetBytes(modelList ? ModelList(status) : Next());
+                int status = modelList ? ModelsStatusCode : ChatStatusCode;
+                byte[] payload = Encoding.UTF8.GetBytes(
+                    modelList ? ModelList(status)
+                    : status == 200 ? Next()
+                    : ChatErrorBody);
                 string headers =
                     string.Create(CultureInfo.InvariantCulture, $"HTTP/1.1 {status} {Reason(status)}\r\n") +
                     "Content-Type: application/json\r\n" +
@@ -227,9 +242,12 @@ public sealed class FakeOpenAiServer : IDisposable
     private static string Reason(int status) => status switch
     {
         200 => "OK",
+        400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        429 => "Too Many Requests",
+        500 => "Internal Server Error",
         _ => "Error",
     };
 

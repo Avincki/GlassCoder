@@ -9,6 +9,106 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-11 (later) — A signal cheaper to satisfy than the thing it stands for
+
+Run `46231701`'s retrospective found one property behind four incidents: **a sentence can be made
+to stop being true more cheaply than the thing it describes can be made true** — and in the worst
+case the harness supplied the cheap route in the sentence itself. Five ticked items, all
+implemented.
+
+**The orphan-type notice stops prescribing its own shortcut.** Clause two used to end *"if the
+product duplicates that logic rather than calling it, have it call this instead"*. At step 21 the
+agent did exactly that — one line in a click handler — which moved `MultiplicationService` into
+`Survey.ProductIdentifiers` and silenced the clause while the parse, format and error branches it
+had authored stayed unreachable by any test. A remedy the detector can see satisfied costs one
+line and buys nothing. The clause keeps the diagnosis and now names the trap instead.
+
+**Three model-facing strings stopped denying `launch_app`**, and a test now stops the seventh.
+`XamlNotices` (which fired in this run, after which the app was never launched in 26 steps),
+`AgentLoop`'s refutation-recovery instruction, and `ToolRegistry`'s no-shell message, which
+asserted flatly that launching was never the model's to do. A fourth, weaker instance in
+`XamlNotices` went with them. `ModelFacingPromptTests` scans the source of `GlassCoder.Core` and
+`GlassCoder.Tools` for the phrases and fails on a hit — a text scan and not reflection, because
+not one of the six lived in a reflectable field. **Consequence for later comments: they cannot
+quote the banned phrases.** A guard that skips comments is a guard with a place to hide.
+
+**The run digest stopped misleading its own reader.** `accepted 1/3` — the word and the ratio
+disagreeing — is what a process reviewer of this run read as a contradiction and reported as one.
+It renders `accepted (1 of 3 refuted)` now, and each vote carries its stance (`[evidence: refuted]`),
+so the dissenting lens is findable. A critic that never answered reads `no answer`, not
+`accepted`.
+
+**The path guard admits a short list of root-level artifacts.** With `WritablePaths: ["src",
+"tests"]` and task 73 correctly refusing a solution below the root, *no solution at all* was the
+only reachable state — `dotnet test` from the root had no target and `ProjectLocator`'s
+root-solution branch had been unreachable for months. `WorkspaceOptions.WritableRootFiles`
+defaults to solutions, `.gitignore`, the `Directory.*` property files, `global.json` and
+`README.md`. File names, never directories, so the root stays closed to source; `.editorconfig`
+and `NuGet.config` are deliberately absent, since one can switch analyzers off and the other can
+move where packages come from. Task 73's hint asks the guard rather than assuming, so it flipped
+to *"create it at the root instead"* with no change of its own — the mechanism working as
+designed. One real bug fell out: the symlink-escape walk climbed past the workspace into the user
+profile for any root-level path, so it now stops at the repository root.
+
+**The sentry counts cache-served verifications.** Task 74 made the redundant step cheap and left
+the redundancy: steps 18, 22 and 23 re-asked a question the cache had already answered. At the
+second consecutive one with nothing applied in between, one nudge — naming what is *not* verified
+rather than what has been re-confirmed. Keyed on a `reused` flag carried on the observation's wire
+shape beside `outcomeOk`, never on the sentence the tool prints. `RunMetricsCollector` also
+stopped throwing on a payload that is not the object it expected; metrics are a bystander and must
+cost a missing number, never the run.
+
+**Retrospective folders are named `yyyyMMdd-HHmmss`** (operator request, same convention as the
+work-order file beside them). A run id sorted by hexadecimal accident and said nothing about when.
+Since the folder can no longer be computed from the run id, each stage's front matter carries
+`runId:` and `Load` scans newest-first for it; folders named after a run id still load, because a
+rehydration that only understands the new layout loses the history somebody kept. A second look at
+a run no longer overwrites the first.
+
+Left unticked and unimplemented, as the work order intends: notice-cleared-without-a-test-change,
+absent-runtime-evidence-is-stated, untestable-handler-notice, xaml-handler-declared-notice,
+exact-float-equality-notice, todo-items-name-their-evidence, annotate-benign-template-warnings.
+
+---
+
+## 2026-08-11 — "ModelError" named the stop and hid the cause
+
+Run `71b16c1d` stopped at step 7 with `ModelError` after six clean steps: scaffold up, `ViewModel.cs`
+compiled, plan 1/5. The cause was a dead worker — `spark:8002` refused the connection while the
+critic on `:8003` kept answering, so the vLLM worker process had died and the box and the tunnel
+were both fine. **Nothing in the transcript said any of that.** The stop reason was a category, the
+`Error` field was `ex.Message` with no endpoint attached, and the endpoint that failed was sitting
+in the configuration the loop had already read.
+
+**`ModelCallFailure.Describe` now writes the sentence**, in `GlassCoder.Models` beside
+`IModelConnectionProbe` and for the same stated reason: a closed port, a name that stopped
+resolving, a client timeout, a rejected key, an unserved alias and a 400 from the server's own
+validator are one enum value and six different fixes. It reads the exception chain from the inside
+out — socket error first, then a cancellation that is the client's own clock, then an HTTP status
+from `ClientResultException` or `HttpRequestException` — and pulls the server's own words out of
+the response body, since that is where a vLLM 400 keeps the actionable half (`{"message": …}` and
+`{"error": {"message": …}}` both).
+
+The message now reads, verified against a closed port through the real host binary:
+
+> The "worker" model call to http://127.0.0.1:1/v1 (alias 'worker') failed after 8.2 s: the host
+> answered but nothing is listening on that port, so the connection was refused. The network is
+> fine and the model server is not: start the server for this role, or point the role at one that
+> is running. [SocketException/ConnectionRefused: No connection could be made…]
+
+**Four surfaces stopped printing the category alone**: the run-stop log line, the host's console
+summary, the WPF status bar (which wraps, so there is room), and the transcript footer. Each already
+had the text and none of them showed it. The sentry's `RepeatedToolFailure` and `Stalled` messages
+ride the same field, so they surfaced too.
+
+Deliberately not done: **retry, fallback and resume.** One throw still ends the run — the transport
+retried four times inside those 8.2 s and the loop waited for none of it, there is no `worker-remote`
+to fail over to the way `critic-remote` exists for the critic, and the next attempt restarts from an
+empty plan against a half-built app. A run should not die of a five-minute server restart, and today
+it does. That is the open thread.
+
+---
+
 ## 2026-08-09 (last) — The notice layer was finished and the consequence layer was empty
 
 Run `4c7de12b` was the first with the step-cost work live, and it did what it was built to do:

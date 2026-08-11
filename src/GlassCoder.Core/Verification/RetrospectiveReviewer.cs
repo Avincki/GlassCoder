@@ -74,6 +74,12 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         """{"type":"object","additionalProperties":false,"required":["report","recommendations"],"properties":{"report":{"type":"string","description":"What the harness should learn, as Markdown."},"recommendations":{"type":"array","description":"Improvements to GlassCoder and its tools, most important first.","items":{"type":"object","additionalProperties":false,"required":["id","title","detail","priority"],"properties":{"id":{"type":"string","description":"Short kebab-case slug."},"title":{"type":"string","description":"What to do, in a few words."},"detail":{"type":"string","description":"Why, where, and how it would be verified."},"priority":{"enum":["High","Medium","Low","Optional"]}}}}}}""";
 
 
+    /// <summary>
+    /// How far into a stage report the front matter can possibly reach. Bounds the scan that
+    /// looks for a run id, so listing the folder never reads a report body.
+    /// </summary>
+    private const int FrontMatterLines = 16;
+
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ClaudeCliSession _cli;
@@ -148,7 +154,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 request.RunId, availability.Reason ?? "The reviewer is not available.", takenAt);
         }
 
-        string directory = Directory(request.RunId);
+        string directory = Directory(takenAt);
         List<RetrospectiveStage> stages = [];
         IReadOnlyList<ReviewAction> recommendations = [];
         string? unexpected = null;
@@ -168,7 +174,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Announce(progress, Persist(directory, code)));
+            stages.Add(Announce(progress, Persist(directory, request.RunId, code)));
 
             RetrospectiveStage process = await RunStageAsync(
                 RetrospectiveStageKind.Process,
@@ -179,7 +185,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Announce(progress, Persist(directory, process)));
+            stages.Add(Announce(progress, Persist(directory, request.RunId, process)));
 
             // The only stage that reads outside the workspace, and only if it was told where
             // GlassCoder's own source is. Without that it still runs, on the two reports alone,
@@ -203,7 +209,8 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             // Persisted as the ranked list rather than the raw one, so what a restart reads back
             // is what this session showed - a proposal dropped here for having no title must not
             // reappear tomorrow.
-            stages.Add(Announce(progress, Persist(directory, harness with { Recommendations = recommendations })));
+            stages.Add(Announce(
+                progress, Persist(directory, request.RunId, harness with { Recommendations = recommendations })));
         }
         catch (OperationCanceledException)
         {
@@ -240,8 +247,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     {
         ArgumentNullException.ThrowIfNull(runId);
 
-        string directory = Directory(runId);
-        if (!System.IO.Directory.Exists(directory))
+        if (FindDirectory(runId) is not { } directory)
         {
             return null;
         }
@@ -425,11 +431,94 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         return at >= lines.Length ? text : string.Join(Environment.NewLine, lines[(at + 1)..]).Trim();
     }
 
-    private string Directory(string runId) =>
+    /// <summary>The retrospectives folder itself, which holds one directory per retrospective.</summary>
+    private string Root() =>
         Path.Combine(
             Path.GetFullPath(_guard.RepoRoot),
-            _options.OutputDirectory.Replace('/', Path.DirectorySeparatorChar),
-            Sanitise(runId));
+            _options.OutputDirectory.Replace('/', Path.DirectorySeparatorChar));
+
+    /// <summary>
+    /// Where one retrospective's reports go: a timestamp, matching the work order's own file
+    /// naming. A run id told a reader nothing they could order or date, and a folder listing sorted
+    /// by hexadecimal accident; <c>yyyyMMdd-HHmmss</c> sorts chronologically as text and says when.
+    /// It also stops a second look at the same run overwriting the first.
+    /// </summary>
+    private string Directory(DateTimeOffset takenAt) =>
+        Path.Combine(Root(), FolderName(takenAt));
+
+    /// <summary>UTC, like <c>ReviewActionFile.SuggestRetrospectiveFileName</c>, so a work order and
+    /// the reports it came out of carry the same timestamp.</summary>
+    private static string FolderName(DateTimeOffset takenAt) =>
+        takenAt.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The directory holding a run's most recent retrospective, or null when it has none.
+    /// <para>
+    /// Once the folder is a timestamp it can no longer be computed from the run id, so the run id
+    /// is written into every stage's front matter and read back here. Newest first, which
+    /// timestamp names give for free by sorting as text. Folders named after a run id - every
+    /// retrospective taken before this changed - are matched by name, because a rehydration that
+    /// works only for retrospectives taken after the change is a rehydration that quietly loses
+    /// the history somebody kept.
+    /// </para>
+    /// </summary>
+    private string? FindDirectory(string runId)
+    {
+        string root = Root();
+        if (!System.IO.Directory.Exists(root))
+        {
+            return null;
+        }
+
+        string legacy = Sanitise(runId);
+
+        foreach (string directory in System.IO.Directory.EnumerateDirectories(root)
+            .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(Path.GetFileName(directory), legacy, StringComparison.OrdinalIgnoreCase) ||
+                DeclaresRun(directory, runId))
+            {
+                return directory;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Whether any stage in this directory says it judged <paramref name="runId"/>.</summary>
+    private static bool DeclaresRun(string directory, string runId)
+    {
+        foreach (RetrospectiveStageKind kind in (RetrospectiveStageKind[])[
+            RetrospectiveStageKind.Code, RetrospectiveStageKind.Process, RetrospectiveStageKind.Harness])
+        {
+            string path = Path.Combine(directory, FileName(kind));
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+
+            try
+            {
+                // The front matter is the first few lines; the report below it can be long, and
+                // reading all of it to find one field would make listing the folder expensive.
+                foreach (string line in File.ReadLines(path).Take(FrontMatterLines))
+                {
+                    if (line.StartsWith("runId:", StringComparison.Ordinal) &&
+                        string.Equals(line["runId:".Length..].Trim(), runId, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // A report that cannot be read cannot claim a run either.
+                continue;
+            }
+        }
+
+        return false;
+    }
 
     private static string Sanitise(string runId)
     {
@@ -477,7 +566,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     /// Writes a finished stage beside its siblings, so a crash in stage three does not cost the
     /// two that already answered and the surface can rehydrate after a restart.
     /// </summary>
-    private RetrospectiveStage Persist(string directory, RetrospectiveStage stage)
+    private RetrospectiveStage Persist(string directory, string runId, RetrospectiveStage stage)
     {
         if (!stage.Reviewed)
         {
@@ -492,6 +581,10 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             StringBuilder text = new();
             text.AppendLine("---");
             text.AppendLine("glasscoder: retrospective");
+
+            // The one field the folder name no longer carries. Rehydration reads it back, and a
+            // person who opens the file learns which run it judged without going up a level.
+            text.AppendLine(CultureInfo.InvariantCulture, $"runId: {runId}");
             text.AppendLine(CultureInfo.InvariantCulture, $"stage: {stage.Kind}");
             text.AppendLine(CultureInfo.InvariantCulture, $"model: {stage.Model}");
             text.AppendLine(CultureInfo.InvariantCulture,

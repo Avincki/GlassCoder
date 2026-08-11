@@ -388,14 +388,22 @@ public static class RetrospectiveTranscript
 
             if (verification.Critique is { } critique)
             {
+                // The ratio is labelled because it counts the losing side. Rendered bare it read
+                // "accepted 1/3", and the process reviewer of run 46231701 took the word and the
+                // number for a contradiction and said so in a report that was otherwise right -
+                // the instrument the harness learns through, misleading its own reader.
                 text.AppendLine(CultureInfo.InvariantCulture,
                     $"- critique: {(critique.Refuted ? "REFUTED" : "accepted")} " +
-                    $"{critique.RefutingVotes}/{critique.RespondingVotes}");
+                    $"({critique.RefutingVotes} of {critique.RespondingVotes} refuted)");
 
+                // And each vote says which way it went. Printing a dissenter's lens and reasoning
+                // without its verdict leaves a reader to guess which of three paragraphs was the
+                // one that objected.
                 foreach (ReviewVoteRecord vote in critique.Votes)
                 {
+                    string stance = !vote.Available ? "no answer" : vote.Refuted ? "refuted" : "accepted";
                     text.AppendLine(CultureInfo.InvariantCulture,
-                        $"  - [{vote.Lens ?? "critic"}] {OneLine(vote.Reason, 240)}");
+                        $"  - [{vote.Lens ?? "critic"}: {stance}] {OneLine(vote.Reason, 240)}");
                 }
             }
         }

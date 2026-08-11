@@ -4,6 +4,7 @@ using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Processes;
+using Microsoft.Extensions.Time.Testing;
 
 namespace GlassCoder.Core.Tests;
 
@@ -271,10 +272,13 @@ public sealed class RetrospectiveTests
             .Enqueue(0, Report("The run was efficient."))
             .Enqueue(0, Recommendations("Judge the screen."));
 
-        ClaudeCodeRetrospectiveReviewer reviewer = Reviewer(runner, workspace);
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+        ClaudeCodeRetrospectiveReviewer reviewer = Reviewer(runner, workspace, time: time);
         await reviewer.ReviewAsync(Request());
 
-        // Rehydration: a restart finds the same three reports and the same tickable list.
+        // Rehydration: a restart finds the same three reports and the same tickable list. The
+        // folder is a timestamp now, so this can only work by reading the run id back out of the
+        // reports - which is the whole reason it is written into their front matter.
         Retrospective? loaded = reviewer.Load("run-1");
 
         loaded.ShouldNotBeNull();
@@ -282,9 +286,55 @@ public sealed class RetrospectiveTests
         loaded.Stages[0].Report.ShouldContain("The code is sound.");
         loaded.Recommendations.Select(r => r.Id).ShouldBe(["screen-oracle"]);
 
-        // The digest is on disk too, so the CLI never needs a root under %LocalAppData%.
-        File.Exists(Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "run-1", "transcript.md"))
-            .ShouldBeTrue();
+        // Named for when it was taken, the way the work order beside it is. The digest is on disk
+        // too, so the CLI never needs a root under %LocalAppData%.
+        string directory = Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "20260811-110600");
+        File.Exists(Path.Combine(directory, "transcript.md")).ShouldBeTrue();
+        File.ReadAllText(Path.Combine(directory, "1-code.md")).ShouldContain("runId: run-1");
+    }
+
+    [Fact]
+    public async Task A_second_look_at_the_same_run_no_longer_overwrites_the_first()
+    {
+        // A run id could only ever name one folder, so re-taking a retrospective destroyed the
+        // one before it. Two timestamps are two folders, and Load answers with the newer.
+        using TempWorkspace workspace = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+
+        await Reviewer(Probed().Enqueue(0, Report("First look.")), workspace, time: time)
+            .ReviewAsync(Request());
+
+        time.Advance(TimeSpan.FromHours(2));
+
+        ClaudeCodeRetrospectiveReviewer second = Reviewer(
+            Probed().Enqueue(0, Report("Second look.")), workspace, time: time);
+        await second.ReviewAsync(Request());
+
+        System.IO.Directory
+            .GetDirectories(Path.Combine(workspace.Root, ".glasscoder", "retrospectives"))
+            .Select(Path.GetFileName)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ShouldBe(["20260811-110600", "20260811-130600"]);
+
+        second.Load("run-1").ShouldNotBeNull().Stages[0].Report.ShouldContain("Second look.");
+    }
+
+    [Fact]
+    public async Task A_retrospective_written_under_the_old_run_id_layout_still_loads()
+    {
+        // Four of these existed when the naming changed. A rehydration that only understands
+        // folders written after the change silently loses the history somebody kept.
+        using TempWorkspace workspace = new();
+        string legacy = Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "run-1");
+        System.IO.Directory.CreateDirectory(legacy);
+        await File.WriteAllTextAsync(
+            Path.Combine(legacy, "1-code.md"),
+            "---\nglasscoder: retrospective\nstage: Code\n---\n\n# The code\n\nWritten before the rename.");
+
+        Retrospective? loaded = Reviewer(new FakeProcessRunner(), workspace).Load("run-1");
+
+        loaded.ShouldNotBeNull();
+        loaded.Stages[0].Report.ShouldContain("Written before the rename.");
     }
 
     [Fact]
@@ -348,14 +398,16 @@ public sealed class RetrospectiveTests
         TempWorkspace workspace,
         RetrospectiveOptions? options = null,
         ITranscriptBus? transcript = null,
-        IStepLogger? steps = null) =>
+        IStepLogger? steps = null,
+        TimeProvider? time = null) =>
         new(runner,
             workspace.Guard(),
             new ChangeLog(),
             TempWorkspace.Wrap(options ?? Options()),
             logger: null,
             transcript,
-            steps);
+            steps,
+            time);
 
     /// <summary>A runner whose first scripted answer is the version probe.</summary>
     private static FakeProcessRunner Probed() => new FakeProcessRunner().Enqueue(0, Version);

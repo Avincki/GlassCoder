@@ -480,9 +480,14 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
                 },
                 _cancellation.Token).ConfigureAwait(true);
 
-            Status = string.Create(CultureInfo.InvariantCulture,
+            string headline = string.Create(CultureInfo.InvariantCulture,
                 $"{result.StopReason} after {result.Steps} steps · {result.TotalTokens} tokens · " +
                 $"tool-call validity {result.ToolCallValidityRate:P0}");
+
+            // A stop reason on its own is a category, not an explanation: "ModelError" and
+            // "Stalled" both leave the reader to go and find the log. When the run knows why it
+            // stopped, the status bar says why - it wraps, so there is room for the sentence.
+            Status = result.Error is null ? headline : $"{headline}{Environment.NewLine}{result.Error}";
 
             await ReviewAsync(result, goal, attempt).ConfigureAwait(true);
         }

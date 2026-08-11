@@ -536,7 +536,8 @@ public sealed class AgentLoopVerificationTests
         advisory.ShouldContain("Advisory review");
         advisory.ShouldContain("finish as-is if you disagree");
         advisory.ShouldContain("not package references alone", customMessage: "run f4ed50e0's package theater is named in the recovery instruction");
-        advisory.ShouldContain("Run app confirms what shows", customMessage: "run 216360bf's XAML-parsing test spiral is steered away from");
+        advisory.ShouldContain("tests that parse XAML text prove nothing", customMessage: "run 216360bf's XAML-parsing test spiral is steered away from");
+        advisory.ShouldContain("launch_app", customMessage: "and the tool that answers a screen refutation is named, which it was not for the whole life of run 46231701");
         advisory.ShouldContain("[...]", customMessage: "two thousand characters of critic prose must not reach the worker");
 
         // The full verdict is in the transcript, on the step that was challenged.

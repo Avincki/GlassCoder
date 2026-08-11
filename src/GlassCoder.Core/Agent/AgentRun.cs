@@ -49,7 +49,16 @@ public enum AgentStopReason
     /// <summary>The caller cancelled the run.</summary>
     Cancelled,
 
-    /// <summary>The model call itself failed.</summary>
+    /// <summary>
+    /// The model call itself failed.
+    /// <para>
+    /// The coarsest reason on the list, and deliberately so: a closed port, a name that stopped
+    /// resolving, a timeout, a rejected key and a 400 from the server's validator are one enum
+    /// value and five different fixes. Which one it was lives in <see cref="AgentRunResult.Error"/>,
+    /// written by <c>ModelCallFailure.Describe</c> - a caller that shows this reason without that
+    /// text has told the reader only that something went wrong.
+    /// </para>
+    /// </summary>
     ModelError,
 }
 
