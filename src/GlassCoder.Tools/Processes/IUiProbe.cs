@@ -28,11 +28,20 @@ public sealed record UiProbeStep(UiProbeAction Action, string Element, string? V
 /// <param name="Problem">Why the step could not be carried out, when it could not.</param>
 public sealed record UiProbeReading(string Step, bool Ok, string? Saw, string? Problem)
 {
-    /// <summary>One line for the launch summary.</summary>
+    /// <summary>
+    /// One line for the launch summary.
+    /// <para>
+    /// A step that typed says it typed. Rendered as a bare "ok" it reads as a confirmation of what
+    /// the box now shows, and at step 35 of run <c>457867c7</c> it was one:
+    /// <c>CelsiusTextBox=0 ok; FahrenheitTextBox=32 ok</c> is two writes and no evidence, offered
+    /// to a panel in the same shape as a readback that proved something.
+    /// </para>
+    /// </summary>
     public string Describe() => (Ok, Saw) switch
     {
         (true, not null) => string.Create(CultureInfo.InvariantCulture, $"{Step} → \"{Saw}\""),
-        (true, null) => $"{Step} ok",
+        (true, null) when Step.EndsWith('!') => $"{Step} clicked",
+        (true, null) => $"{Step} (typed, not read back)",
         _ => $"{Step} - {Problem ?? "did not happen"}",
     };
 }

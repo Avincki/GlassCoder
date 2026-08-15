@@ -9,6 +9,134 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-15 (last, later) — The panel could not see an absence
+
+Run `dbaa0580`'s retrospective, all six ticked items. The run looks like the efficiency win the
+last entry was chasing — 20 steps, 144k tokens, 3/3 accepted, no thrash, 100% tool-call validity —
+and it is not one. **The application was never launched.** Zero `launch_app` calls in the run
+window, so the whole 2026-08-15 sight investment sat behind a call the model does not make. Cheap
+because it never looked.
+
+**The decisive eleven seconds.** At `17:22:27Z` the completion panel accepted 3/3, every lens
+citing build and tests. At `17:22:38Z` the post-run reviewer — same critic role, same three lenses,
+same finished work — refuted 3/3, every lens naming the missing launch. The prompt was never the
+problem: it already treats a missing launch as grounds to refute, and the later panel proves the
+critics act on it. The difference is that `CritiqueCompletionAsync` appended runtime evidence when
+there was some and **said nothing at all when there was none**, so the completion panel had to
+infer an absence from a line that was not there. It now says so, in one sentence, when the
+workspace holds something runnable — the only renderer of a fact that already exists, and silent
+for a library, where a critic demanding a launch would be the deadlock this panel's wording has
+twice been shaped to avoid.
+
+**The harness broke its own build and then blamed the code.** A failed WPF markup pass leaves
+`*_wpftmp.csproj` behind; the next `build` over that directory answered MSB1011 — *more than one
+project here* — about a project the harness itself had created, and the run spent three steps
+reading source for a compile error that was in no file. Thirty-one kilobytes of machine-specific
+paths shipped in the deliverable. `BuildTool` now sweeps the scratch spelling
+`ProjectLocator.IsScratch` already knew, scoped to the directory it built and never the target it
+was asked for, and MSB1011 gets the named remedy MSB1003 was given after run `e8f9186a`: which
+projects the folder holds, in the message the model is already reading.
+
+**Three more things the same run establishes**
+
+- **A failed build was a successful outcome.** `BuildTool` never passed `outcomeOk: false` in any
+  branch while `run_tests`, `launch_app` and `dotnet_project` all did, so three failed builds
+  reached `RunProgressSentry` and `AbandonedIntents` as three successes. `ProcessOutcomeTests`
+  states the rule once over every tool that relays an exit code, so the next one is compared
+  against a rule rather than against whichever neighbour its author read.
+- **`error MSB4018:` was the whole message.** The raw-tail fallback fired only on zero parsed
+  errors, so one diagnostic that said nothing beat an output that said everything. The test is now
+  whether anything parsed carries a message, not how many things parsed.
+- **The digest dropped what the model actually read.** `ToolCallRecord.Result` is the observation
+  the model acted on, and this run's process reviewer argued that a build step "returned strictly
+  less information" than the one before it while the MSB1011 diagnostics sat in that payload the
+  whole time. It is `[ModelFacing]` now and renders on calls whose outcome failed - which is the
+  one conditional rendering the invariant allows, and the condition is written down where the next
+  reader will find it.
+
+**Open**
+
+- **The root cause is untouched and unticked.** `launch_app` is elective, and across three runs the
+  model called it once, under duress. The work order's own Medium item — the loop launching what it
+  built, once, before the completion panel — is the mechanism version of everything above. The
+  absence line makes the panel able to *ask*; it does not make the evidence exist.
+- The WPF suite could not run in this batch: the application was open and holding its own output.
+  1,029 → the four other suites are green at 915; `GlassCoder.Wpf.Tests` needs a re-run once the
+  app is closed.
+
+---
+
+## 2026-08-15 (last) — The sweep worked, and then it was the thing in the way
+
+Run `457867c7` is the live test the previous entry asked for, and it passes. The unasked-for sweep
+fired at step 25 and reported two empty boxes; two of three critics refused at step 26 **quoting
+it**; the run found the real defect — markup bound to nothing while the tests drove a ViewModel the
+window never displayed — fixed it, proved the fix with a typed probe at steps 35-37, and was
+accepted 3/3 at step 39. `CompletionCritiquePanels: 2, CompletionCritiqueRefusals: 1,
+CompletedOverRefutation: false`: refuted, repaired, accepted, for the first time in the recorded
+history. It ran on the *old* critic prompt, so the readback alone was enough.
+
+It cost 40 steps against `dd11ef7c`'s 22, and `dd11ef7c` shipped a broken application the panel
+accepted 3/3. That is the trade. Eight of the extra steps were the harness's own fault, and this
+entry is those eight.
+
+**A question switched the sweep off.** `asked ? RunAsync : ReadAllAsync` meant the launches where
+the window had just been rewritten were the launches that read least of it: steps 35-37 typed into
+one box and never looked at the rest. Both now run on every launch, reported as `Probe:` and
+`Window:`, with a third hedge for the strongest case there is - a window read *after* being driven.
+
+**The address space was editing the product.** The probe resolved `AutomationId` and accessible
+`Name` and nothing else, so at steps 30-33 the run guessed `Box=0` three times, read its own file,
+and added two `x:Name` attributes to shipped markup for the sole purpose of being addressable. The
+sweep had been printing an identity for unnamed controls all along - `the box after "Celsius:"` -
+that the prober could not accept back. One walk now serves both, and a failed lookup answers with
+the identities the window does offer instead of a dead end. Driven against a WPF window carrying no
+`x:Name` anywhere: `the box after "Celsius:"=100` types, `the box after "Fahrenheit:"?` reads back
+`212`. Nothing had to be added to the application to make that work.
+
+**Decided**
+
+- **A positional address may type, not only read**, but only when it names exactly one control.
+  The hazard was never the heuristic - it is an ambiguous match typing into a control nobody meant,
+  and that is checkable. Refusing writes would have left the model still adding `x:Name` attributes
+  to type, which is the whole defect.
+- **An unnamed empty box is addressable and reportable.** The walk dropped controls with neither
+  name nor content as "not a fact"; a real window said otherwise on the first try - an empty box is
+  what a fresh window is made of and what a probe types into. Only a *static* label with no text is
+  nothing.
+- **A step that typed says it typed.** `FahrenheitTextBox=32 ok` at step 35 was a write reported in
+  the shape of a readback that proved something - two of those in one line read as a demonstration
+  of a conversion that had not been demonstrated. It renders `(typed, not read back)` now.
+- **The example names went.** The parameter description said `'Box=12' types, 'Btn!' clicks` and the
+  run sent `Box=0` three times. Placeholders that could be mistaken for control names cost four
+  steps and two attributes in someone's product.
+
+**The panel sees every launch.** `RuntimeEvidence` was a slot: the run demonstrated three
+input/output pairs and the panel that judged it was handed the last one. It keeps four, oldest
+dropped first, deduplicated, and a memo-served relaunch does not arrive twice. `CriticEvidenceTests`
+is the invariant that generalises it - one sentinel per evidence source, asserting each reaches
+`CritiqueAsync` - verified by making the store behave like a slot again and watching it fail.
+
+**Two smaller things.** `XamlNotices` reads a window and its code-behind as a pair and asks the
+question no rung asks: this window sets a DataContext and binds to nothing, so what it shows and
+what a test of that object covers are two different code paths - the exact state `457867c7` held
+green for eleven steps. And the test rung stops paying a process to be told a testless tree ran no
+tests: it reads the project files instead, six times cheaper on the scaffolding steps, and stays
+`Unverified` so nothing reads as a pass.
+
+**Open**
+
+- `Text#0`-style labels are positional and shift if the tree changes. The `the box after "X"` form
+  is stable enough to drive; the indexed form is a last resort and is only ever a read.
+- Declined again, and now on their third occurrence between them: `launch-app-resolves-a-directory`
+  (step 24 cost a step, as it did in the two runs before), the tests-never-subscribe and
+  numeric-binding notices, and `probed-values-already-asserted`. The last carries the sharpest
+  observation in the file even so: the run proved 0/32 and 100/212 - the round numbers its suite
+  had already proved - while the defects that survive are a formatting one and a desync on bad
+  input, which are precisely what a window shows and a test cannot.
+
+---
+
 ## 2026-08-15 (later still) — Sight, not sentences
 
 Run `dd11ef7c`'s retrospective, triaged rather than implemented: two of its nine recommendations

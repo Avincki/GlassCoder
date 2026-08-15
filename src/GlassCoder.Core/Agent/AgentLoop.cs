@@ -11,6 +11,7 @@ using GlassCoder.Models;
 using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Build;
 using GlassCoder.Tools.Changes;
+using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Planning;
 using GlassCoder.Tools.Registry;
 using Microsoft.Extensions.AI;
@@ -48,6 +49,7 @@ public sealed class AgentLoop : IAgentLoop
     private readonly ILimitExtensionGate? _limitGate;
     private readonly RuntimeEvidence? _runtime;
     private readonly AbandonedIntents? _intents;
+    private readonly WorkspaceOptions? _workspace;
     private readonly GlassCoder.Tools.Retrieval.IRetrievalPolicy? _retrieval;
 
     /// <summary>Creates the loop.</summary>
@@ -69,6 +71,7 @@ public sealed class AgentLoop : IAgentLoop
         ILimitExtensionGate? limitGate = null,
         RuntimeEvidence? runtime = null,
         AbandonedIntents? intents = null,
+        IOptions<WorkspaceOptions>? workspace = null,
         GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -90,6 +93,7 @@ public sealed class AgentLoop : IAgentLoop
         _limitGate = limitGate;
         _runtime = runtime;
         _intents = intents;
+        _workspace = workspace?.Value;
         _retrieval = retrieval;
     }
 
@@ -779,6 +783,18 @@ public sealed class AgentLoop : IAgentLoop
         {
             evidence = string.IsNullOrWhiteSpace(evidence) ? runtime : $"{evidence}\n{runtime}";
         }
+        else if (BuiltSomethingRunnable())
+        {
+            // An absence, stated. The panel's prompt already treats a missing launch as grounds to
+            // refute for a goal about a running application, and it works: eleven seconds after
+            // this panel accepted run dbaa0580 3/3, the post-run reviewer - same critic role, same
+            // three lenses, same work - refuted 3/3 with every lens naming the missing launch. The
+            // only difference was that one of them could see the absence and the other had to
+            // infer it from a line that was not there. This is the line.
+            const string never = "Runtime: the application was never launched in this run, " +
+                                 "so nothing observed what it does when it opens.";
+            evidence = string.IsNullOrWhiteSpace(evidence) ? never : $"{evidence}\n{never}";
+        }
 
         // And what the run asked for, was refused, and never came back to. The panel is judging
         // whether the goal was met; a build that was never made and a solution that was never
@@ -891,6 +907,19 @@ public sealed class AgentLoop : IAgentLoop
             },
             message);
     }
+
+    /// <summary>
+    /// Whether this workspace holds something that can be run at all.
+    /// <para>
+    /// The launch-absence line is worth saying about a desktop or console application and is noise
+    /// about a library, where there is nothing to launch and a critic told otherwise would be
+    /// refusing work for want of evidence nobody could produce - the deadlock this panel's wording
+    /// has been shaped twice to avoid.
+    /// </para>
+    /// </summary>
+    private bool BuiltSomethingRunnable() =>
+        _workspace?.RepoRoot is { Length: > 0 } root &&
+        GlassCoder.Tools.Verification.ProjectLocator.AnyExecutableProject(root);
 
     /// <summary>
     /// The operation a call was for, where its tool has operations.
@@ -1110,7 +1139,10 @@ public sealed class AgentLoop : IAgentLoop
             Serialise(invocation.Result),
             invocation.ErrorMessage,
             invocation.Summary,
-            invocation.Hint);
+            invocation.Hint)
+        {
+            OutcomeOk = invocation.OutcomeOk,
+        };
 
     private static string? Serialise(object? result)
     {

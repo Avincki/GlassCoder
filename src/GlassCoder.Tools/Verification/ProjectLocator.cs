@@ -304,6 +304,98 @@ public static class ProjectLocator
     }
 
     /// <summary>
+    /// Package ids that mean "this project holds tests". Here rather than in each caller, because
+    /// three places were asking the same question from three copies of the same list.
+    /// </summary>
+    public static readonly string[] TestFrameworkPackages =
+        ["xunit", "nunit", "MSTest", "Microsoft.NET.Test.Sdk"];
+
+    /// <summary>
+    /// Whether anything at or under this path builds something that can be run - a console or
+    /// desktop application rather than a library.
+    /// <para>
+    /// Asked so the completion panel can be told that nothing ran it. Read straight from
+    /// <c>OutputType</c>, like every other question this class answers, because the alternative is
+    /// an SDK evaluation to learn one word.
+    /// </para>
+    /// </summary>
+    public static bool AnyExecutableProject(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        try
+        {
+            string directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
+            return FindAllProjects(directory).Any(IsExecutableProject);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether this project produces an executable.</summary>
+    public static bool IsExecutableProject(string projectFile)
+    {
+        ArgumentNullException.ThrowIfNull(projectFile);
+
+        try
+        {
+            return XDocument.Load(projectFile).Descendants("OutputType")
+                .Any(e => e.Value.Trim() is "Exe" or "WinExe");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether this project file references a test framework.</summary>
+    public static bool IsTestProject(string projectFile)
+    {
+        ArgumentNullException.ThrowIfNull(projectFile);
+
+        return ReadReferences(projectFile).Packages
+            .Any(package => TestFrameworkPackages
+                .Any(framework => package.Contains(framework, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// Whether anything at or under this path is a test project.
+    /// <para>
+    /// Asked before the test rung spends a process. Steps 3 to 8 of run <c>457867c7</c> each
+    /// applied a scaffolding change, each climbed the ladder, and each paid a <c>dotnet test</c>
+    /// launch to be told that a workspace with no test project in it ran no tests - six times, for
+    /// an answer sitting in the project files. Reading them costs a directory walk.
+    /// </para>
+    /// </summary>
+    public static bool AnyTestProject(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (File.Exists(path) && Path.GetExtension(path).Equals(".csproj", StringComparison.OrdinalIgnoreCase))
+        {
+            return IsTestProject(path);
+        }
+
+        // The whole tree, not the directory: a solution at the root with its projects under src/
+        // and tests/ is the shape this repository builds, and a non-recursive look would call it
+        // testless and skip a rung that had work to do.
+        string directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
+
+        try
+        {
+            return FindAllProjects(directory).Any(IsTestProject);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A workspace that cannot be walked is not a workspace anyone can prove is testless.
+            // Answering "yes" here keeps the rung running, which is the behaviour that predates it.
+            return true;
+        }
+    }
+
+    /// <summary>
     /// The references a project declares, as the assembly names they would produce.
     /// <para>
     /// Read straight from the XML rather than evaluated through MSBuild. That is enough for the

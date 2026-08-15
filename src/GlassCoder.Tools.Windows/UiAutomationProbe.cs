@@ -38,6 +38,13 @@ public sealed class UiAutomationProbe : IUiProbe
     private const int MaxReadBack = 10;
 
     /// <summary>
+    /// How far the walk goes when it is looking for an address rather than writing a report. Wider
+    /// than the report's cap: an eleventh control is still addressable even though printing eleven
+    /// would be noise.
+    /// </summary>
+    private const int MaxAddressable = 60;
+
+    /// <summary>
     /// A beat after typing, before anything is read.
     /// <para>
     /// A WPF binding with the default <c>UpdateSourceTrigger</c> does not commit until the box
@@ -92,20 +99,33 @@ public sealed class UiAutomationProbe : IUiProbe
             return readings;
         }
 
-        AutomationElementCollection found;
-        try
+        if (TextBearing(window, _logger) is not { } found)
         {
-            found = window.FindAll(
-                TreeScope.Descendants,
-                new OrCondition(
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)));
-        }
-        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
-        {
-            _logger.LogDebug(ex, "The window of process {ProcessId} could not be walked", processId);
             return readings;
         }
+
+        foreach (Labelled labelled in Walk(found, MaxReadBack, cancellationToken))
+        {
+            readings.Add(new UiProbeReading($"{labelled.Label}?", Ok: true, Saw: labelled.Value, Problem: null));
+        }
+
+        return readings;
+    }
+
+    /// <summary>
+    /// The window's text-bearing controls, each with the best identity it offers, in tree order.
+    /// <para>
+    /// One walk, two callers, and that is the point. The sweep prints these identities and the
+    /// prober accepts them back, so a window that names nothing can still be driven. Run
+    /// <c>457867c7</c> is what the open loop cost: three <c>no element by that name</c> refusals,
+    /// four steps, and two <c>x:Name</c> attributes added to shipped markup for no reason except
+    /// that the harness could not address what it had just printed - the interface editing the
+    /// product.
+    /// </para>
+    /// </summary>
+    private static List<Labelled> Walk(AutomationElementCollection found, int cap, CancellationToken cancellationToken)
+    {
+        List<Labelled> walked = [];
 
         // The last static text walked past, so an unnamed box can be reported as the one that
         // follows it. Run dd11ef7c's window carries no x:Name on anything, which is the ordinary
@@ -113,7 +133,7 @@ public sealed class UiAutomationProbe : IUiProbe
         // sits next to is the only identity the window offers.
         string? preceding = null;
 
-        for (int index = 0; index < found.Count && readings.Count < MaxReadBack; index++)
+        for (int index = 0; index < found.Count && walked.Count < cap; index++)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -129,10 +149,13 @@ public sealed class UiAutomationProbe : IUiProbe
 
                 if (string.IsNullOrEmpty(label))
                 {
-                    // Neither a name nor anything to show is not a fact at all.
-                    if (value.Length == 0)
+                    // A static label with no text is not a fact. An *editable* box with no text is
+                    // both a fact and the most important address in the window: it is what a fresh
+                    // window is made of, and what a probe types into. Dropping it left a window
+                    // that names nothing with nothing to say and nothing to drive.
+                    if (isText && value.Length == 0)
                     {
-                        preceding = isText ? null : preceding;
+                        preceding = null;
                         continue;
                     }
 
@@ -149,7 +172,7 @@ public sealed class UiAutomationProbe : IUiProbe
                 }
 
                 preceding = isText && value.Length > 0 ? value : preceding;
-                readings.Add(new UiProbeReading($"{label}?", Ok: true, Saw: value, Problem: null));
+                walked.Add(new Labelled(label, value, element));
             }
             catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
             {
@@ -158,8 +181,28 @@ public sealed class UiAutomationProbe : IUiProbe
             }
         }
 
-        return readings;
+        return walked;
     }
+
+    /// <summary>Every text-bearing control the window has, for addressing and for reporting.</summary>
+    private static AutomationElementCollection? TextBearing(AutomationElement window, ILogger logger)
+    {
+        try
+        {
+            return window.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)));
+        }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
+        {
+            logger.LogDebug(ex, "The window could not be walked");
+            return null;
+        }
+    }
+
+    private sealed record Labelled(string Label, string Value, AutomationElement Element);
 
     private List<UiProbeReading> Run(int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken)
     {
@@ -191,10 +234,10 @@ public sealed class UiAutomationProbe : IUiProbe
     {
         string described = Describe(step);
 
-        AutomationElement? element = Find(window, step.Element, cancellationToken);
+        (AutomationElement? element, string? refusal) = Find(window, step.Element, cancellationToken);
         if (element is null)
         {
-            return new UiProbeReading(described, Ok: false, Saw: null, Problem: "no element by that name");
+            return new UiProbeReading(described, Ok: false, Saw: null, Problem: refusal);
         }
 
         try
@@ -302,7 +345,18 @@ public sealed class UiAutomationProbe : IUiProbe
         return null;
     }
 
-    private static AutomationElement? Find(AutomationElement window, string name, CancellationToken cancellationToken)
+    /// <summary>
+    /// The element a step names, by automation id, by accessible name, or by the identity the
+    /// sweep would print for it - and, when nothing matches, the identities the window does offer.
+    /// <para>
+    /// The third lookup is what stops the harness's address space from editing the product. A
+    /// positional identity is accepted for typing as well as reading, but only when it names
+    /// exactly one control: the hazard is not the heuristic, it is an ambiguous match typing into
+    /// a control nobody meant, and that is checkable rather than guessable.
+    /// </para>
+    /// </summary>
+    private (AutomationElement? Element, string? Refusal) Find(
+        AutomationElement window, string name, CancellationToken cancellationToken)
     {
         Stopwatch clock = Stopwatch.StartNew();
         while (true)
@@ -315,21 +369,41 @@ public sealed class UiAutomationProbe : IUiProbe
 
                 if (found is not null)
                 {
-                    return found;
+                    return (found, null);
                 }
             }
             catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
             {
-                return null;
+                return (null, "the window closed while it was being read");
             }
 
             if (clock.Elapsed >= ElementWait || cancellationToken.IsCancellationRequested)
             {
-                return null;
+                break;
             }
 
             Thread.Sleep(100);
         }
+
+        // Named lookup is exhausted. Fall back to what the sweep can see, which is the only
+        // identity an unnamed control has.
+        if (TextBearing(window, _logger) is not { } found2)
+        {
+            return (null, "no element by that name");
+        }
+
+        List<Labelled> walked = Walk(found2, MaxAddressable, cancellationToken);
+        List<Labelled> matches =
+            [.. walked.Where(l => string.Equals(l.Label, name, StringComparison.OrdinalIgnoreCase))];
+
+        return matches.Count switch
+        {
+            1 => (matches[0].Element, null),
+            > 1 => (null, $"{matches.Count} controls answer to that, so it is not an address"),
+            _ => (null, walked.Count == 0
+                ? "no element by that name"
+                : $"no element by that name; the window offers {string.Join(", ", walked.Take(MaxReadBack).Select(l => l.Label))}"),
+        };
     }
 
     /// <summary>The step in the model's own notation, so its report reads back as what it asked for.</summary>

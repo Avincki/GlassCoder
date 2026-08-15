@@ -127,6 +127,10 @@ public sealed class BuildTool : IToolSet
         CommandResult result;
         DiagnosticSummary summary;
 
+        // Held past the loop: whether anything parsed *said* anything decides which failure
+        // message the model gets, and a count of diagnostics cannot answer that.
+        IReadOnlyList<CodeDiagnostic> diagnostics = [];
+
         for (int attempt = 0; ; attempt++)
         {
             result = await _executor.ExecuteAsync(
@@ -156,8 +160,7 @@ public sealed class BuildTool : IToolSet
                     "Build a single project rather than the whole solution.");
             }
 
-            IReadOnlyList<CodeDiagnostic> diagnostics =
-                MsBuildOutputParser.Parse(result.CombinedOutput, _guard.ToRelativePath);
+            diagnostics = MsBuildOutputParser.Parse(result.CombinedOutput, _guard.ToRelativePath);
             summary = _summarizer.Summarise(diagnostics, $"Build of {verdict.RelativePath}");
 
             if (attempt > 0 || result.ExitCode == 0 || summary.TotalErrors > 0)
@@ -184,6 +187,13 @@ public sealed class BuildTool : IToolSet
             summary.Text,
             result.Duration.TotalMilliseconds,
             result.Sandbox);
+
+        // The SDK's markup pass leaves a scratch project behind when it fails, and nothing else
+        // removes it. Run dbaa0580's next build over that directory answered MSB1011 - "more than
+        // one project here" - about a second project the harness had created itself; the run spent
+        // three steps reading source for a compile error that was in no file, and the 31 KB of
+        // machine-specific paths shipped in the deliverable.
+        SweepScratchProjects(verdict);
 
         if (payload.Succeeded)
         {
@@ -214,26 +224,103 @@ public sealed class BuildTool : IToolSet
             return Observation.Ok(
                 ToolName,
                 payload,
-                $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. {guidance}");
+                $"'{verdict.RelativePath}' is not a project or solution and contains none at its top level. {guidance}",
+                outcomeOk: false);
+        }
+
+        // MSB1011 is the same class of fact one door along: the target is a directory holding
+        // several projects, so MSBuild will not guess. It got the raw diagnostic and nothing else,
+        // and run dbaa0580 spent steps 5, 6 and 7 reading scaffold files looking for the compile
+        // error it sounded like. Named here for the reason MSB1003 is: the answer has to be in the
+        // message the model is already reading.
+        if (summary.Text.Contains("MSB1011", StringComparison.Ordinal))
+        {
+            string directory = Directory.Exists(verdict.FullPath)
+                ? verdict.FullPath
+                : System.IO.Path.GetDirectoryName(verdict.FullPath) ?? verdict.FullPath;
+            List<string> held = [.. ProjectLocator.FindAllProjects(directory).Take(7)];
+
+            string guidance = held.Count == 0
+                ? "Name one project or solution rather than the folder."
+                : "It holds " +
+                  string.Join(", ", held.Take(6).Select(p => _guard.ToRelativePath(p))) +
+                  (held.Count > 6 ? " and more" : string.Empty) +
+                  " - build one of those by name.";
+
+            return Observation.Ok(
+                ToolName,
+                payload,
+                $"'{verdict.RelativePath}' is a folder with more than one project or solution in it, " +
+                $"so the build had no single target. {guidance}",
+                outcomeOk: false);
         }
 
         // "Build failed with 0 error(s)" is what the model reads when the parser recognised
         // nothing - a restore or SDK error in a format the regexes miss. Seven of those in the
         // 2026-08-06 runs, each answered with a blind identical retry. When there is nothing
         // parsed, the raw tail is the only information there is, so it goes in the message.
-        if (summary.TotalErrors == 0)
+        //
+        // Or when what was parsed says nothing: run dbaa0580's Compile rung reported, in full,
+        // "error MSB4018:" - a code, a colon, and no cause, because MSB4018 puts the failing
+        // exception on the lines after it in a format the parser drops. One parsed diagnostic was
+        // enough to skip the fallback, so the emptiest possible message won. The test is whether
+        // anything parsed actually says something, not how many things parsed.
+        if (summary.TotalErrors == 0 || !diagnostics.Any(d => !string.IsNullOrWhiteSpace(d.Message)))
         {
             string tail = Tail(result.CombinedOutput);
             return Observation.Ok(
                 ToolName,
                 payload with { Diagnostics = tail },
                 $"Build failed with exit code {result.ExitCode}, but no compiler diagnostics could be parsed " +
-                $"from its output. The output ends:\n{tail}");
+                $"from its output. The output ends:\n{tail}",
+                outcomeOk: false);
         }
 
         // A failed build is a handled outcome, not a tool failure: this is the single most
-        // useful observation the agent receives, and it must arrive as information to act on.
-        return Observation.Ok(ToolName, payload, $"Build failed with {summary.TotalErrors} error(s).");
+        // useful observation the agent receives, and it must arrive as information to act on -
+        // and as a failed *outcome*, or the progress machinery counts it as work that went well.
+        // Run dbaa0580 failed three builds and the sentry and the intent ledger saw three
+        // successes, because this was the one tool relaying an exit code that never said so.
+        return Observation.Ok(
+            ToolName, payload, $"Build failed with {summary.TotalErrors} error(s).", outcomeOk: false);
+    }
+
+    /// <summary>
+    /// Removes the <c>*_wpftmp</c> projects the SDK's markup pass leaves behind when it fails.
+    /// <para>
+    /// Scoped to the directory that was built and to the scratch spelling
+    /// <see cref="ProjectLocator.IsScratch"/> already knows, and it will not remove the target it
+    /// was asked to build. A file that will not delete is left alone: this is housekeeping, and
+    /// housekeeping never fails a build.
+    /// </para>
+    /// </summary>
+    private void SweepScratchProjects(PathGuardResult verdict)
+    {
+        if (verdict.FullPath is null)
+        {
+            return;
+        }
+
+        string directory = Directory.Exists(verdict.FullPath)
+            ? verdict.FullPath
+            : System.IO.Path.GetDirectoryName(verdict.FullPath) ?? verdict.FullPath;
+
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(directory)
+                .Where(ProjectLocator.IsScratch)
+                .Where(f => !string.Equals(f, verdict.FullPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                File.Delete(file);
+                _logger.LogInformation(
+                    "Removed the SDK scratch project {File} left by a failed markup pass",
+                    _guard.ToRelativePath(file));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogDebug(ex, "Scratch projects under {Directory} could not be swept", directory);
+        }
     }
 
     /// <summary>The last lines of the raw output, for the failures the parser cannot type.</summary>

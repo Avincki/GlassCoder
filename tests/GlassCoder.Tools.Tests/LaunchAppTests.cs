@@ -288,6 +288,46 @@ public sealed class LaunchAppTests : IDisposable
     }
 
     [Fact]
+    public async Task Asking_a_question_does_not_switch_the_sweep_off()
+    {
+        // Run 457867c7 typed into one box at steps 35-37 and never looked at the rest of a window
+        // it had rewritten twice, because asking suppressed the sweep. The launches where the
+        // window had changed most were the launches that read least of it.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        StubProbe probe = new("212");
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), probe)
+            .LaunchAsync("src/App/App.csproj", probe: "Celsius=100; Fahrenheit?");
+
+        probe.Steps.Count.ShouldBe(2, "the asked-for script still runs");
+        probe.SweptProcessId.ShouldBe(runner.ReadyProcessId, "and the window is read as well");
+
+        observation.Summary.ShouldContain("Probe: Celsius=100");
+        observation.Summary.ShouldContain("Window: CelsiusTextBox?");
+        observation.Summary.ShouldContain("the whole window after that input");
+    }
+
+    [Fact]
+    public async Task A_step_that_typed_does_not_report_as_a_reading()
+    {
+        // Step 35 of run 457867c7 read "CelsiusTextBox=0 ok; FahrenheitTextBox=32 ok" - two writes,
+        // no evidence, in the same shape as a readback that proved something.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), new StubProbe("212"))
+            .LaunchAsync("src/App/App.csproj", probe: "Celsius=100");
+
+        observation.Summary.ShouldContain("typed, not read back");
+        observation.Summary.ShouldNotContain("Celsius=100 ok");
+    }
+
+    [Fact]
     public async Task A_window_read_at_rest_does_not_claim_the_window_is_right()
     {
         // The overclaim this repository keeps paying for, one step ahead of it. A sweep says what
@@ -364,6 +404,34 @@ public sealed class LaunchAppTests : IDisposable
             .LaunchAsync("src/App/App.csproj", probe: "Fahrenheit?");
 
         evidence.Latest.ShouldNotBeNull().ShouldContain("→ \"212\"");
+    }
+
+    [Fact]
+    public async Task Every_launch_is_kept_for_the_panel_and_a_repeat_is_kept_once()
+    {
+        // Run 457867c7 demonstrated three input/output pairs at steps 35-37 and the panel that
+        // judged it was handed the last one, because this was a slot rather than a list.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        RuntimeEvidence evidence = new();
+        ChangeLog changes = new();
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady().EnqueueReady().EnqueueReady();
+
+        LaunchAppTool tool = new(
+            runner, _workspace.Guard("src"), evidence, new StubWindows(true), new StubProbe("212"), changes);
+
+        await tool.LaunchAsync("src/App/App.csproj", probe: "Celsius=100; Fahrenheit?");
+        await tool.LaunchAsync("src/App/App.csproj", probe: "Fahrenheit=212; Celsius?");
+
+        // The same launch again, over an unchanged tree: served from the memo, and it must not
+        // arrive in the evidence a second time.
+        await tool.LaunchAsync("src/App/App.csproj", probe: "Fahrenheit=212; Celsius?");
+
+        string kept = evidence.Latest.ShouldNotBeNull();
+        kept.ShouldContain("Celsius=100");
+        kept.ShouldContain("Fahrenheit=212");
+        kept.Split(Environment.NewLine).Length.ShouldBe(2, "two launches, and the repeat is not a third");
     }
 
     // ── A launch that cannot show anything new ──
@@ -464,6 +532,8 @@ public sealed class LaunchAppTests : IDisposable
             ProcessId = processId;
             Steps.AddRange(steps);
 
+            // The step is echoed in the notation the real probe uses - "Celsius=100", "Convert!",
+            // "Fahrenheit?" - because that string is what the summary shows and what a critic reads.
             return Task.FromResult<IReadOnlyList<UiProbeReading>>(
             [
                 .. steps.Select(step => step.Action switch
@@ -472,7 +542,9 @@ public sealed class LaunchAppTests : IDisposable
                         new UiProbeReading($"{step.Element}?", Ok: false, Saw: null, Problem: "no element by that name"),
                     UiProbeAction.Read =>
                         new UiProbeReading($"{step.Element}?", Ok: true, Saw: readsBack, Problem: null),
-                    _ => new UiProbeReading(step.Element, Ok: true, Saw: null, Problem: null),
+                    UiProbeAction.Invoke =>
+                        new UiProbeReading($"{step.Element}!", Ok: true, Saw: null, Problem: null),
+                    _ => new UiProbeReading($"{step.Element}={step.Value}", Ok: true, Saw: null, Problem: null),
                 }),
             ]);
         }

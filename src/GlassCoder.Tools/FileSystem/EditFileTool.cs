@@ -232,7 +232,12 @@ public sealed class EditFileTool : IToolSet
         string notices = string.Empty;
         foreach (FileEditResult file in result.Files)
         {
-            if (!file.Applied || !file.Path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+            // A code-behind counts: one of the notices reads the markup and its .xaml.cs as a pair,
+            // because the question it asks - is the window showing the object it was given - cannot
+            // be answered from either file alone.
+            if (!file.Applied ||
+                !(file.Path.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) ||
+                  file.Path.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

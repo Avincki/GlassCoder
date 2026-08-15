@@ -407,6 +407,17 @@ public static class RetrospectiveTranscript
             {
                 text.AppendLine(CultureInfo.InvariantCulture, $"  - hint: {OneLine(call.Hint, 300)}");
             }
+
+            // And what the model was actually handed, when the call did not do what it set out to.
+            // Run dbaa0580's process reviewer decided a build step "returned strictly less
+            // information" than the one before it and reasoned from that; the model had the
+            // MSB1011 diagnostics in the payload the whole time, and this line is where they were
+            // missing. Capped like the rest, and only on the calls where the payload decides
+            // something - a successful build's serialized result is noise.
+            if (!call.OutcomeOk && !string.IsNullOrWhiteSpace(call.Result))
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"  - result: {OneLine(call.Result, 300)}");
+            }
         }
 
         if (step.Verification is { } verification)

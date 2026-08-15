@@ -43,6 +43,9 @@ public sealed class RetrospectiveDigestTests
             p => $"<<{p.Name}-was-here>>",
             StringComparer.Ordinal);
 
+        // A call that did not do what it set out to do, which is the case every marked field has
+        // to survive: the payload is rendered on exactly those, and a reader of a failed step is
+        // the reader this guard exists for.
         ToolCallRecord call = new(
             "call-1",
             "dotnet_project",
@@ -50,10 +53,13 @@ public sealed class RetrospectiveDigestTests
             "Failed",
             Parsed: true,
             DurationMs: 12,
-            Result: null,
+            Result: sentinels[nameof(ToolCallRecord.Result)],
             Error: sentinels[nameof(ToolCallRecord.Error)],
             Summary: sentinels[nameof(ToolCallRecord.Summary)],
-            Hint: sentinels[nameof(ToolCallRecord.Hint)]);
+            Hint: sentinels[nameof(ToolCallRecord.Hint)])
+        {
+            OutcomeOk = false,
+        };
 
         string digest = RetrospectiveTranscript.Render(
             [
@@ -85,6 +91,51 @@ public sealed class RetrospectiveDigestTests
             "does not belong in a digest, the way a raw result does not - take the marker off it " +
             "and say why in its own documentation.");
     }
+
+    [Fact]
+    public void The_payload_is_rendered_where_it_decides_something_and_not_where_it_does_not()
+    {
+        // The one conditional rendering this guard allows, and the condition is the point: a
+        // failed call's payload is what the model acted on - run dbaa0580's MSB1011 diagnostics
+        // lived there - and a successful build's serialized result is a page of noise carried in
+        // every later step's context.
+        string failed = Render(new ToolCallRecord(
+            "call-1", "build", null, "Succeeded", true, 12,
+            Result: "{\"diagnostics\":\"error MSB1011: more than one project\"}",
+            Error: null,
+            Summary: "Build failed with 1 error(s).")
+        {
+            OutcomeOk = false,
+        });
+
+        string succeeded = Render(new ToolCallRecord(
+            "call-1", "build", null, "Succeeded", true, 12,
+            Result: "{\"diagnostics\":\"nothing worth carrying\"}",
+            Error: null,
+            Summary: "Build succeeded (0 warnings)."));
+
+        failed.ShouldContain("MSB1011");
+        succeeded.ShouldNotContain("nothing worth carrying");
+    }
+
+    private static string Render(ToolCallRecord call) =>
+        RetrospectiveTranscript.Render(
+            [
+                new StepRecord
+                {
+                    RunId = "run-1",
+                    TaskId = "desktop",
+                    StepIndex = 4,
+                    Role = "worker",
+                    StartedAt = DateTimeOffset.UnixEpoch,
+                    Prompt = [],
+                    ToolCalls = [call],
+                    ModelLatencyMs = 1,
+                    StepLatencyMs = 1,
+                    Outcome = "continued",
+                },
+            ],
+            new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = 1 });
 
     [Fact]
     public void The_hint_is_the_instance_this_was_built_for()

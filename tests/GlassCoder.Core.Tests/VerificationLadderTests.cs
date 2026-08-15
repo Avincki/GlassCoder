@@ -18,6 +18,19 @@ public sealed class VerificationLadderTests : IDisposable
     private readonly TempWorkspace _workspace = new();
     private readonly ScriptedCommandExecutor _executor = new();
 
+    /// <summary>
+    /// A project that holds tests, which is what every case below that scripts a test run needs to
+    /// be: since run 457867c7 the rung asks whether anything in the tree references a test
+    /// framework before it pays for a process, so a bare project would answer the question without
+    /// running the scripted command at all.
+    /// </summary>
+    private const string TestProject =
+        """
+        <Project Sdk="Microsoft.NET.Sdk">
+          <ItemGroup><PackageReference Include="xunit" Version="2.9.2" /></ItemGroup>
+        </Project>
+        """;
+
     public void Dispose() => _workspace.Dispose();
 
     [Fact]
@@ -54,7 +67,7 @@ public sealed class VerificationLadderTests : IDisposable
     public async Task Analyzers_report_but_never_gate()
     {
         // Rung 3 of the ladder: convention drift is worth saying, never worth blocking a fix.
-        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
         _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
         _executor.Enqueue(0, "");                                              // build: green
         _executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 3, Skipped: 0, Total: 3");   // tests: green
@@ -73,7 +86,7 @@ public sealed class VerificationLadderTests : IDisposable
         // workspace holding no test files: 0 of 0 is not a passing suite. It does not gate - a
         // testless tree is a fact, not a failure - but it stops reading as verification, and
         // the honest line stays in the summary the model and the critics judge.
-        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
         _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
         _executor.Enqueue(0, "");   // the build
         _executor.Enqueue(0, "");   // dotnet test: exits clean, discovers nothing
@@ -88,9 +101,30 @@ public sealed class VerificationLadderTests : IDisposable
     }
 
     [Fact]
+    public async Task A_tree_with_no_test_project_does_not_pay_for_a_test_process()
+    {
+        // Steps 3-8 of run 457867c7: six scaffolding changes, six ladder climbs, six dotnet test
+        // launches, each to be told that a workspace with no test project ran no tests. The answer
+        // is in the project files. It stays Unverified, so the counters and the verdict wording
+        // still say a rung ran and established nothing.
+        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _executor.Enqueue(0, "");   // the build, and the only command that should run
+
+        VerificationReport report = await Ladder().VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+
+        report.Passed.ShouldBeTrue("a testless tree is a fact, not a failure");
+        report.Unverified.ShouldBeTrue();
+        report.Results.Single(r => r.Rung == VerificationRung.UnitTests).Summary
+            .ShouldContain("references a test framework");
+        _executor.Commands.Count(c => c.Arguments[0] == "test")
+            .ShouldBe(0, "the rung answered from the project files");
+    }
+
+    [Fact]
     public async Task A_failing_test_stops_the_climb_before_the_full_suite()
     {
-        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
         _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
         _executor.Enqueue(0, "");
         _executor.Enqueue(1, "  Failed Demo.PagerTests.Last_is_count_minus_one [3 ms]\nFailed!  - Failed: 1, Passed: 2, Skipped: 0, Total: 3");
@@ -116,7 +150,7 @@ public sealed class VerificationLadderTests : IDisposable
     [Fact]
     public async Task A_failing_rung_carries_the_assertion_not_only_the_name()
     {
-        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
         _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
         _executor.Enqueue(0, "");
         _executor.Enqueue(1, """
@@ -143,7 +177,7 @@ public sealed class VerificationLadderTests : IDisposable
     [Fact]
     public async Task A_clean_climb_reaches_the_full_suite()
     {
-        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
         _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
         _executor.Enqueue(0, "");
         _executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 3, Skipped: 0, Total: 3");

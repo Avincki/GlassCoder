@@ -21,10 +21,14 @@ public sealed record TranscriptMessage(string Role, string? Text, IReadOnlyList<
 /// step cannot be found in the digest of that step.
 /// </para>
 /// <para>
-/// Deliberately not on <see cref="ToolCallRecord.Result"/>: the raw payload is the one thing a
-/// digest is right to leave out, and marking it would turn this guard into a demand to print
-/// kilobytes. The test for whether a field belongs here is not "did the model see it" but "was it
-/// the harness steering, and would a reader who never saw it draw a different conclusion".
+/// <see cref="ToolCallRecord.Result"/> was left unmarked at first, on the argument that a raw
+/// payload is the one thing a digest is right to leave out. Run <c>dbaa0580</c> answered that: its
+/// process reviewer concluded a build step "returned strictly less information" than the one before
+/// it and built an argument on that, while the model had been handed the MSB1011 diagnostics in the
+/// payload all along. So it is marked, and rendered where it decides something - on a call whose
+/// outcome failed, capped like every other line. The condition is the exception that proves the
+/// rule: a field may be conditionally rendered, never silently dropped, and the condition has to be
+/// written down where the next reader will find it.
 /// </para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Property)]
@@ -65,10 +69,21 @@ public sealed record ToolCallRecord(
     string Status,
     bool Parsed,
     double DurationMs,
-    string? Result,
+    [property: ModelFacing] string? Result,
     [property: ModelFacing] string? Error,
     [property: ModelFacing] string? Summary = null,
-    [property: ModelFacing] string? Hint = null);
+    [property: ModelFacing] string? Hint = null)
+{
+    /// <summary>
+    /// Whether the operation the tool relayed achieved its purpose, as distinct from whether the
+    /// call ran. A failed build is a successful call.
+    /// <para>
+    /// Carried onto the record because it is what decides whether the payload is worth rendering:
+    /// the interesting case for a reader is the call that did not do what it set out to do.
+    /// </para>
+    /// </summary>
+    public bool OutcomeOk { get; init; } = true;
+}
 
 /// <summary>
 /// The critique panel's verdict on a step, vote by vote.

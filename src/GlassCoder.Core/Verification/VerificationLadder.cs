@@ -340,6 +340,29 @@ public sealed class VerificationLadder : IVerificationLadder
                     return Skip(rung, NothingToBuild, start);
                 }
 
+                // Asked before a process is spent on it. Steps 3-8 of run 457867c7 each paid a
+                // dotnet test launch to be told a workspace with no test project ran no tests -
+                // six times, for an answer that is in the project files. Unverified rather than
+                // skipped: the climb still reached this rung and still verified nothing, and the
+                // counters and the verdict words both depend on that staying true.
+                // Through the guard, because ProjectPath is repo-relative and the question is
+                // about files on disk. A path the guard will not resolve is not one this can
+                // answer, and the rung runs exactly as it did before.
+                PathGuardResult target = _guard.Resolve(request.ProjectPath, PathAccess.Read);
+                if (target.Allowed && target.FullPath is not null &&
+                    !ProjectLocator.AnyTestProject(target.FullPath))
+                {
+                    return new RungResult(
+                        rung,
+                        true,
+                        "No project in the workspace references a test framework yet, so there was " +
+                        "nothing for this rung to run - nothing was verified.",
+                        Elapsed(start))
+                    {
+                        Unverified = true,
+                    };
+                }
+
                 string? filter = rung == VerificationRung.UnitTests ? request.TestFilter : null;
                 ToolObservation<TestRunResult> observation = await _tests
                     .RunTestsAsync(request.ProjectPath, filter, listOnly: false, cancellationToken)

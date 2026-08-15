@@ -60,7 +60,10 @@ public sealed class ReadFileTool : IToolSet
         string path,
         [Description("1-based line to start from.")]
         int startLine = 1,
-        [Description("Maximum lines to return. Ask for less when you need one region.")]
+        // "Ask for less when you need one region" said again what the tool description above
+        // already says about taking the outline and then one range. Cut to pay for the probe's
+        // names sentence, which is the one that stops a run inventing control names.
+        [Description("Maximum lines to return.")]
         int maxLines = 400,
         [Description("For C#, return the declarations and their line numbers instead of the code.")]
         bool outline = false)

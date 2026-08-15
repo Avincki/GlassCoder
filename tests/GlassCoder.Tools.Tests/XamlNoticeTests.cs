@@ -87,6 +87,97 @@ public sealed class XamlNoticeTests : IDisposable
         XamlNotices.Describe("src/App/Program.cs", ShortDenseWindow).ShouldBeEmpty();
     }
 
+    // ── The window that shows nothing from what the tests drive ──
+    //
+    // Run 457867c7 held two implementations of one feature for eleven steps: a ViewModel with
+    // change notification that eight tests drove, and a window that set it as its DataContext,
+    // bound nothing to it, and ran its own code-behind handlers. Twelve verification passes, all
+    // honest. Every rung asks whether an artifact holds up; none asks whether it is the one that
+    // runs, and the wiring lives across the C#/XAML seam where no rung looks.
+
+    private const string UnboundMarkup =
+        """
+        <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Height="600">
+          <Grid>
+            <TextBox x:Name="CelsiusTextBox" TextChanged="CelsiusTextBox_TextChanged" />
+            <TextBox x:Name="FahrenheitTextBox" TextChanged="FahrenheitTextBox_TextChanged" />
+          </Grid>
+        </Window>
+        """;
+
+    private const string DataContextCodeBehind =
+        """
+        namespace App;
+        public partial class MainWindow : Window
+        {
+            private readonly ViewModel _viewModel = new();
+            public MainWindow() { InitializeComponent(); DataContext = _viewModel; }
+            private void CelsiusTextBox_TextChanged(object s, TextChangedEventArgs e) { }
+        }
+        """;
+
+    [Fact]
+    public void A_window_that_binds_nothing_to_its_data_context_is_asked_about()
+    {
+        _workspace.WriteFile("src/App/MainWindow.xaml", UnboundMarkup);
+        _workspace.WriteFile("src/App/MainWindow.xaml.cs", DataContextCodeBehind);
+
+        string notice = XamlNotices.Describe(AppXaml, UnboundMarkup);
+
+        notice.ShouldContain("binds to nothing");
+        notice.ShouldContain("two different code paths");
+    }
+
+    [Fact]
+    public void Writing_the_code_behind_asks_the_same_question()
+    {
+        // Either half of the pair can be the write that arrives; the question is about both.
+        _workspace.WriteFile("src/App/MainWindow.xaml", UnboundMarkup);
+        _workspace.WriteFile("src/App/MainWindow.xaml.cs", DataContextCodeBehind);
+
+        XamlNotices.Describe(AppXaml + ".cs", DataContextCodeBehind).ShouldContain("binds to nothing");
+    }
+
+    [Fact]
+    public void A_bound_window_is_silent()
+    {
+        // The shipped end state of run 457867c7, which is exactly what the notice must not nag at.
+        string bound = UnboundMarkup.Replace(
+            "TextChanged=\"CelsiusTextBox_TextChanged\"",
+            "Text=\"{Binding Celsius, UpdateSourceTrigger=PropertyChanged}\"",
+            StringComparison.Ordinal);
+
+        _workspace.WriteFile("src/App/MainWindow.xaml", bound);
+        _workspace.WriteFile("src/App/MainWindow.xaml.cs", DataContextCodeBehind);
+
+        XamlNotices.Describe(AppXaml, bound).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void A_window_that_sets_no_data_context_is_silent()
+    {
+        // Code-behind-only windows are a legitimate design, and this notice has nothing to say
+        // about them: nothing claimed that some other object was what the window shows.
+        _workspace.WriteFile("src/App/MainWindow.xaml", UnboundMarkup);
+        _workspace.WriteFile("src/App/MainWindow.xaml.cs", "public partial class MainWindow { }");
+
+        XamlNotices.Describe(AppXaml, UnboundMarkup).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Binding_built_in_code_is_silent()
+    {
+        _workspace.WriteFile("src/App/MainWindow.xaml", UnboundMarkup);
+        _workspace.WriteFile(
+            "src/App/MainWindow.xaml.cs",
+            DataContextCodeBehind.Replace(
+                "DataContext = _viewModel;",
+                "DataContext = _viewModel; CelsiusTextBox.SetBinding(TextBox.TextProperty, new Binding(\"Celsius\"));",
+                StringComparison.Ordinal));
+
+        XamlNotices.Describe(AppXaml, UnboundMarkup).ShouldBeEmpty();
+    }
+
     [Fact]
     public void A_xaml_file_in_a_test_project_earns_the_test_project_note()
     {

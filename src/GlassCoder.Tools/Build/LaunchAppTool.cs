@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Globalization;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
@@ -95,8 +95,12 @@ public sealed class LaunchAppTool : IToolSet
         string projectPath,
         [Description("Seconds to run before stopping it.")]
         int timeoutSeconds = 10,
-        [Description("Optional window checks by x:Name, ';'-separated: 'Box=12' types, 'Btn!' clicks, "
-            + "'Out?' reads.")]
+        // Placeholders that could be mistaken for control names are not free: run 457867c7 sent
+        // 'Box=0' three times, got nothing, and wrote two x:Name attributes into shipped markup to
+        // make the harness's example true. The names here cannot be mistaken for anything, and the
+        // launch summary prints the identities the window actually offers.
+        [Description("Optional window checks, ';'-separated. <name>=12 types, <name>! clicks, <name>? reads. "
+            + "Names are as the launch summary prints them.")]
         string? probe = null,
         CancellationToken cancellationToken = default)
     {
@@ -155,10 +159,12 @@ public sealed class LaunchAppTool : IToolSet
                 reused: true);
         }
 
-        List<UiProbeReading> readings = [];
-
         // Asked-for and unasked-for are different questions and must stay distinguishable all the
-        // way to the summary: one drove the application, the other only looked at it.
+        // way to the summary: one drove the application, the other only looked at it. They are two
+        // lists for the same reason, and both are now collected on every launch.
+        List<UiProbeReading> readings = [];
+        List<UiProbeReading> swept = [];
+
         bool asked = script.Steps.Count > 0;
         bool canProbe = _probe is not null && watched;
 
@@ -182,9 +188,17 @@ public sealed class LaunchAppTool : IToolSet
                 {
                     try
                     {
-                        readings.AddRange(asked
-                            ? await _probe!.RunAsync(processId, script.Steps, token).ConfigureAwait(false)
-                            : await _probe!.ReadAllAsync(processId, token).ConfigureAwait(false));
+                        if (asked)
+                        {
+                            readings.AddRange(
+                                await _probe!.RunAsync(processId, script.Steps, token).ConfigureAwait(false));
+                        }
+
+                        // And then the sweep, whether or not anything was asked for. Asking used to
+                        // switch it off, so the whole window went unread on exactly the launches
+                        // where it had just been changed: run 457867c7 typed into one box at steps
+                        // 35-37 and never looked at the rest of a window it had rewritten twice.
+                        swept.AddRange(await _probe!.ReadAllAsync(processId, token).ConfigureAwait(false));
                     }
                     catch (Exception ex)
                     {
@@ -238,9 +252,14 @@ public sealed class LaunchAppTool : IToolSet
         // about the product and not evidence that the product is correct: on run dd11ef7c it would
         // have said 0 and 0, which is the defect rather than its absence. So the hedge narrows
         // instead of disappearing, and what is missing is nameable - and answerable in one step.
-        string hedge = (asked, readings.Any(r => r.Saw is not null)) switch
+        // Three states, because there are three: a window nobody touched, a window that was driven
+        // and answered, and a window read after being driven - which is the strongest of the three
+        // and had no way to say so while asking a question switched the sweep off.
+        bool droveIt = asked && readings.Any(r => r.Saw is not null);
+        string hedge = (droveIt, swept.Count > 0) switch
         {
-            (true, true) => ".",
+            (true, true) => ", and this is the whole window after that input.",
+            (true, false) => ".",
             (false, true) => "; nothing was typed into it, so this is what it shows at rest.",
             _ => "; whether the window is *right* still needs eyes on it.",
         };
@@ -273,7 +292,7 @@ public sealed class LaunchAppTool : IToolSet
                 $"without staying up.{Describe(result.StandardError)}"),
         };
 
-        summary += ProbeReport(asked, script, readings, showedWindow, watched);
+        summary += ProbeReport(asked, script, readings, swept, showedWindow, watched);
 
         // Kept for the completion critique, which is the panel that asked for this in the first
         // place and cannot see a tool observation on its own - and keyed, so the next identical
@@ -320,15 +339,23 @@ public sealed class LaunchAppTool : IToolSet
         bool asked,
         UiProbeScript script,
         IReadOnlyList<UiProbeReading> readings,
+        IReadOnlyList<UiProbeReading> swept,
         bool showedWindow,
         bool watched)
     {
         string complaint = script.Problem is null ? string.Empty : $" The probe was only partly read: {script.Problem}.";
+        string window = swept.Count == 0
+            ? string.Empty
+            : $" Window: {string.Join("; ", swept.Select(r => r.Describe()))}.";
 
         if (readings.Count > 0)
         {
-            string body = string.Join("; ", readings.Select(r => r.Describe()));
-            return asked ? $" Probe: {body}.{complaint}" : $" Window: {body}.{complaint}";
+            return $" Probe: {string.Join("; ", readings.Select(r => r.Describe()))}.{window}{complaint}";
+        }
+
+        if (swept.Count > 0)
+        {
+            return $"{window}{complaint}";
         }
 
         if (_probe is null)
@@ -398,7 +425,7 @@ public sealed class LaunchAppTool : IToolSet
     private static string Cap(string? text)
     {
         string value = (text ?? string.Empty).Trim();
-        return value.Length <= MaxErrorCharacters ? value : value[..MaxErrorCharacters] + "…";
+        return value.Length <= MaxErrorCharacters ? value : value[..MaxErrorCharacters] + "â€¦";
     }
 }
 
@@ -413,7 +440,13 @@ public sealed class LaunchAppTool : IToolSet
 /// </summary>
 public sealed class RuntimeEvidence
 {
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _latest =
+    /// <summary>
+    /// How many launches the panel is shown. A run that demonstrates four input/output pairs has
+    /// made its case; past that the evidence string starts crowding out the diff.
+    /// </summary>
+    private const int MaxRemembered = 4;
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<string>> _seen =
         new(StringComparer.Ordinal);
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Launch> _launches =
@@ -431,7 +464,23 @@ public sealed class RuntimeEvidence
     public void Record(string summary, bool started, string? key = null, LaunchAppResult? payload = null)
     {
         ArgumentNullException.ThrowIfNull(summary);
-        _latest[RunContext.Current.RunId] = $"Runtime: {(started ? "ok" : "FAILED")} - {summary}";
+
+        string line = $"Runtime: {(started ? "ok" : "FAILED")} - {summary}";
+        List<string> seen = _seen.GetOrAdd(RunContext.Current.RunId, _ => []);
+        lock (seen)
+        {
+            // Deduplicated, because two launches proving the same thing are one piece of evidence,
+            // and a reused answer must not arrive twice. Oldest dropped first: the panel is judging
+            // the work as it now stands.
+            if (!seen.Contains(line, StringComparer.Ordinal))
+            {
+                seen.Add(line);
+                if (seen.Count > MaxRemembered)
+                {
+                    seen.RemoveAt(0);
+                }
+            }
+        }
 
         if (key is not null && payload is not null)
         {
@@ -465,8 +514,32 @@ public sealed class RuntimeEvidence
         return false;
     }
 
-    /// <summary>What this run has shown about running its application, or null if it never did.</summary>
-    public string? Latest => _latest.GetValueOrDefault(RunContext.Current.RunId);
+    /// <summary>
+    /// Everything this run has shown about running its application, oldest first, or null if it
+    /// never ran it.
+    /// <para>
+    /// A list rather than a slot, because a slot was losing the case the run had built. Run
+    /// <c>457867c7</c> demonstrated three input/output pairs at steps 35-37 - 0 to 32, 100 to 212,
+    /// and 212 back to 100 - and the panel that judged it was handed the last one. This is the same
+    /// shape the <c>[ModelFacing]</c> invariant was written for: a fact collected and dropped one
+    /// organ short of the reader who needed it.
+    /// </para>
+    /// </summary>
+    public string? Latest
+    {
+        get
+        {
+            if (!_seen.TryGetValue(RunContext.Current.RunId, out List<string>? seen))
+            {
+                return null;
+            }
+
+            lock (seen)
+            {
+                return seen.Count == 0 ? null : string.Join(Environment.NewLine, seen);
+            }
+        }
+    }
 
     private sealed record Launch(string Key, string Summary, LaunchAppResult Payload);
 }

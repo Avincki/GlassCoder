@@ -203,6 +203,113 @@ public sealed class ProjectScaffoldingTests
         observation.Summary.ShouldContain("tests/Lib.Tests/Lib.Tests.csproj");
     }
 
+    [Fact]
+    public async Task A_folder_holding_several_projects_is_told_which_ones_it_holds()
+    {
+        // MSB1011 is MSB1003's neighbour - the target is a folder, not a single project - and it
+        // got the raw diagnostic and nothing else. Run dbaa0580 spent steps 5, 6 and 7 reading
+        // scaffold files for the compile error it sounded like, and the second project was one the
+        // harness's own failed markup pass had left there.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        workspace.WriteFile("src/App/Other.csproj", Project());
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(
+            1,
+            "MSBUILD : error MSB1011: Specify which project or solution file to use because this " +
+            "folder contains more than one project or solution file.");
+
+        BuildTool build = new(
+            executor,
+            workspace.Guard("."),
+            new DiagnosticSummarizer(Options.Create(new VerificationOptions())),
+            Options.Create(new SandboxOptions()));
+
+        ToolObservation<BuildResult> observation = await build.BuildAsync("src/App");
+
+        observation.Summary.ShouldNotBeNull();
+        observation.Summary.ShouldContain("src/App/App.csproj");
+        observation.Summary.ShouldContain("src/App/Other.csproj");
+        observation.OutcomeOk.ShouldBeFalse("the build did not build anything");
+    }
+
+    [Fact]
+    public async Task A_failed_build_reports_a_failed_outcome()
+    {
+        // Run dbaa0580 failed three builds and the sentry and the intent ledger counted three
+        // successes, because build was the one tool relaying an exit code that never set this.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "src/App/Program.cs(3,5): error CS1002: ; expected [src/App/App.csproj]");
+
+        BuildTool build = new(
+            executor,
+            workspace.Guard("."),
+            new DiagnosticSummarizer(Options.Create(new VerificationOptions())),
+            Options.Create(new SandboxOptions()));
+
+        ToolObservation<BuildResult> observation = await build.BuildAsync("src/App/App.csproj");
+
+        observation.Ok.ShouldBeTrue("a failed build is information, not a tool failure");
+        observation.OutcomeOk.ShouldBeFalse();
+        observation.Data!.Succeeded.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task A_diagnostic_with_no_message_falls_back_to_the_raw_output()
+    {
+        // What run dbaa0580's step 3 told the model, in full: "error MSB4018:" - a code, a colon,
+        // and no cause, because MSB4018 puts the failing exception on the following lines in a
+        // format the parser drops. One parsed diagnostic was enough to skip the raw-tail fallback.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(
+            1,
+            "C:\\dotnet\\sdk\\Microsoft.WinFX.targets(281,9): error MSB4018: \n" +
+            "System.IO.IOException: The process cannot access MainWindow.baml because it is in use.");
+
+        BuildTool build = new(
+            executor,
+            workspace.Guard("."),
+            new DiagnosticSummarizer(Options.Create(new VerificationOptions())),
+            Options.Create(new SandboxOptions()));
+
+        ToolObservation<BuildResult> observation = await build.BuildAsync("src/App/App.csproj");
+
+        observation.Summary.ShouldNotBeNull().ShouldContain("System.IO.IOException");
+        observation.OutcomeOk.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task The_sdk_scratch_project_a_failed_markup_pass_leaves_behind_is_swept()
+    {
+        // 31 KB of machine-specific paths shipped in run dbaa0580's deliverable, and the next
+        // build over that directory answered MSB1011 about a project the harness had created.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", Project());
+        string scratch = workspace.WriteFile("src/App/App_4lgcpo3h_wpftmp.csproj", Project());
+
+        ScriptedCommandExecutor executor = new();
+        executor.Enqueue(1, "src/App/Program.cs(3,5): error CS1002: ; expected [src/App/App.csproj]");
+
+        BuildTool build = new(
+            executor,
+            workspace.Guard("src"),
+            new DiagnosticSummarizer(Options.Create(new VerificationOptions())),
+            Options.Create(new SandboxOptions()));
+
+        await build.BuildAsync("src/App/App.csproj");
+
+        File.Exists(scratch).ShouldBeFalse("the SDK leaves it only when its markup pass failed");
+        File.Exists(Path.Combine(workspace.Root, "src", "App", "App.csproj"))
+            .ShouldBeTrue("and the project that was asked for is never the scratch one");
+    }
+
     // ── Structural hazards ──
 
     [Fact]

@@ -40,9 +40,6 @@ namespace GlassCoder.Tools.Verification;
 /// </summary>
 public static class TestSuiteNotices
 {
-    private static readonly string[] TestFrameworkPackages =
-        ["xunit", "nunit", "MSTest", "Microsoft.NET.Test.Sdk"];
-
     /// <summary>Assertion methods whose first argument is the expected value.</summary>
     private static readonly string[] ExpectedFirstAssertions =
         ["Equal", "AreEqual", "Same", "AreSame", "Equivalent"];
@@ -222,9 +219,7 @@ public static class TestSuiteNotices
             return known;
         }
 
-        bool isTest = ProjectLocator.ReadReferences(project).Packages
-            .Any(package => TestFrameworkPackages
-                .Any(framework => package.Contains(framework, StringComparison.OrdinalIgnoreCase)));
+        bool isTest = ProjectLocator.IsTestProject(project);
 
         cache[project] = isTest;
         return isTest;

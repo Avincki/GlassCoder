@@ -29,9 +29,6 @@ public static class XamlNotices
     /// <summary>Rows plus controls at which a short fixed window earns the note.</summary>
     private const int DenseContentThreshold = 5;
 
-    private static readonly string[] TestFrameworkPackages =
-        ["xunit", "nunit", "MSTest", "Microsoft.NET.Test.Sdk"];
-
     private static readonly string[] ContentControls =
         ["TextBox", "TextBlock", "Button", "Label", "ComboBox", "CheckBox", "RadioButton", "ListBox"];
 
@@ -44,12 +41,87 @@ public static class XamlNotices
         ArgumentNullException.ThrowIfNull(fullPath);
         ArgumentNullException.ThrowIfNull(content);
 
+        // A code-behind is half of a window, and the half that says which object the markup is
+        // supposed to be showing. Reading only the markup is why the pair could disagree for
+        // eleven steps of run 457867c7 with every rung green.
+        if (fullPath.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return UnusedDataContextNotice(fullPath, codeBehind: content, markup: null);
+        }
+
         if (!Path.GetExtension(fullPath).Equals(".xaml", StringComparison.OrdinalIgnoreCase))
         {
             return string.Empty;
         }
 
-        return TestProjectNotice(fullPath) + ClipRiskNotice(content);
+        return TestProjectNotice(fullPath) + ClipRiskNotice(content) +
+               UnusedDataContextNotice(fullPath, codeBehind: null, markup: content);
+    }
+
+    /// <summary>
+    /// The window sets a view model and displays nothing from it.
+    /// <para>
+    /// Every notice before this one asked about a single artifact. This one asks whether two
+    /// artifacts are the same feature, which is the question run <c>457867c7</c> answered wrongly
+    /// for eleven steps: a <c>ViewModel</c> with change notification that eight tests drove, and a
+    /// window that assigned it to <c>DataContext</c>, bound nothing to it, and ran its own
+    /// code-behind handlers instead. Twelve verification passes, all honest - the files compiled,
+    /// the suite really passed, the application really launched - and the suite was exactly as
+    /// hollow as the one task 66 was written for. The ladder asks whether an artifact holds up. It
+    /// has never asked whether the artifact is the one that runs.
+    /// </para>
+    /// <para>
+    /// The seam is C#-to-XAML, which is where WPF puts the wiring and where no rung looks. Kept a
+    /// notice: programmatic binding, DI-composed views and templates set elsewhere are known false
+    /// positives, and a gate here would be the deadlock this file already warns about twice.
+    /// </para>
+    /// </summary>
+    private static string UnusedDataContextNotice(string fullPath, string? codeBehind, string? markup)
+    {
+        string markupPath = codeBehind is null ? fullPath : fullPath[..^3];
+        string codeBehindPath = codeBehind is null ? fullPath + ".cs" : fullPath;
+
+        markup ??= ReadIfPresent(markupPath);
+        codeBehind ??= ReadIfPresent(codeBehindPath);
+        if (markup is null || codeBehind is null)
+        {
+            return string.Empty;
+        }
+
+        // Assigning the DataContext is the claim that the window shows that object.
+        if (!codeBehind.Contains("DataContext", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        // Anything that binds - in the markup, or built in code - means the pair is wired and this
+        // has nothing to say.
+        if (markup.Contains("{Binding", StringComparison.Ordinal) ||
+            markup.Contains("{x:Bind", StringComparison.Ordinal) ||
+            markup.Contains("{TemplateBinding", StringComparison.Ordinal) ||
+            codeBehind.Contains("SetBinding(", StringComparison.Ordinal) ||
+            codeBehind.Contains("new Binding(", StringComparison.Ordinal) ||
+            codeBehind.Contains("BindingOperations", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        return " Note: this window sets a DataContext and its markup binds to nothing, so what the " +
+               "window shows and what a test of that object covers are two different code paths. " +
+               "Every rung can pass while the running window uses neither.";
+    }
+
+    private static string? ReadIfPresent(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A notice is worth nothing and costs nothing; it never justifies failing a write.
+            return null;
+        }
     }
 
     private static string TestProjectNotice(string fullPath)
@@ -59,11 +131,7 @@ public static class XamlNotices
             return string.Empty;
         }
 
-        bool testProject = ProjectLocator.ReadReferences(project).Packages
-            .Any(package => TestFrameworkPackages
-                .Any(framework => package.Contains(framework, StringComparison.OrdinalIgnoreCase)));
-
-        return testProject
+        return ProjectLocator.IsTestProject(project)
             ? " Note: a XAML file in a test project is almost never loadable by tests - markup belongs " +
               "to the app project. Test behaviour through the app's own types; rendering is confirmed " +
               "by launch_app, and by the operator's Run app, not by tests."
