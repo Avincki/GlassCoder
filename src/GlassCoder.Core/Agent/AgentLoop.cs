@@ -324,6 +324,11 @@ public sealed class AgentLoop : IAgentLoop
                     caveats.Add(abandonedCaveat);
                 }
 
+                if (EmptySolutions() is { } emptyCaveat)
+                {
+                    caveats.Add(emptyCaveat);
+                }
+
                 if (caveats.Count > 0)
                 {
                     error = string.Join(" ", caveats);
@@ -804,6 +809,11 @@ public sealed class AgentLoop : IAgentLoop
             evidence = string.IsNullOrWhiteSpace(evidence) ? abandoned : $"{evidence}\n{abandoned}";
         }
 
+        if (EmptySolutions() is { } empty)
+        {
+            evidence = string.IsNullOrWhiteSpace(evidence) ? empty : $"{evidence}\n{empty}";
+        }
+
         string fingerprint = Fingerprint(evidence);
         bool unchanged = history.Refutation is not null &&
                          string.Equals(history.Fingerprint, fingerprint, StringComparison.Ordinal);
@@ -906,6 +916,39 @@ public sealed class AgentLoop : IAgentLoop
                 Critique = Record(critique) with { EvidenceUnchanged = unchanged },
             },
             message);
+    }
+
+    /// <summary>
+    /// The solutions this run leaves behind with no projects in them, or null when there are none.
+    /// <para>
+    /// A fact the harness has been able to compute for weeks and could only deliver if the model
+    /// chose to ask for it. Run <c>29356042</c> is what that costs: refused a solution below the
+    /// root at step 1, created one at the root at step 2, never added a project to it, and shipped
+    /// a repository whose <c>dotnet test</c> runs zero tests and exits 0. <c>AbandonedIntents</c>
+    /// could not catch it either - it keys on tool and operation, so the successful
+    /// <c>new_solution</c> closed the refused one's entry, and <c>add_to_solution</c> never opened
+    /// an entry because it was never called. Key the mechanism on the fact, not on the event that
+    /// revealed it.
+    /// </para>
+    /// <para>
+    /// A notice, never a gate, on the contract <see cref="AbandonedIntents"/> ships under.
+    /// </para>
+    /// </summary>
+    private string? EmptySolutions()
+    {
+        if (_workspace?.RepoRoot is not { Length: > 0 } root)
+        {
+            return null;
+        }
+
+        List<string> empty =
+        [
+            .. GlassCoder.Tools.Verification.ProjectLocator.FindEmptySolutions(root)
+                .Select(s => GlassCoder.Tools.Verification.ProjectLocator.EmptySolutionMessage(
+                    Path.GetRelativePath(root, s).Replace('\\', '/'))),
+        ];
+
+        return empty.Count == 0 ? null : string.Join(" ", empty);
     }
 
     /// <summary>

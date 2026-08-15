@@ -20,7 +20,20 @@ public sealed class VerificationVerdictTests
     [Fact]
     public void A_climb_that_verified_nothing_does_not_read_as_a_clean_pass()
     {
-        VerificationVerdict.Describe(passed: true, unverified: true).ShouldBe("passed (0 tests)");
+        VerificationVerdict.Describe(passed: true, unverified: true).ShouldBe("verified nothing (0 tests)");
+    }
+
+    [Fact]
+    public void A_climb_that_verified_nothing_does_not_begin_with_a_word_for_a_pass()
+    {
+        // The qualification used to be in brackets after the reassurance. A reader stops at the
+        // first line when it is reassuring - and at the first word for the same reason: run
+        // 29356042's process reviewer built a section on four "passed (0 tests)" lines while the
+        // model was being told, one call away, that the climb had verified nothing.
+        string verdict = VerificationVerdict.Describe(passed: true, unverified: true);
+
+        verdict.ShouldNotStartWith("passed", Case.Insensitive);
+        verdict.ShouldContain("0 tests", customMessage: "the count is still the evidence for the claim");
     }
 
     [Fact]

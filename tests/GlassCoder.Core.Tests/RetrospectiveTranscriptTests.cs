@@ -65,8 +65,8 @@ public sealed class RetrospectiveTranscriptTests
         // workspace with no tests in it - a finding manufactured by the instrument.
         string digest = Render(unverified: true);
 
-        digest.ShouldContain("verification: passed (0 tests) at UnitTests");
-        digest.ShouldNotContain("verification: passed at UnitTests");
+        digest.ShouldContain("verification: verified nothing (0 tests) at UnitTests");
+        digest.ShouldNotContain("verification: passed", Case.Sensitive);
     }
 
     [Fact]

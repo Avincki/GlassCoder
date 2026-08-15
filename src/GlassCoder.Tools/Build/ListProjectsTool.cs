@@ -77,9 +77,9 @@ public sealed class ListProjectsTool : IToolSet
 
             if (ProjectLocator.CountSolutionProjects(solution) == 0)
             {
-                warnings.Add(
-                    $"'{relative}' contains no projects. Add them with dotnet_project add_to_solution, "
-                    + "or delete the file - an empty solution builds nothing.");
+                // The sentence lives on ProjectLocator now: the completion panel says it too, and
+                // one fact stated two ways is how a reader learns to trust neither.
+                warnings.Add(ProjectLocator.EmptySolutionMessage(relative));
             }
 
             if (!string.Equals(

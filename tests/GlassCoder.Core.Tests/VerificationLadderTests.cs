@@ -101,6 +101,61 @@ public sealed class VerificationLadderTests : IDisposable
     }
 
     [Fact]
+    public async Task A_green_says_when_the_count_did_not_move()
+    {
+        // Run 29356042: step 16 said it would add a UI test, step 17 applied a refactor, the rung
+        // said "7 tests passed" - the same seven as step 13 - and step 18 offered "UI integration"
+        // as evidence of adequacy. Two panels accepted it. A passing count is the one signal that
+        // cannot tell a test added from no test added; what moved since the last green can.
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+
+        const string sevenPassed = "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7";
+        _executor.Enqueue(0, "");               // first climb: the build
+        _executor.Enqueue(0, sevenPassed);      //              the tests
+        _executor.Enqueue(0, "");               // second climb, over the same target
+        _executor.Enqueue(0, sevenPassed);
+
+        TestCountMemo memo = new();
+        VerificationLadder ladder = Ladder(memo);
+
+        RungResult first = (await ladder.VerifyAsync(new VerificationRequest(ProjectPath: "src")))
+            .Results.Single(r => r.Rung == VerificationRung.UnitTests);
+        RungResult second = (await ladder.VerifyAsync(new VerificationRequest(ProjectPath: "src")))
+            .Results.Single(r => r.Rung == VerificationRung.UnitTests);
+
+        first.Summary.ShouldNotContain("previous climb", customMessage: "there was no previous climb");
+        second.Summary.ShouldContain("7 tests passed.");
+        second.Summary.ShouldContain("The same number as the previous climb");
+
+        // After the count, never inside it: the sentry keys repeated failures on the first line.
+        second.Summary.IndexOf("The same number", StringComparison.Ordinal)
+            .ShouldBeGreaterThan(second.Summary.IndexOf("7 tests passed.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_green_that_gained_a_test_says_nothing_about_the_previous_one()
+    {
+        _workspace.WriteFile("src/Proj.csproj", TestProject);
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+
+        _executor.Enqueue(0, "");
+        _executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 7, Skipped: 0, Total: 7");
+        _executor.Enqueue(0, "");
+        _executor.Enqueue(0, "Passed!  - Failed: 0, Passed: 8, Skipped: 0, Total: 8");
+
+        TestCountMemo memo = new();
+        VerificationLadder ladder = Ladder(memo);
+
+        await ladder.VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+        RungResult second = (await ladder.VerifyAsync(new VerificationRequest(ProjectPath: "src")))
+            .Results.Single(r => r.Rung == VerificationRung.UnitTests);
+
+        second.Summary.ShouldContain("8 tests passed.");
+        second.Summary.ShouldNotContain("previous climb");
+    }
+
+    [Fact]
     public async Task A_tree_with_no_test_project_does_not_pay_for_a_test_process()
     {
         // Steps 3-8 of run 457867c7: six scaffolding changes, six ladder climbs, six dotnet test
@@ -207,7 +262,7 @@ public sealed class VerificationLadderTests : IDisposable
         report.Results.ShouldContain(r => r.Rung == VerificationRung.Compile && r.Skipped);
     }
 
-    private VerificationLadder Ladder()
+    private VerificationLadder Ladder(TestCountMemo? testCounts = null)
     {
         IOptions<VerificationOptions> verification = Options.Create(new VerificationOptions());
         IOptions<SandboxOptions> sandbox = Options.Create(new SandboxOptions());
@@ -221,7 +276,8 @@ public sealed class VerificationLadderTests : IDisposable
             new RunTestsTool(_executor, guard, sandbox),
             new DisabledCriticPanel(),
             guard,
-            Options.Create(new VerificationLadderOptions()));
+            Options.Create(new VerificationLadderOptions()),
+            testCounts);
     }
 
     /// <summary>Critique is a Phase 2 capability; the ladder tests are about the compiler rungs.</summary>

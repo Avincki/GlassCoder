@@ -105,6 +105,37 @@ public sealed class CriticEvidenceTests
     }
 
     [Fact]
+    public async Task An_empty_solution_left_at_the_root_is_named_to_the_panel_and_on_the_record()
+    {
+        // Run 29356042: a solution refused below the root at step 1, created at the root at step 2,
+        // and never given a project. dotnet test at that root runs zero tests and exits 0 - the
+        // hazard the step-1 refusal had described in advance - and the harness could compute the
+        // fact all along, behind a list_projects call the run had no reason to make.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("MultiplyApp.slnx", "<Solution></Solution>");
+        workspace.WriteFile("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+
+        RecordingCritics critics = await RunWithWorkspace(workspace, launches: false);
+
+        critics.Evidence.ShouldNotBeNull().ShouldContain("MultiplyApp.slnx");
+        critics.Evidence.ShouldContain("an empty solution builds nothing");
+    }
+
+    [Fact]
+    public async Task A_solution_that_lists_its_projects_is_not_complained_about()
+    {
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+        workspace.WriteFile(
+            "MultiplyApp.slnx",
+            "<Solution><Project Path=\"src/App/App.csproj\" /></Solution>");
+
+        RecordingCritics critics = await RunWithWorkspace(workspace, launches: false);
+
+        (critics.Evidence ?? string.Empty).ShouldNotContain("empty solution");
+    }
+
+    [Fact]
     public async Task A_workspace_with_nothing_runnable_is_not_asked_why_it_did_not_run_anything()
     {
         // A library has nothing to launch, and a critic told otherwise would be refusing work for

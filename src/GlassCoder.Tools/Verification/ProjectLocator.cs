@@ -334,6 +334,38 @@ public static class ProjectLocator
         }
     }
 
+    /// <summary>
+    /// The solutions under this root that list no projects, as full paths.
+    /// <para>
+    /// The fact has been computable since <c>list_projects</c> gained its warning, and reachable
+    /// only if the model elected to call that tool. Run <c>29356042</c> shipped an empty
+    /// <c>MultiplyApp.slnx</c> at its root: a solution was refused below the root at step 1,
+    /// created at the root at step 2, and never had a project added to it - so <c>dotnet test</c>
+    /// at the root runs zero tests and exits 0, which is the hazard the step-1 refusal had
+    /// described in advance.
+    /// </para>
+    /// </summary>
+    public static IEnumerable<string> FindEmptySolutions(string root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        foreach (string solution in FindAllSolutions(root))
+        {
+            if (CountSolutionProjects(solution) == 0)
+            {
+                yield return solution;
+            }
+        }
+    }
+
+    /// <summary>
+    /// What an empty solution costs, in one sentence, written once. Both the tool that reports it
+    /// on request and the loop that reports it at completion say the same thing.
+    /// </summary>
+    public static string EmptySolutionMessage(string relativePath) =>
+        $"'{relativePath}' contains no projects. Add them with dotnet_project add_to_solution, " +
+        "or delete the file - an empty solution builds nothing.";
+
     /// <summary>Whether this project produces an executable.</summary>
     public static bool IsExecutableProject(string projectFile)
     {

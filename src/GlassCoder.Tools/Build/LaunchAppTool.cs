@@ -348,9 +348,14 @@ public sealed class LaunchAppTool : IToolSet
             ? string.Empty
             : $" Window: {string.Join("; ", swept.Select(r => r.Describe()))}.";
 
+        // The sweep first, always. It is evidence about the product; the probe line is a record of
+        // what was asked for, and at step 19 of run 29356042 a probe for a name that does not exist
+        // printed ten offered identities and pushed the at-rest window - the whole point of this
+        // rung - past where the digest truncates. Both reviewers of that run reasoned from the half
+        // that survived.
         if (readings.Count > 0)
         {
-            return $" Probe: {string.Join("; ", readings.Select(r => r.Describe()))}.{window}{complaint}";
+            return $"{window} Probe: {string.Join("; ", readings.Select(r => r.Describe()))}.{complaint}";
         }
 
         if (swept.Count > 0)

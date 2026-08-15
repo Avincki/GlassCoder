@@ -27,7 +27,14 @@ public static class VerificationVerdict
     /// <param name="noticed">Whether a rung that passed had something to say about what it verified.</param>
     public static string Describe(bool passed, bool unverified, bool noticed = false) =>
         !passed ? "FAILED"
-        : unverified ? "passed (0 tests)"
+
+        // Leads with the fact, not with the word for a pass. "passed (0 tests)" put the
+        // reassurance first and the qualification in brackets, and this file's own argument -
+        // that a reader stops at the first line when it is reassuring - applies to the first
+        // *word* as well. Run 29356042's process reviewer built its central section on four
+        // consecutive "verification: passed (0 tests)" lines while the model-facing text one call
+        // away said "reached UnitTests, which verified nothing". One state, one sentence.
+        : unverified ? "verified nothing (0 tests)"
         : noticed ? "passed (with a notice)"
         : "passed";
 }

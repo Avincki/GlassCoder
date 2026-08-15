@@ -171,6 +171,7 @@ public sealed class VerificationLadder : IVerificationLadder
     private readonly RunTestsTool _tests;
     private readonly ICriticPanel _critics;
     private readonly IPathGuard _guard;
+    private readonly TestCountMemo? _testCounts;
     private readonly VerificationLadderOptions _options;
     private readonly ILogger<VerificationLadder> _logger;
 
@@ -183,6 +184,7 @@ public sealed class VerificationLadder : IVerificationLadder
         ICriticPanel critics,
         IPathGuard guard,
         IOptions<VerificationLadderOptions> options,
+        TestCountMemo? testCounts = null,
         ILogger<VerificationLadder>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -193,9 +195,26 @@ public sealed class VerificationLadder : IVerificationLadder
         _tests = tests;
         _critics = critics;
         _guard = guard;
+        _testCounts = testCounts;
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<VerificationLadder>.Instance;
     }
+
+    /// <summary>
+    /// The clause that says this climb ran the same number of tests as the last one over the same
+    /// target, or nothing when it did not or when nothing is remembering.
+    /// <para>
+    /// A count that did not move is the only trace a step leaves when it says it added a test and
+    /// applied a refactor instead - run <c>29356042</c>'s step 17, accepted by two panels because
+    /// they were grading an application that worked rather than a summary that was false. It is
+    /// stated as the count and not as a conclusion: a rewritten test keeps the number, and the
+    /// harness cannot tell those apart.
+    /// </para>
+    /// </summary>
+    private string Unmoved(VerificationRequest request, TestRunResult tests) =>
+        _testCounts?.Observe(request.ProjectPath, request.TestFilter, tests.Total) == true
+            ? " The same number as the previous climb over this target."
+            : string.Empty;
 
     /// <inheritdoc />
     public async Task<VerificationReport> VerifyAsync(
@@ -385,7 +404,11 @@ public sealed class VerificationLadder : IVerificationLadder
                     // The suite-quality notices ride the rung report as well as the tool's own
                     // summary (workplan task 66), because this is the sentence the critics read
                     // when they are deciding whether "tests pass" means the work is done.
-                    (true, _) => $"{tests.Passed} tests passed." + tests.Notices,
+                    // The count, and whether it is the one the last climb reported. After the
+                    // number and never inside it: RunProgressSentry keys repeated failures on the
+                    // first line, which is the rule task 69 established.
+                    (true, _) => $"{tests.Passed} tests passed." +
+                                 Unmoved(request, tests) + tests.Notices,
                     (false, 0) => "The test run failed before any test executed.",
 
                     // The assertion messages ride under the count (workplan task 69). This rung is

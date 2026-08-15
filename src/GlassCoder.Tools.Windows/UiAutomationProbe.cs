@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Windows;
 using System.Windows.Automation;
 using GlassCoder.Tools.Processes;
 using Microsoft.Extensions.DependencyInjection;
@@ -104,9 +105,19 @@ public sealed class UiAutomationProbe : IUiProbe
             return readings;
         }
 
+        Rect windowBounds = Bounds(window);
+
         foreach (Labelled labelled in Walk(found, MaxReadBack, cancellationToken))
         {
-            readings.Add(new UiProbeReading($"{labelled.Label}?", Ok: true, Saw: labelled.Value, Problem: null));
+            // And whether it is where it can be read. XamlNotices has been telling runs that
+            // "compile and tests cannot see clipping; launch_app can" while launch_app read
+            // nothing but text - run 29356042 was warned at step 7, launched three times at 19-21
+            // with the window in front of it, and never answered the warning. A rectangle is a
+            // measurement, not a judgement about the design.
+            readings.Add(new UiProbeReading($"{labelled.Label}?", Ok: true, Saw: labelled.Value, Problem: null)
+            {
+                Note = OutsideWindow(labelled.Element, windowBounds),
+            });
         }
 
         return readings;
@@ -182,6 +193,63 @@ public sealed class UiAutomationProbe : IUiProbe
         }
 
         return walked;
+    }
+
+    /// <summary>
+    /// Why this control cannot be read, or null when it can.
+    /// <para>
+    /// The cheap half of the clipping oracle, and the half that is a measurement rather than a
+    /// judgement. Run <c>ea9a1f66</c> shipped a result field below the bottom of its own window
+    /// past a green build, green tests and 100% tool-call validity, and the only thing that ever
+    /// caught it was a person looking at the screen. This does not replace them; it answers the
+    /// question <c>XamlNotices</c> has been promising a launch could answer.
+    /// </para>
+    /// <para>
+    /// Two facts, both from UI Automation: the framework's own <c>IsOffscreen</c>, and a rectangle
+    /// that does not fit inside the window's. An empty rectangle means "not laid out" rather than
+    /// "clipped" - a collapsed container is the ordinary case - and says nothing, on the same
+    /// bargain the sweep already strikes for controls it cannot name.
+    /// </para>
+    /// </summary>
+    private static string? OutsideWindow(AutomationElement element, Rect window)
+    {
+        try
+        {
+            if (element.Current.IsOffscreen)
+            {
+                return "not visible on screen";
+            }
+
+            Rect bounds = Bounds(element);
+            if (bounds.IsEmpty || window.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                return null;
+            }
+
+            // Any edge past the window's own is a control the operator cannot fully read. A
+            // fraction of a pixel is rounding, not clipping.
+            const double slack = 1.0;
+            return bounds.Right > window.Right + slack || bounds.Bottom > window.Bottom + slack ||
+                   bounds.Left < window.Left - slack || bounds.Top < window.Top - slack
+                ? "outside the window"
+                : null;
+        }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static Rect Bounds(AutomationElement element)
+    {
+        try
+        {
+            return element.Current.BoundingRectangle;
+        }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
+        {
+            return Rect.Empty;
+        }
     }
 
     /// <summary>Every text-bearing control the window has, for addressing and for reporting.</summary>
@@ -400,9 +468,14 @@ public sealed class UiAutomationProbe : IUiProbe
         {
             1 => (matches[0].Element, null),
             > 1 => (null, $"{matches.Count} controls answer to that, so it is not an address"),
+            // With what each of them holds. The walk is carrying the values already, and a bare
+            // list of identities is the shape of input that invites a reader to fill in what it
+            // remembers writing - which is what the model did at step 20 of run 29356042, narrating
+            // an "Invalid input" that no control was showing.
             _ => (null, walked.Count == 0
                 ? "no element by that name"
-                : $"no element by that name; the window offers {string.Join(", ", walked.Take(MaxReadBack).Select(l => l.Label))}"),
+                : $"no element by that name; the window offers " +
+                  string.Join(", ", walked.Take(MaxReadBack).Select(l => $"{l.Label}=\"{l.Value}\""))),
         };
     }
 

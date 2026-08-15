@@ -29,6 +29,16 @@ public sealed record UiProbeStep(UiProbeAction Action, string Element, string? V
 public sealed record UiProbeReading(string Step, bool Ok, string? Saw, string? Problem)
 {
     /// <summary>
+    /// Something true of the control besides what it holds - today, that it is not where it can be
+    /// read.
+    /// <para>
+    /// Beside the value rather than folded into it, because it is a different kind of fact: the
+    /// value is what the application computed, and this is where the application put it.
+    /// </para>
+    /// </summary>
+    public string? Note { get; init; }
+
+    /// <summary>
     /// One line for the launch summary.
     /// <para>
     /// A step that typed says it typed. Rendered as a bare "ok" it reads as a confirmation of what
@@ -39,11 +49,13 @@ public sealed record UiProbeReading(string Step, bool Ok, string? Saw, string? P
     /// </summary>
     public string Describe() => (Ok, Saw) switch
     {
-        (true, not null) => string.Create(CultureInfo.InvariantCulture, $"{Step} → \"{Saw}\""),
-        (true, null) when Step.EndsWith('!') => $"{Step} clicked",
-        (true, null) => $"{Step} (typed, not read back)",
+        (true, not null) => string.Create(CultureInfo.InvariantCulture, $"{Step} → \"{Saw}\"{Noted()}"),
+        (true, null) when Step.EndsWith('!') => $"{Step} clicked{Noted()}",
+        (true, null) => $"{Step} (typed, not read back){Noted()}",
         _ => $"{Step} - {Problem ?? "did not happen"}",
     };
+
+    private string Noted() => Note is { Length: > 0 } note ? $" ({note})" : string.Empty;
 }
 
 /// <summary>

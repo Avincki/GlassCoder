@@ -201,6 +201,9 @@ public static class ToolsServiceCollectionExtensions
         // What the run asked for, was refused, and never came back to. Keyed by run, like the
         // refusal tracker and the runtime evidence beside it.
         services.TryAddSingleton<AbandonedIntents>();
+
+        // How many tests the last climb over each target ran, so a green can say what moved.
+        services.TryAddSingleton<GlassCoder.Tools.Verification.TestCountMemo>();
         services.TryAddSingleton<IWindowPresence, WindowPresence>();
         services.TryAddSingleton<LaunchAppTool>();
 

@@ -9,7 +9,72 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
-## 2026-08-15 (end of day) — Clean takes the solution with it
+## 2026-08-15 (end of day, later) — Key the mechanism on the fact, not on the event
+
+Run `29356042`'s retrospective, all five ticked items. Its own summary of the pattern is the thing
+worth keeping: **a mechanism keyed to the shape of the run that revealed it goes blind the moment
+the same fact arrives by a different door.**
+
+`AbandonedIntents` was built four days ago from a run whose step 2 asked for a root solution, was
+refused, and never came back. This run asked at step 1, was refused, created one at the root at
+step 2 - and `add_to_solution` was never called, so no entry ever opened, while the successful
+`new_solution` closed the refused one's. The repository shipped `MultiplyApp.slnx` containing
+`<Solution></Solution>`, where `dotnet test` runs zero tests and exits 0. The harness could compute
+that fact all along: `ListProjectsTool` has said *"an empty solution builds nothing"* since it
+gained the warning, behind a call the run had no reason to make. The sentence now lives on
+`ProjectLocator` with one author, and the completion panel and the run record get it whether or not
+anyone asks.
+
+**The sweep can see clipping now, which it had been claiming for weeks.** `XamlNotices` told this
+run at step 7 that *"compile and tests cannot see clipping; launch_app can"* - and `launch_app`
+read `AutomationId`, `Name` and `ValuePattern` and never touched geometry. Six recorded instances
+of a model-facing sentence asserting a capability the harness lacked, and this one was aspirational
+rather than stale, which misleads exactly as well. `Walk` already held the live element, so it now
+reads `IsOffscreen` and compares each rectangle with the window's. Against a window deliberately
+too short for its content:
+
+```
+Window: … FahrenheitTextBox? → "" (outside the window);
+        ResultTextBlock? → "the result nobody can see" (outside the window).
+```
+
+That is `ea9a1f66`'s defect - a result field below the bottom of its own window, past a green
+build, green tests and 100% tool-call validity - caught by the harness for the first time. It does
+not replace the human oracle task 65 fell back to; it makes the cheap half automatic. The critic
+prompt's *"pixels, layout and clipping are nobody's to prove here"* boundary stays put: supply the
+fact first, move the boundary afterwards, in that order.
+
+**Three smaller ones, all renderers.**
+
+- **The launch summary leads with the sweep.** `Probe:` came first, so at step 19 a probe for a
+  name that does not exist printed ten offered identities and pushed the at-rest window past where
+  the digest truncates - both reviewers of that run reasoned from the surviving half. The sweep is
+  evidence about the product; the probe line is a record of what was asked. And the offer list now
+  carries what each control holds, which the walk was already holding and discarding: a bare list
+  of names is the shape of input that invites a reader to fill in what it remembers writing, which
+  is what the model did when it narrated an "Invalid input" no control was showing.
+- **`verified nothing (0 tests)`**, not `passed (0 tests)`. This file's own argument - a reader
+  stops at the first line when it is reassuring - applies to the first *word*. The process review
+  of this run built a section on four `passed (0 tests)` lines while the model was being told, one
+  call away, that the climb verified nothing. One state, one sentence, in the one place the words
+  are chosen.
+- **A green says when the count did not move.** Step 16 said it would add a UI test, step 17
+  applied a refactor, the rung said *7 tests passed* - the same seven as step 13 - and step 18
+  offered "UI integration" as evidence of adequacy, which two panels accepted. `TestCountMemo` is
+  run-keyed on the `FileReadMemo` pattern, and the clause lands after the count, never inside it,
+  so the sentry's first-line keying is untouched. Stated as the count and not as a conclusion: a
+  rewritten test keeps the number and the harness cannot tell those apart. This is the fifth axis
+  of a class already closed on four others, and the generalisation is now written down - **every
+  green should say what moved since the last one.**
+
+**Open**
+
+- The culture-sensitive parse (`"6.5"` under `CurrentCulture`, which is 65 on this operator's own
+  `nl-BE` machine) is invisible to a single-machine loop by construction, and the probe reproduced
+  the assumption rather than testing it. Left unticked as the retrospective proposed: a real risk,
+  not a harness defect, and the most expensive item on that list.
+- `launch_app` is still elective. This run measured the cost more precisely - one refutation cycle
+  plus four steps, not a whole run - which is an argument for the fix, not against it.
 
 The operator found the workspace after a clean: `src` and `tests` swept, and `MultiplyApp.slnx`
 still at the root, naming projects that no longer existed. Clean's doc comment said a run's output
