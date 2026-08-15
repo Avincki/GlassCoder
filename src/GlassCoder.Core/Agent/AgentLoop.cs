@@ -47,6 +47,7 @@ public sealed class AgentLoop : IAgentLoop
     private readonly ILogger<AgentLoop> _logger;
     private readonly ILimitExtensionGate? _limitGate;
     private readonly RuntimeEvidence? _runtime;
+    private readonly AbandonedIntents? _intents;
     private readonly GlassCoder.Tools.Retrieval.IRetrievalPolicy? _retrieval;
 
     /// <summary>Creates the loop.</summary>
@@ -67,6 +68,7 @@ public sealed class AgentLoop : IAgentLoop
         ICriticPanel? critics = null,
         ILimitExtensionGate? limitGate = null,
         RuntimeEvidence? runtime = null,
+        AbandonedIntents? intents = null,
         GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -87,6 +89,7 @@ public sealed class AgentLoop : IAgentLoop
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<AgentLoop>.Instance;
         _limitGate = limitGate;
         _runtime = runtime;
+        _intents = intents;
         _retrieval = retrieval;
     }
 
@@ -309,6 +312,14 @@ public sealed class AgentLoop : IAgentLoop
                     caveats.Add(noticeCaveat);
                 }
 
+                // On the record as well as in front of the panel: the run that shipped without a
+                // root solution finished green, and the fact that it had asked for one and been
+                // told how to get it existed nowhere a later reader would look.
+                if (_intents?.Summary() is { } abandonedCaveat)
+                {
+                    caveats.Add(abandonedCaveat);
+                }
+
                 if (caveats.Count > 0)
                 {
                     error = string.Join(" ", caveats);
@@ -340,6 +351,21 @@ public sealed class AgentLoop : IAgentLoop
             // Not-making-progress is the sentry's department: repeated identical failures,
             // whole steps of verbatim repeats, and completions over a red tree.
             sentry.ObserveStep(invocations, newlyApplied.Count > 0);
+
+            // What was wanted and refused, and whether it was ever achieved. Every observation,
+            // not just the failures: a success is what closes an entry, and step 19 of run
+            // dd11ef7c - refused, then repaired on the next call - must leave no trace at all.
+            if (_intents is not null)
+            {
+                foreach (ToolInvocation invocation in invocations)
+                {
+                    _intents.Observe(
+                        invocation.ToolName,
+                        Operation(invocation),
+                        invocation.Status == ToolCallStatus.Succeeded && invocation.OutcomeOk,
+                        budget.Steps);
+                }
+            }
 
             messages.Add(new ChatMessage(
                 ChatRole.Tool,
@@ -754,6 +780,14 @@ public sealed class AgentLoop : IAgentLoop
             evidence = string.IsNullOrWhiteSpace(evidence) ? runtime : $"{evidence}\n{runtime}";
         }
 
+        // And what the run asked for, was refused, and never came back to. The panel is judging
+        // whether the goal was met; a build that was never made and a solution that was never
+        // created are exactly the kind of absence a green climb cannot show it.
+        if (_intents?.Summary() is { } abandoned)
+        {
+            evidence = string.IsNullOrWhiteSpace(evidence) ? abandoned : $"{evidence}\n{abandoned}";
+        }
+
         string fingerprint = Fingerprint(evidence);
         bool unchanged = history.Refutation is not null &&
                          string.Equals(history.Fingerprint, fingerprint, StringComparison.Ordinal);
@@ -857,6 +891,21 @@ public sealed class AgentLoop : IAgentLoop
             },
             message);
     }
+
+    /// <summary>
+    /// The operation a call was for, where its tool has operations.
+    /// <para>
+    /// <c>dotnet_project new_solution</c> and <c>dotnet_project add_reference</c> are two different
+    /// intents behind one tool name, and a ledger keyed on the name alone would let the second
+    /// close the first's entry. Read off the arguments the model actually sent rather than from a
+    /// list of which tools have operations, which would be a second place to keep in step.
+    /// </para>
+    /// </summary>
+    private static string? Operation(ToolInvocation invocation) =>
+        invocation.Arguments is not null &&
+        invocation.Arguments.TryGetValue("operation", out object? operation)
+            ? operation?.ToString()
+            : null;
 
     /// <summary>
     /// What the advisory concession is allowed to call the authority: only what actually ran.
@@ -1060,7 +1109,8 @@ public sealed class AgentLoop : IAgentLoop
             invocation.Duration.TotalMilliseconds,
             Serialise(invocation.Result),
             invocation.ErrorMessage,
-            invocation.Summary);
+            invocation.Summary,
+            invocation.Hint);
 
     private static string? Serialise(object? result)
     {

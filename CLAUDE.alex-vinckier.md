@@ -304,6 +304,41 @@ The **console host** must run the same services non-interactively, take a config
 
 ---
 
+## 18a. Retrospective Triage (what may be accepted from a work order)
+
+Established 2026-08-15, after run `dd11ef7c`. The implemented recommendations to that date made
+GlassCoder **reliable** — 100% tool-call validity, clean recoveries, hard loop ceilings, no thrash.
+They did not make it able to **see**: every remaining defect in that run's two reviews was in the
+oracle layer, and the user-visible one (`0 °C` beside `0 °F`) was reachable by the harness and
+reported as a green light. Almost every fix since 2026-08-08 has been a **message** — better
+wording, a named consequence, a truer verdict. A message reaches exactly one step. Four perfect
+messages in that run were all read, all understood, and all outlived by nothing.
+
+So a recommendation is **declined** when:
+
+- **It adds a sentence, a nudge, or a prompt clause** — unless it is the *only* renderer of a fact
+  that already exists (fixing a lossy retelling is not adding a message).
+- **It adds a capability the model must elect.** Make it fire on its own, or do not ship it. An
+  optional parameter on the one axis nothing else can see is advice, and §55's rule already says
+  advice is not a mechanism. `launch_app`'s probe shipped as advice and was not reached for once.
+- **It adds a gate.** This repository has paid for gates twice: `5c071f37` and `a408b61b`.
+- **It adds a counter to `RunProgressSentry`** — unless a live run actually spun on that shape
+  *after* the existing stop-verdicts fired.
+
+And two standing consequences of the above:
+
+- A capability that lands should also **fire by default** wherever it can do so without side
+  effects. Reading is free; typing and clicking are not.
+- A fix for a lossy retelling ships as an **invariant**, not a patch to the one renderer that was
+  caught. Four surfaces have now dropped a model-facing fact, each found by a reviewer reasoning
+  from half a message. See `VerificationVerdict.Describe` and `[ModelFacing]`.
+
+The purpose of the rule is stated once, so it cannot be re-litigated per work order: it is what
+keeps the harness from becoming an endless special-case pile, and the worker from spending its last
+eight steps extracting a service nobody asked for.
+
+---
+
 ## 19. Caveats
 
 - Package versions, API surfaces, and SDK options **drift between releases** — verify before relying on them. Treat any referenced API shape as guidance, not fixed contract.

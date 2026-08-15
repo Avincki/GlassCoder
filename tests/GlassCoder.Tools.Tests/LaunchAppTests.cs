@@ -268,21 +268,69 @@ public sealed class LaunchAppTests : IDisposable
     }
 
     [Fact]
-    public async Task A_launch_with_no_probe_asked_for_is_exactly_what_it_was_before()
+    public async Task A_launch_that_asked_for_nothing_reads_the_window_anyway()
+    {
+        // Run dd11ef7c: the probe existed, the goal was two values agreeing, and launch_app was
+        // called with two arguments - so the harness said a window drew while the window said 0
+        // beside 0. A capability the model must elect is advice; this is the mechanism.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        StubProbe probe = new("0");
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), probe)
+            .LaunchAsync("src/App/App.csproj");
+
+        probe.Steps.ShouldBeEmpty("nothing was typed and nothing was clicked");
+        probe.SweptProcessId.ShouldBe(runner.ReadyProcessId);
+        observation.Summary.ShouldContain("Window: CelsiusTextBox? → \"0\"");
+    }
+
+    [Fact]
+    public async Task A_window_read_at_rest_does_not_claim_the_window_is_right()
+    {
+        // The overclaim this repository keeps paying for, one step ahead of it. A sweep says what
+        // the boxes hold before anything was typed; that is the defect on dd11ef7c, not evidence
+        // against it. The hedge narrows to what is actually missing, which is answerable in one
+        // step with a probe.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> swept = await Tool(runner, new StubWindows(true), new StubProbe("0"))
+            .LaunchAsync("src/App/App.csproj");
+
+        swept.Summary.ShouldContain("nothing was typed into it");
+        swept.Summary.ShouldNotContain("needs eyes on it");
+
+        // And an asked-for probe, which did type, drops the hedge entirely.
+        FakeProcessRunner second = new();
+        second.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> driven = await Tool(second, new StubWindows(true), new StubProbe("212"))
+            .LaunchAsync("src/App/App.csproj", probe: "Celsius=100; Fahrenheit?");
+
+        driven.Summary.ShouldNotContain("nothing was typed into it");
+        driven.Summary.ShouldNotContain("needs eyes on it");
+    }
+
+    [Fact]
+    public async Task A_host_with_no_probe_still_launches_and_still_says_it_read_nothing()
     {
         _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
 
         FakeProcessRunner runner = new();
         runner.EnqueueReady();
-        StubProbe probe = new("212");
 
-        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), probe)
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true))
             .LaunchAsync("src/App/App.csproj");
 
-        runner.Requests.Single().OnReady.ShouldBeNull("nothing was asked for, so nothing should be attached");
-        probe.Steps.ShouldBeEmpty();
+        runner.Requests.Single().OnReady.ShouldBeNull("there is nothing to attach");
+        observation.Data!.Started.ShouldBeTrue();
+        observation.Summary.ShouldContain("No UI probe is available");
         observation.Summary.ShouldContain("needs eyes on it");
-        observation.Summary.ShouldNotContain("Probe:");
     }
 
     [Fact]
@@ -396,6 +444,20 @@ public sealed class LaunchAppTests : IDisposable
 
         public int ProcessId { get; private set; }
 
+        /// <summary>The process an unasked-for sweep was pointed at, or zero if none happened.</summary>
+        public int SweptProcessId { get; private set; }
+
+        public Task<IReadOnlyList<UiProbeReading>> ReadAllAsync(
+            int processId, CancellationToken cancellationToken = default)
+        {
+            SweptProcessId = processId;
+
+            return Task.FromResult<IReadOnlyList<UiProbeReading>>(
+                readsBack is null
+                    ? []
+                    : [new UiProbeReading("CelsiusTextBox?", Ok: true, Saw: readsBack, Problem: null)]);
+        }
+
         public Task<IReadOnlyList<UiProbeReading>> RunAsync(
             int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken = default)
         {
@@ -420,6 +482,10 @@ public sealed class LaunchAppTests : IDisposable
     {
         public Task<IReadOnlyList<UiProbeReading>> RunAsync(
             int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("the automation client fell over");
+
+        public Task<IReadOnlyList<UiProbeReading>> ReadAllAsync(
+            int processId, CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("the automation client fell over");
     }
 }

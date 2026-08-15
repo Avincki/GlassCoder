@@ -30,9 +30,17 @@ public sealed class ModelFacingPromptTests
     /// Phrases that deny the model a capability it has. Narrow on purpose: this is not a style
     /// rule about mentioning the operator, and <c>launch_app</c>'s own summary correctly says that
     /// whether a window looks right is the operator's to judge. What is banned is telling the
-    /// model the launching itself is not its to do.
+    /// model the launching itself is not its to do - and, since the launch began reading the
+    /// window's text back on 2026-08-15, telling anyone that it cannot see what the window shows.
+    /// <para>
+    /// Exact phrases, which is the limit of this guard as much as its point: it stops the sentence
+    /// that shipped, not every future rewording of it. What makes it worth having anyway is that
+    /// all five recorded instances were the *same* sentence surviving the task that falsified it,
+    /// not a new one being invented.
+    /// </para>
     /// </summary>
-    private static readonly string[] Denials = ["never by you", "only the operator"];
+    private static readonly string[] Denials =
+        ["never by you", "only the operator", "cannot see what is on the screen"];
 
     /// <summary>The projects whose strings reach the model.</summary>
     private static readonly string[] Projects = ["GlassCoder.Core", "GlassCoder.Tools"];

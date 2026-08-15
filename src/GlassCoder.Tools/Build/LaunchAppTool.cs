@@ -154,8 +154,13 @@ public sealed class LaunchAppTool : IToolSet
                 outcomeOk: reused.Started,
                 reused: true);
         }
+
         List<UiProbeReading> readings = [];
-        bool canProbe = script.Steps.Count > 0 && _probe is not null && watched;
+
+        // Asked-for and unasked-for are different questions and must stay distinguishable all the
+        // way to the summary: one drove the application, the other only looked at it.
+        bool asked = script.Steps.Count > 0;
+        bool canProbe = _probe is not null && watched;
 
         request = request with
         {
@@ -166,13 +171,20 @@ public sealed class LaunchAppTool : IToolSet
             // killed. It cannot extend the launch: the timeout still owns the clock. Its own
             // failure is recorded as a reading rather than allowed out - the runner would swallow
             // it, and a silent probe is the one outcome this must never report.
+            //
+            // With nothing asked for it reads the window anyway. Run dd11ef7c is the argument: the
+            // probe existed, the goal was about two values agreeing, and launch_app was called with
+            // two arguments - so the harness reported that a window drew while that window showed 0
+            // beside 0. A capability the model has to elect is advice; this is the same capability
+            // as a mechanism, and reading costs nothing and changes nothing.
             OnReady = canProbe
                 ? async (processId, token) =>
                 {
                     try
                     {
-                        readings.AddRange(
-                            await _probe!.RunAsync(processId, script.Steps, token).ConfigureAwait(false));
+                        readings.AddRange(asked
+                            ? await _probe!.RunAsync(processId, script.Steps, token).ConfigureAwait(false)
+                            : await _probe!.ReadAllAsync(processId, token).ConfigureAwait(false));
                     }
                     catch (Exception ex)
                     {
@@ -216,14 +228,22 @@ public sealed class LaunchAppTool : IToolSet
             ShowedWindow = showedWindow,
         };
 
-        // Anything read out of the window replaces the hedge rather than joining it. "Whether the
-        // window is right still needs eyes on it" is the honest thing to say about a launch that
-        // only watched; said over a readback of the field it was asked about, it understates the
-        // evidence the tool is holding - and it was the sentence three critics quoted back at run
-        // ae72c5ad while the harness had nothing better to offer.
-        string hedge = readings.Any(r => r.Saw is not null)
-            ? "."
-            : "; whether the window is *right* still needs eyes on it.";
+        // An asked-for probe replaces the hedge rather than joining it: "whether the window is
+        // right still needs eyes on it" is the honest thing to say about a launch that only
+        // watched, and an understatement over a readback of the field the refutation was about -
+        // the sentence three critics quoted back at run ae72c5ad while the harness had nothing
+        // better to offer.
+        //
+        // A sweep does not earn that. It reports what the window shows at rest, which is a fact
+        // about the product and not evidence that the product is correct: on run dd11ef7c it would
+        // have said 0 and 0, which is the defect rather than its absence. So the hedge narrows
+        // instead of disappearing, and what is missing is nameable - and answerable in one step.
+        string hedge = (asked, readings.Any(r => r.Saw is not null)) switch
+        {
+            (true, true) => ".",
+            (false, true) => "; nothing was typed into it, so this is what it shows at rest.",
+            _ => "; whether the window is *right* still needs eyes on it.",
+        };
 
         string summary = (showedWindow, stayedUp, result.ExitCode) switch
         {
@@ -253,7 +273,7 @@ public sealed class LaunchAppTool : IToolSet
                 $"without staying up.{Describe(result.StandardError)}"),
         };
 
-        summary += ProbeReport(script, readings, showedWindow, watched);
+        summary += ProbeReport(asked, script, readings, showedWindow, watched);
 
         // Kept for the completion critique, which is the panel that asked for this in the first
         // place and cannot see a tool observation on its own - and keyed, so the next identical
@@ -297,6 +317,7 @@ public sealed class LaunchAppTool : IToolSet
     /// </para>
     /// </summary>
     private string ProbeReport(
+        bool asked,
         UiProbeScript script,
         IReadOnlyList<UiProbeReading> readings,
         bool showedWindow,
@@ -304,14 +325,10 @@ public sealed class LaunchAppTool : IToolSet
     {
         string complaint = script.Problem is null ? string.Empty : $" The probe was only partly read: {script.Problem}.";
 
-        if (script.Steps.Count == 0)
-        {
-            return complaint;
-        }
-
         if (readings.Count > 0)
         {
-            return $" Probe: {string.Join("; ", readings.Select(r => r.Describe()))}.{complaint}";
+            string body = string.Join("; ", readings.Select(r => r.Describe()));
+            return asked ? $" Probe: {body}.{complaint}" : $" Window: {body}.{complaint}";
         }
 
         if (_probe is null)
@@ -324,9 +341,17 @@ public sealed class LaunchAppTool : IToolSet
             return " There was no built executable to attach to, so the window could not be probed." + complaint;
         }
 
-        return showedWindow
+        if (!showedWindow)
+        {
+            return " No window appeared, so nothing could be read from it." + complaint;
+        }
+
+        // A window with nothing readable in it is a fact about the product, and a different one
+        // from every branch above. It is also the branch a canvas-drawn or custom-rendered UI
+        // lands in, where the absence of automation elements says nothing about correctness.
+        return asked
             ? " The probe ran and read nothing." + complaint
-            : " No window appeared, so the probe never ran." + complaint;
+            : " Nothing named could be read from the window." + complaint;
     }
 
     /// <summary>

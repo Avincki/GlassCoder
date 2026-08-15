@@ -9,6 +9,85 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-15 (later still) — Sight, not sentences
+
+Run `dd11ef7c`'s retrospective, triaged rather than implemented: two of its nine recommendations
+plus one invariant. **The probe shipped four hours earlier was tested by this run and failed the
+test** — not because it was wrong, but because it was optional. The model had it, had written the
+window an hour before, had a goal about two values agreeing, and called `launch_app` with two
+arguments; the tool reported that a window drew while that window showed `0` beside `0`. Confirmed
+from the run's own JSONL before acting, as the retrospective asked: its launch logged through the
+probe-era template, `Probed: 0`.
+
+**`launch_app` reads the window whether or not it was asked to.** `IUiProbe.ReadAllAsync` sweeps
+`Edit` and `Text` controls, capped at ten, bounded by the same clock, and the result goes into the
+summary, into `RuntimeEvidence`, and in front of the completion panel. Against that run's own
+application it now reports `the box after "Celsius:"? → "0"; the box after "Fahrenheit:"? → "0"` -
+which is the defect, stated by the harness, with nobody having asked.
+
+**Decided**
+
+- **The sweep does not silence the hedge; it narrows it.** An asked-for probe typed something and
+  read the answer, and drops *"whether the window is right still needs eyes on it"*. A sweep reads
+  the window **at rest** - a fact about the product, not evidence it is correct - and says so:
+  *"nothing was typed into it"*. Silencing the hedge on every launch would have been the same
+  overclaim this repository has now fixed four times, one layer out.
+- **Tree order is reported as tree order.** That run's XAML carries no `x:Name` on anything, so
+  `AutomationId` is empty and *"Edit#2 reads 0"* is a fact nobody can place. The label beside it is
+  the only identity the window offers, so the reading is *"the box after Celsius:"* - checkable,
+  and not a claim about labelling that nothing established.
+
+**A refused call that never came back is named at completion.** `AbandonedIntents`, keyed by run and
+by tool-plus-operation, opened when a call fails and closed when the same key later succeeds. One
+line to the completion panel and one on the run record. Step 2 of `dd11ef7c` asked for a solution
+at the root, was refused with a filename, a tool name and an ordering, and never asked again; the
+repository shipped without one, `dotnet test` from the root answers MSB1003, and the run finished
+green. This is 2026-08-09's *"no message had anywhere to be recorded as outstanding"*, generalised
+from suite notices to refusals. Step 19's refuse-then-repair leaves no trace, which is the point.
+
+**The dropped hint shipped as an invariant, not a patch.** `[ModelFacing]` marks the fields on
+`ToolCallRecord` that the harness showed the model, and `RetrospectiveDigestTests` populates every
+marked field with a distinct sentinel and fails the build if the digest loses one - so the *next*
+dropped field fails too, whatever it is called. Making it pass carried `ToolError.Hint` up through
+`ToolInvocation` and rendered it on its own line, and it immediately caught a second case: the
+failure detail was being shadowed by the summary. Shadowing is now legal only when the two are the
+same sentence.
+
+**Declined, and the rule written down.** Seven recommendations were refused as messages: a critic
+prompt clause, two strings naming the probe, an eighth sentry special case, a prompt-only planning
+change (dead text anyway - `%APPDATA%` shadows the code default), a directory-resolution
+convenience, and a citation requirement. `CLAUDE.md §18a` now states the triage rule so it is not
+re-argued per work order: no sentences unless they are the only renderer of an existing fact, no
+capability the model must elect, no gates, no sentry counters without a live run that spun on that
+shape. **The reliability work is done; what is left is sight.**
+
+**And then the critic prompt, which was the half that made the sweep worth anything.** Declined at
+first on the reasoning that adding a sentence is what the new rule forbids - wrongly, because the
+sentence already there read *"It cannot see what is on the screen or interact with it"*. That is not
+an undervaluation, it is a denial of two capabilities the worker has, and the fifth recorded
+instance of a prompt outliving the task that falsified it. The clause now says what a launch reads
+back, tells critics to judge the values on a `Window:` or `Probe:` line against the goal, and keeps
+the boundary that is still true: pixels, layout and clipping are nobody's to prove here. The
+retired sentence went into `ModelFacingPromptTests`' denial list, which was checked by putting it
+back and watching the build fail.
+
+Trimmed twice on the way in. The proposed clause carried a worked example - *0 next to 0 on a
+converter is a refute* - which teaches one run's defect rather than the rule that covers it. And the
+"the worker could have read and did not" condition is stated against **what the evidence says**,
+never against a belief about the host: a machine with no automation client says so in the launch
+summary itself, and a critic demanding a readback there would be back to the deadlock this prompt
+exists to prevent. `CriticPanelTests` went with it - it had been pinning *"drew a window"* as the
+ceiling of what a worker can establish, which is how a test becomes the next carrier of a claim its
+own prompt has outgrown.
+
+**Open**
+
+- The sweep is Windows-and-desktop only, like the probe it extends.
+- Untested against a live panel. The next WPF run on `GlassCoderTest` is the real question: does
+  `Window: … → "0"` reach the critics, and do they refute 0 beside 0 on a converter.
+
+---
+
 ## 2026-08-15 (later) — The rung that types, and three sentences the harness wrote
 
 Run `ae72c5ad`'s retrospective, all six ticked items. Three of them were strings the harness itself

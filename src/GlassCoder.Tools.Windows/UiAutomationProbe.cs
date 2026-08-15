@@ -31,6 +31,13 @@ public sealed class UiAutomationProbe : IUiProbe
     private static readonly TimeSpan ElementWait = TimeSpan.FromSeconds(1);
 
     /// <summary>
+    /// Most controls an unasked-for sweep will report. Ten is a window's worth of fields; past
+    /// that the reading stops being evidence and starts being a page of chrome carried in every
+    /// subsequent step's context.
+    /// </summary>
+    private const int MaxReadBack = 10;
+
+    /// <summary>
     /// A beat after typing, before anything is read.
     /// <para>
     /// A WPF binding with the default <c>UpdateSourceTrigger</c> does not commit until the box
@@ -59,6 +66,99 @@ public sealed class UiAutomationProbe : IUiProbe
         // UI Automation is blocking COM. Off the caller's thread, so the launch's own clock keeps
         // running while this works.
         return Task.Run<IReadOnlyList<UiProbeReading>>(() => Run(processId, steps, cancellationToken), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<UiProbeReading>> ReadAllAsync(
+        int processId, CancellationToken cancellationToken = default) =>
+        Task.Run<IReadOnlyList<UiProbeReading>>(() => ReadAll(processId, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Every named text-bearing control, in tree order, capped.
+    /// <para>
+    /// Edit and Text are the two control types that carry what a user reads: a WPF TextBox answers
+    /// to the first, a TextBlock or Label to the second. The cap is what keeps a window with a
+    /// hundred labels from writing a hundred lines into every subsequent step's context - this
+    /// string is carried for the rest of the run.
+    /// </para>
+    /// </summary>
+    private List<UiProbeReading> ReadAll(int processId, CancellationToken cancellationToken)
+    {
+        List<UiProbeReading> readings = [];
+
+        AutomationElement? window = FindWindow(processId, cancellationToken);
+        if (window is null)
+        {
+            return readings;
+        }
+
+        AutomationElementCollection found;
+        try
+        {
+            found = window.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)));
+        }
+        catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
+        {
+            _logger.LogDebug(ex, "The window of process {ProcessId} could not be walked", processId);
+            return readings;
+        }
+
+        // The last static text walked past, so an unnamed box can be reported as the one that
+        // follows it. Run dd11ef7c's window carries no x:Name on anything, which is the ordinary
+        // case for generated XAML - "Edit#2 reads 0" is a fact nobody can place, and the label it
+        // sits next to is the only identity the window offers.
+        string? preceding = null;
+
+        for (int index = 0; index < found.Count && readings.Count < MaxReadBack; index++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            try
+            {
+                AutomationElement element = found[index];
+                bool isText = Equals(element.Current.ControlType, ControlType.Text);
+                string label = element.Current.AutomationId;
+                string value = Read(element);
+
+                if (string.IsNullOrEmpty(label))
+                {
+                    // Neither a name nor anything to show is not a fact at all.
+                    if (value.Length == 0)
+                    {
+                        preceding = isText ? null : preceding;
+                        continue;
+                    }
+
+                    // Tree order, stated as tree order. "The box after 'Celsius:'" is what the
+                    // window looks like and is checkable; calling it the Celsius box would be a
+                    // claim about labelling that nothing here established.
+                    label = (isText, preceding) switch
+                    {
+                        (false, not null) => $"the box after \"{preceding}\"",
+                        _ => string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{element.Current.ControlType.ProgrammaticName.Split('.')[^1]}#{index}"),
+                    };
+                }
+
+                preceding = isText && value.Length > 0 ? value : preceding;
+                readings.Add(new UiProbeReading($"{label}?", Ok: true, Saw: value, Problem: null));
+            }
+            catch (Exception ex) when (ex is ElementNotAvailableException or InvalidOperationException)
+            {
+                // The window is being torn down around us, which is what a launch does next.
+                break;
+            }
+        }
+
+        return readings;
     }
 
     private List<UiProbeReading> Run(int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken)

@@ -49,6 +49,17 @@ public sealed record ToolInvocation
     public string? ErrorMessage { get; init; }
 
     /// <summary>
+    /// The refusal's own account of what would work instead, when it offered one.
+    /// <para>
+    /// Carried up beside the message because it is a different thing from the message: the error
+    /// says what happened, the hint says what to do, and only the second survives being read by
+    /// something other than the model. It is the harness's most actionable sentence and it used to
+    /// end at the model's next turn.
+    /// </para>
+    /// </summary>
+    public string? Hint { get; init; }
+
+    /// <summary>
     /// The observation's own one-line account of what happened, success or not. Distinct from
     /// <see cref="Status"/>, which says only whether the call itself ran.
     /// </summary>

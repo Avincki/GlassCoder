@@ -362,6 +362,17 @@ public static class RetrospectiveTranscript
         }
     }
 
+    /// <summary>
+    /// Whether the failure detail is the sentence already on the line above, so that printing it
+    /// again would be duplication rather than information. A prefixed error code still counts as
+    /// the same sentence - the code is on the record either way.
+    /// </summary>
+    private static bool SaysTheSame(string error, string detail) =>
+        detail.Length > 0 &&
+        (string.Equals(error, detail, StringComparison.Ordinal) ||
+         error.EndsWith($": {detail}", StringComparison.Ordinal) ||
+         detail.Contains(error, StringComparison.Ordinal));
+
     private static string RenderStep(StepRecord step)
     {
         StringBuilder text = new();
@@ -378,6 +389,24 @@ public static class RetrospectiveTranscript
             string detail = call.Summary ?? call.Error ?? string.Empty;
             text.AppendLine(CultureInfo.InvariantCulture,
                 $"- `{call.Name}` [{mark}] {OneLine(detail, 300)}");
+
+            // The failure detail, unless the line above is already the same sentence - which it is
+            // for every observation Observation.Fail produces, where the error is the summary with
+            // a code in front of it. That is the only shadowing allowed here, and it is why
+            // RetrospectiveDigestTests populates the fields with different text: a renderer that
+            // drops a field saying something else fails the build.
+            if (!string.IsNullOrWhiteSpace(call.Error) && !SaysTheSame(call.Error, detail))
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"  - error: {OneLine(call.Error, 300)}");
+            }
+
+            // The hint on its own line, and with its own budget. Folded into the line above it
+            // would be the first thing the 300-character cap ate, which is how the most actionable
+            // sentence the harness writes came to be missing from the digest its reviewers read.
+            if (!string.IsNullOrWhiteSpace(call.Hint))
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"  - hint: {OneLine(call.Hint, 300)}");
+            }
         }
 
         if (step.Verification is { } verification)

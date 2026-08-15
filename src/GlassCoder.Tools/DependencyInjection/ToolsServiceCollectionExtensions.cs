@@ -197,6 +197,10 @@ public static class ToolsServiceCollectionExtensions
         // What running the application showed, carried to the panel that asks for it
         // (workplan task 71). Keyed by run, like the refusal tracker and the read memo.
         services.TryAddSingleton<RuntimeEvidence>();
+
+        // What the run asked for, was refused, and never came back to. Keyed by run, like the
+        // refusal tracker and the runtime evidence beside it.
+        services.TryAddSingleton<AbandonedIntents>();
         services.TryAddSingleton<IWindowPresence, WindowPresence>();
         services.TryAddSingleton<LaunchAppTool>();
 

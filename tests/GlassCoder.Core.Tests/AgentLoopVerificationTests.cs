@@ -548,6 +548,85 @@ public sealed class AgentLoopVerificationTests
         record.Summary.ShouldContain("3/3 critics refuted");
     }
 
+    // ── What was wanted, refused, and never come back to ──
+    //
+    // Step 2 of run dd11ef7c asked for a solution at the repository root, was refused with a
+    // complete and correct hint, and never asked again; the repository shipped without one and the
+    // run finished green. Nothing in the harness held the intent across the step boundary. The
+    // messages were never the problem - a message reaches exactly one step.
+
+    [Fact]
+    public async Task A_refusal_that_was_never_retried_reaches_the_panel_and_the_record()
+    {
+        Harness harness = new(
+            Scaffold("new_solution", succeeds: false),
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Intents = new AbandonedIntents(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        harness.Critics!.Requests.ShouldNotBeEmpty();
+        harness.Critics.Requests[^1].Evidence.ShouldContain("Refused and never retried");
+        harness.Critics.Requests[^1].Evidence.ShouldContain("scaffold new_solution");
+
+        result.Error.ShouldNotBeNull().ShouldContain("scaffold new_solution");
+    }
+
+    [Fact]
+    public async Task A_refusal_repaired_later_leaves_no_trace()
+    {
+        // Step 19 of the same run: refused, and the fix belonged to the very next call, so it was
+        // made instantly. A ledger that reported that too would be noise on every run.
+        Harness harness = new(
+            Scaffold("new_solution", succeeds: false),
+            Scaffold("new_solution", succeeds: true),
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Intents = new AbandonedIntents(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        harness.Critics!.Requests[^1].Evidence.ShouldNotContain("Refused and never retried");
+        (result.Error ?? string.Empty).ShouldNotContain("Refused and never retried");
+    }
+
+    [Fact]
+    public async Task Two_operations_of_one_tool_are_two_intents()
+    {
+        // Keyed on the tool name alone, a successful add_reference would close new_solution's entry
+        // and the run would report nothing outstanding while the solution was still missing.
+        Harness harness = new(
+            Scaffold("new_solution", succeeds: false),
+            Scaffold("add_reference", succeeds: true),
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Intents = new AbandonedIntents(),
+        };
+
+        await harness.RunAsync();
+
+        harness.Critics!.Requests[^1].Evidence.ShouldContain("scaffold new_solution");
+    }
+
+    /// <summary>One call to the stub that stands in for <c>dotnet_project</c>.</summary>
+    private static ChatResponse Scaffold(string operation, bool succeeds) =>
+        FakeChatClient.ToolCall(
+            "scaffold",
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["operation"] = operation,
+                ["succeeds"] = succeeds,
+            });
+
     /// <summary>
     /// A remedy the harness can see is already spent is not offered again.
     /// <para>
@@ -1127,6 +1206,9 @@ public sealed class AgentLoopVerificationTests
         /// </summary>
         public RuntimeEvidence? Runtime { get; init; }
 
+        /// <summary>The ledger of what was refused and never achieved, when a test wants one.</summary>
+        public AbandonedIntents? Intents { get; init; }
+
         public Task<AgentRunResult> RunAsync(CancellationToken cancellationToken = default)
         {
             AgentLoop loop = new(
@@ -1140,7 +1222,8 @@ public sealed class AgentLoopVerificationTests
                 changes: Changes,
                 verificationOptions: Options.Create(_options),
                 critics: CriticsOverride ?? Critics,
-                runtime: Runtime);
+                runtime: Runtime,
+                intents: Intents);
 
             return loop.RunAsync(
                 new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing.", CriticRole = "critic-remote" },
@@ -1197,6 +1280,24 @@ public sealed class AgentLoopVerificationTests
             _runtime?.Record("'src/App.csproj' started and drew a window after 0.7s.", started: true);
             return Observation.Ok("pretend_launch", new MutateData("launched"), "launched");
         }
+
+        /// <summary>
+        /// Stands in for <c>dotnet_project</c>: one tool, several operations, refusing or
+        /// succeeding to order. The operation argument is the whole point - it is what makes two
+        /// calls to one tool two different intents.
+        /// </summary>
+        [GlassCoderTool("scaffold", Order = 5)]
+        [Description("Scaffolds something, for tests.")]
+        public ToolObservation<MutateData> Scaffold(
+            [Description("What to scaffold.")] string operation = "new_solution",
+            [Description("Whether it works this time.")] bool succeeds = true) =>
+            succeeds
+                ? Observation.Ok("scaffold", new MutateData(operation), $"{operation} done")
+                : Observation.Fail<MutateData>(
+                    "scaffold",
+                    ToolErrorCodes.InvalidArgument,
+                    $"'{operation}' cannot go there.",
+                    "Create it at the root instead - path 'App.slnx'.");
     }
 
     public sealed record MutateData([property: Description("Identifier or echoed text.")] string Value);

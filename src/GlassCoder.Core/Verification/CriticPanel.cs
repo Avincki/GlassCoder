@@ -389,9 +389,20 @@ public sealed class CriticPanel : ICriticPanel
         // The evidence universe is stated because critics kept demanding what no tool can
         // produce: run 008007e1 was refuted 3/3 partly for lacking a runtime UI demonstration,
         // spiralled into re-scaffolding, and died at the token limit; run ca727be3 was refuted
-        // 2/3 on the same ground with no tool that could ever answer it. Live UI proof is the
-        // operator's Run-app button, not the worker's job - a demand the worker cannot meet is
-        // not a refutation, it is a deadlock.
+        // 2/3 on the same ground with no tool that could ever answer it. A demand the worker
+        // cannot meet is not a refutation, it is a deadlock.
+        //
+        // What the worker can meet has moved, and this sentence has to move with it or it becomes
+        // the fourth recorded instance of a prompt asserting a limitation a later task removed.
+        // Since 2026-08-15 a launch reads back the text the window is showing, without being asked,
+        // so the values are in the evidence. Run dd11ef7c is what that costs when the prompt is
+        // stale: three critics accepted 3/3, one of them calling a sentence that explicitly
+        // disclaimed correctness "runtime confirmation", over a converter showing 0 beside 0.
+        //
+        // Bounded the same way as before. Pixels, layout and clipping are still nobody's to prove
+        // here, and the readback is conditioned on the evidence saying it happened rather than on
+        // any belief about the host: a host with no automation client says so in the launch summary
+        // itself, and a critic that demanded a readback there would be back to the deadlock.
         List<ChatMessage> messages =
         [
             new(ChatRole.System,
@@ -400,10 +411,14 @@ public sealed class CriticPanel : ICriticPanel
                 "Judge only the change and evidence in front of you; default to refuted:true when the " +
                 "evidence cannot support the claim. " +
                 "The worker can produce this evidence: builds, test runs, file contents, static checks, " +
-                "and - since task 71 - it can launch the application and observe whether it started and " +
-                "drew a window. It cannot see what is on the screen or interact with it, so the absence " +
-                "of *visual* proof is never, by itself, grounds to refute; the absence of a *launch*, " +
-                "for a goal about a running application, now is. Refute over evidence the worker could " +
+                "and it can launch the application - which reports whether a window appeared and reads " +
+                "back the text that window is showing, labels and box values alike. It cannot judge " +
+                "pixels, layout or clipping, so the absence of *visual* proof is never, by itself, " +
+                "grounds to refute; the absence of a *launch*, for a goal about a running application, " +
+                "is. When the evidence carries a 'Window:' or 'Probe:' line, judge those values against " +
+                "the goal - they are what the application actually showed. When it carries a launch that " +
+                "read nothing while saying nothing about being unable to read, that is evidence the " +
+                "worker could have produced and did not. Refute over evidence the worker could " +
                 "have produced and did not, or over what the produced evidence actually shows. " +
                 "Judge the behaviour the goal asks for, not its word choice: a window presenting the " +
                 "required controls satisfies a goal that says 'dialog', and the like. " +

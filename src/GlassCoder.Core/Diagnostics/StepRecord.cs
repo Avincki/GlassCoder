@@ -10,6 +10,26 @@ namespace GlassCoder.Core.Diagnostics;
 /// <param name="ToolCallNames">Names of any tool calls carried by the message.</param>
 public sealed record TranscriptMessage(string Role, string? Text, IReadOnlyList<string>? ToolCallNames = null);
 
+/// <summary>
+/// Marks a field the model was actually shown, which no retelling of the run may silently drop.
+/// <para>
+/// This exists because dropping one has now happened four times, each time in a different renderer
+/// and each time discovered by a reviewer reasoning from the half it was given. The verdict word
+/// was unified on <c>VerificationVerdict.Describe</c> with a source scan; that scan works because
+/// the mistake had a syntactic shape, and the next one will not. So the fields declare themselves
+/// instead, and <c>RetrospectiveDigestTests</c> fails the build when a marked field populated on a
+/// step cannot be found in the digest of that step.
+/// </para>
+/// <para>
+/// Deliberately not on <see cref="ToolCallRecord.Result"/>: the raw payload is the one thing a
+/// digest is right to leave out, and marking it would turn this guard into a demand to print
+/// kilobytes. The test for whether a field belongs here is not "did the model see it" but "was it
+/// the harness steering, and would a reader who never saw it draw a different conclusion".
+/// </para>
+/// </summary>
+[AttributeUsage(AttributeTargets.Property)]
+public sealed class ModelFacingAttribute : Attribute;
+
 /// <summary>One tool call within a step, with everything needed to explain what happened.</summary>
 /// <param name="CallId">Correlation id the model issued.</param>
 /// <param name="Name">Tool name as called.</param>
@@ -29,6 +49,15 @@ public sealed record TranscriptMessage(string Role, string? Text, IReadOnlyList<
 /// and read by every human as a claim about the build.
 /// </para>
 /// </param>
+/// <param name="Hint">
+/// The next step the tool said would make the call succeed, when it refused with one.
+/// <para>
+/// Carried because it is the most actionable sentence the harness ever writes and it was reaching
+/// the model and stopping there. Step 2 of run <c>dd11ef7c</c> was refused with a filename, a tool
+/// name and an ordering; both reviewers of that run worked from a digest that had none of it, and
+/// argued about the wording of a message they had been shown half of.
+/// </para>
+/// </param>
 public sealed record ToolCallRecord(
     string CallId,
     string Name,
@@ -37,8 +66,9 @@ public sealed record ToolCallRecord(
     bool Parsed,
     double DurationMs,
     string? Result,
-    string? Error,
-    string? Summary = null);
+    [property: ModelFacing] string? Error,
+    [property: ModelFacing] string? Summary = null,
+    [property: ModelFacing] string? Hint = null);
 
 /// <summary>
 /// The critique panel's verdict on a step, vote by vote.

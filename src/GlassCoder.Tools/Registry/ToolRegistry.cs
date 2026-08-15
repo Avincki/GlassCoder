@@ -262,6 +262,7 @@ public sealed class ToolRegistry : IToolRegistry
                 // without reaching into the observation's payload type.
                 ErrorMessage = ReportsSuccess(result) ? null : DescribeFailure(result),
                 Summary = SummaryOf(result),
+                Hint = HintOf(result),
 
                 // The AI function layer hands results back as JsonElement, so the flag is read
                 // off the wire shape - where it appears only when false.
@@ -547,6 +548,32 @@ public sealed class ToolRegistry : IToolRegistry
     /// </para>
     /// </summary>
     private static string? SummaryOf(object? result) => Read(result).Summary;
+
+    /// <summary>
+    /// The refusal's hint, off the wire shape or off the object, whichever arrived.
+    /// <para>
+    /// Read here rather than reconstructed later because this is the only place both shapes are in
+    /// hand: past this point an observation is a <c>JsonElement</c> the AI function layer produced,
+    /// and a hint left behind here is a hint that reaches the model and nothing else - which is
+    /// exactly what happened to the four sentences run <c>dd11ef7c</c>'s reviewers never saw.
+    /// </para>
+    /// </summary>
+    private static string? HintOf(object? result)
+    {
+        if (result is JsonElement { ValueKind: JsonValueKind.Object } element)
+        {
+            return element.TryGetProperty("error", out JsonElement error) &&
+                   error.TryGetProperty("hint", out JsonElement hint)
+                ? hint.GetString()
+                : null;
+        }
+
+        object? errorValue = result?.GetType()
+            .GetProperty("Error", BindingFlags.Public | BindingFlags.Instance)?.GetValue(result);
+
+        return errorValue?.GetType()
+            .GetProperty("Hint", BindingFlags.Public | BindingFlags.Instance)?.GetValue(errorValue) as string;
+    }
 
     /// <summary>Pulls the error code and summary off an observation, whatever shape it arrived in.</summary>
     private static (string? Code, string? Summary) Read(object? result)

@@ -107,12 +107,22 @@ public sealed class CriticPanelTests
 
         prompts.Count.ShouldBe(3);
 
-        // Task 71 shipped launch_app and this prompt went on denying it for three tasks - the
-        // third recorded instance of a prompt asserting a limitation a later task removed. What
-        // is still true is narrower: the worker cannot SEE the window it drew.
+        // Task 71 shipped launch_app and this prompt went on denying it for three tasks. The
+        // sentence that replaced it - that the worker could not see what the window showed - was
+        // true for exactly four hours, and then the launch began reading the window back. Run
+        // dd11ef7c is what the stale version cost: 3/3 accepted over a converter showing 0 beside
+        // 0, one critic calling a sentence that disclaimed correctness "runtime confirmation".
+        //
+        // This assertion used to pin "drew a window" as the ceiling of what the worker could
+        // establish. That is what makes a test the next carrier of a claim its own prompt has
+        // outgrown, so what is pinned now is the boundary that is still true.
         prompts.ShouldAllBe(p => !p.Contains("cannot launch the application", StringComparison.Ordinal));
-        prompts.ShouldAllBe(p => p.Contains("drew a window", StringComparison.Ordinal));
+        prompts.ShouldAllBe(p => p.Contains("reads back the text", StringComparison.Ordinal));
+        prompts.ShouldAllBe(p => p.Contains("cannot judge pixels, layout or clipping", StringComparison.Ordinal));
         prompts.ShouldAllBe(p => p.Contains("never, by itself, grounds to refute", StringComparison.Ordinal));
+
+        // And the values are to be judged, which is the whole point of reading them.
+        prompts.ShouldAllBe(p => p.Contains("judge those values against the goal", StringComparison.Ordinal));
 
         // Word-choice literalism refuted runs 008007e1 and f4ed50e0 over "dialog" versus
         // "window" while the built behaviour covered the ask - two-for-two across critiqued
@@ -269,6 +279,31 @@ public sealed class CriticPanelTests
         evidence.ShouldBeGreaterThan(-1);
         claim.ShouldBeGreaterThan(evidence, "the claim belongs under its own heading, after the evidence");
         user[evidence..claim].ShouldNotContain("I have fully implemented");
+    }
+
+    /// <summary>
+    /// What the window showed reaches the critic as written.
+    /// <para>
+    /// The prompt now tells critics to judge the values on a <c>Window:</c> line, which is worth
+    /// nothing if the line is summarised, truncated or filed under the worker's claim on the way in.
+    /// Run <c>dd11ef7c</c>'s window read 0 beside 0 and the panel accepted 3/3; the readback is the
+    /// half of that failure the harness can fix, and it only works end to end.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task What_the_window_showed_reaches_the_critic_unaltered()
+    {
+        List<string> users = [];
+        CriticPanel panel = Panel(_ => Verdict(refuted: false, "fine"), users);
+
+        const string launch =
+            "Runtime: ok - 'src/App/App.csproj' started and drew a window after 0.8s, then was " +
+            "stopped. It runs and renders; nothing was typed into it, so this is what it shows at " +
+            "rest. Window: the box after \"Celsius:\"? → \"0\"; the box after \"Fahrenheit:\"? → \"0\".";
+
+        await panel.CritiqueAsync("convert celsius to fahrenheit", "change", launch);
+
+        users[0].ShouldContain(launch, Case.Sensitive);
     }
 
     private static CriticPanel Panel(Func<string, ChatResponse> respond, List<string>? userMessages = null) =>

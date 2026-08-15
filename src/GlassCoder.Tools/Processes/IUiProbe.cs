@@ -70,6 +70,28 @@ public interface IUiProbe
         int processId,
         IReadOnlyList<UiProbeStep> steps,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads every named text-bearing control in the window, without being asked and without
+    /// touching anything.
+    /// <para>
+    /// This is the half of the rung that does not need electing. The probe shipped as an optional
+    /// parameter, run <c>dd11ef7c</c> was its first live test, and the model did not reach for it -
+    /// so the tool reported "it runs and renders" while the window showed 0 beside 0. An optional
+    /// capability the model must remember to ask for is advice; this repository already wrote the
+    /// rule that advice is not a mechanism (task 55), and paid for it once in retrieval.
+    /// </para>
+    /// <para>
+    /// Read-only on purpose. Typing and clicking are side effects on someone's application and
+    /// belong to a caller that asked for them; reading what the window already shows costs nothing
+    /// and cannot be wrong about anything except itself.
+    /// </para>
+    /// </summary>
+    /// <param name="processId">The process whose window to read.</param>
+    /// <param name="cancellationToken">Bounded by the launch that is holding the window open.</param>
+    Task<IReadOnlyList<UiProbeReading>> ReadAllAsync(
+        int processId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
