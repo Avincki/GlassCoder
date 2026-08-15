@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using GlassCoder.Core.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -302,13 +303,247 @@ public static class RetrospectiveTranscript
             return text.ToString();
         }
 
+        AppendPlan(text, mine);
+
         text.AppendLine("## Steps");
         text.AppendLine();
 
-        List<string> rendered = [.. mine.Select(RenderStep)];
+        // The plan carries from step to step so an update can be rendered as what it changed. A
+        // reader of one step wants the plan as it then stood; a reader of the run wants to see
+        // which step moved it.
+        List<string> rendered = [];
+        List<PlanItem>? plan = null;
+        foreach (StepRecord step in mine)
+        {
+            rendered.Add(RenderStep(step, ref plan));
+        }
+
         AppendCapped(text, rendered, maxCharacters - text.Length);
         return text.ToString();
     }
+
+    /// <summary>
+    /// The plan the run made, as it last stood, with when it was written and how often it moved.
+    /// <para>
+    /// Every digest before this one said <c>Plan updated: 3/5 complete</c> five times and never
+    /// once what the five were. The plan is the run's own account of what it thought the task
+    /// decomposed into - the one thing in the transcript written by the agent about the whole job
+    /// rather than about the step in front of it - and three retrospectives in a row reasoned about
+    /// planning behaviour from a ratio. Rendered from the last <c>update_todos</c> observation,
+    /// which is the harness's own record of what it accepted.
+    /// </para>
+    /// <para>
+    /// The first and last step numbers are here because they are the question the reviewers kept
+    /// asking: a plan authored at step 0, before any tool has reported anything, and never touched
+    /// again is a different object from one that absorbed what the run learned.
+    /// </para>
+    /// </summary>
+    private static void AppendPlan(StringBuilder text, IReadOnlyList<StepRecord> steps)
+    {
+        List<(int Step, ToolCallRecord Call)> updates =
+        [
+            .. steps.SelectMany(s => s.ToolCalls.Select(c => (s.StepIndex, Call: c)))
+                .Where(c => string.Equals(c.Call.Name, TodoToolName, StringComparison.Ordinal)),
+        ];
+
+        if (updates.Count == 0)
+        {
+            // An absence worth one line: a run that never wrote a plan is a fact about the run, and
+            // silence here reads as a digest that dropped it.
+            text.AppendLine("## The plan it made");
+            text.AppendLine();
+            text.AppendLine("_No plan was recorded in this run._");
+            text.AppendLine();
+            return;
+        }
+
+        if (ReadPlan(updates[^1].Call) is not { Count: > 0 } items)
+        {
+            return;
+        }
+
+        text.AppendLine("## The plan it made");
+        text.AppendLine();
+        text.AppendLine(CultureInfo.InvariantCulture,
+            $"Written at step {updates[0].Step}, last updated at step {updates[^1].Step} " +
+            $"({updates.Count} update{(updates.Count == 1 ? string.Empty : "s")}), " +
+            $"{items.Count(i => i.Done)} of {items.Count} complete.");
+        text.AppendLine();
+
+        foreach (PlanItem item in items)
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"- [{item.Status}] {OneLine(item.Title, 200)}");
+        }
+
+        text.AppendLine();
+    }
+
+    /// <summary>
+    /// The items on one <c>update_todos</c> call, from the observation it returned, falling back to
+    /// the arguments the model sent when the payload is not there to read.
+    /// </summary>
+    private static List<PlanItem>? ReadPlan(ToolCallRecord call)
+    {
+        List<PlanItem>? items = null;
+
+        if (call.Result is { Length: > 0 } result)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(result);
+                if (document.RootElement.TryGetProperty("data", out JsonElement data) &&
+                    data.TryGetProperty("items", out JsonElement array) &&
+                    array.ValueKind == JsonValueKind.Array)
+                {
+                    // An empty plan is a plan. Only an unreadable payload stays null, because the
+                    // two are different facts and the digest says which.
+                    items = [];
+                    Read(array, items);
+                }
+            }
+            catch (JsonException)
+            {
+                // A payload that will not parse is not worth a broken digest.
+            }
+        }
+
+        if (items is null or { Count: 0 } && call.Arguments?.GetValueOrDefault("items") is { } argument)
+        {
+            // Models send this either as an array or as a string holding one, and both have been
+            // seen in this repository's own logs.
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(
+                    argument as string ?? argument.ToString() ?? "[]");
+                if (document.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    items ??= [];
+                    Read(document.RootElement, items);
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return items;
+
+        static void Read(JsonElement array, List<PlanItem> into)
+        {
+            if (array.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (JsonElement element in array.EnumerateArray())
+            {
+                string title = element.TryGetProperty("title", out JsonElement t) ? t.GetString() ?? string.Empty : string.Empty;
+                string status = element.TryGetProperty("status", out JsonElement s) ? s.GetString() ?? string.Empty : string.Empty;
+                if (title.Length > 0)
+                {
+                    into.Add(new PlanItem(title, Describe(status), status.Equals("Completed", StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+        }
+
+        // The three states in words a reader does not have to map back to an enum.
+        static string Describe(string status) => status.ToUpperInvariant() switch
+        {
+            "COMPLETED" => "done",
+            "INPROGRESS" => "in progress",
+            _ => "to do",
+        };
+    }
+
+    /// <summary>
+    /// The plan as one update left it, and what that update moved.
+    /// <para>
+    /// Every item every time, because the question a reader brings to a plan step is "what did it
+    /// think the job was at that moment" and a delta cannot answer it. What is not repeated is a
+    /// plan that did not move: a re-announcement is a fact about the run - this repository has
+    /// spent whole steps on them - and it is one line, not another copy of the list.
+    /// </para>
+    /// </summary>
+    private static void AppendPlanUpdate(StringBuilder text, List<PlanItem>? items, ref List<PlanItem>? previous)
+    {
+        if (items is null)
+        {
+            // An update_todos call the digest cannot read the plan out of. Better said than
+            // silently skipped, or the reader concludes the run planned nothing.
+            text.AppendLine("  - plan: recorded, but its items could not be read back");
+            return;
+        }
+
+        if (items.Count == 0)
+        {
+            // Emptying the plan is a decision, and one worth seeing: it is what a run does when it
+            // abandons its decomposition rather than finishing it.
+            text.AppendLine("  - plan: emptied");
+            previous = items;
+            return;
+        }
+
+        if (previous is not null && Signature(previous) == Signature(items))
+        {
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"  - plan: unchanged, still {items.Count(i => i.Done)} of {items.Count} complete");
+            previous = items;
+            return;
+        }
+
+        // What moved, named before the list, so a long plan does not have to be diffed by eye.
+        string moved = previous is null
+            ? "first written"
+            : Describe(previous, items);
+
+        text.AppendLine(CultureInfo.InvariantCulture,
+            $"  - plan ({moved}), {items.Count(i => i.Done)} of {items.Count} complete:");
+
+        foreach (PlanItem item in items)
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"    - [{item.Status}] {OneLine(item.Title, 200)}");
+        }
+
+        previous = items;
+
+        static string Signature(List<PlanItem> items) =>
+            string.Join("|", items.Select(i => $"{i.Status}:{i.Title}"));
+
+        // Titles are the identity here: the tool takes an id, but a model that renames an item
+        // keeps the id and one that re-plans reuses it, so what a reader recognises is the words.
+        static string Describe(List<PlanItem> before, List<PlanItem> after)
+        {
+            List<string> changes = [];
+
+            int added = after.Count(a => !before.Any(b => string.Equals(b.Title, a.Title, StringComparison.Ordinal)));
+            int dropped = before.Count(b => !after.Any(a => string.Equals(a.Title, b.Title, StringComparison.Ordinal)));
+            int moved = after.Count(a => before.Any(b =>
+                string.Equals(b.Title, a.Title, StringComparison.Ordinal) &&
+                !string.Equals(b.Status, a.Status, StringComparison.Ordinal)));
+
+            if (moved > 0)
+            {
+                changes.Add($"{moved} item{(moved == 1 ? string.Empty : "s")} moved");
+            }
+
+            if (added > 0)
+            {
+                changes.Add($"{added} added");
+            }
+
+            if (dropped > 0)
+            {
+                changes.Add($"{dropped} dropped");
+            }
+
+            return changes.Count == 0 ? "reordered" : string.Join(", ", changes);
+        }
+    }
+
+    private sealed record PlanItem(string Title, string Status, bool Done);
+
+    /// <summary>The tool whose calls carry the plan.</summary>
+    private const string TodoToolName = "update_todos";
 
     /// <summary>
     /// Writes as many step blocks as the budget allows, dropping the middle rather than the tail.
@@ -373,7 +608,16 @@ public static class RetrospectiveTranscript
          error.EndsWith($": {detail}", StringComparison.Ordinal) ||
          detail.Contains(error, StringComparison.Ordinal));
 
-    private static string RenderStep(StepRecord step)
+    /// <summary>
+    /// One step, and - when the step touched the plan - the plan as it then stood.
+    /// </summary>
+    /// <param name="step">The step to render.</param>
+    /// <param name="plan">
+    /// The plan as the previous update left it, updated here. Carried so an update that moved
+    /// nothing can say so instead of reprinting a list the reader has already read: this
+    /// repository has spent runs on re-announcements that looked like progress.
+    /// </param>
+    private static string RenderStep(StepRecord step, ref List<PlanItem>? plan)
     {
         StringBuilder text = new();
         text.AppendLine(CultureInfo.InvariantCulture, $"### Step {step.StepIndex} · {step.Role} · {step.Outcome}");
@@ -417,6 +661,14 @@ public static class RetrospectiveTranscript
             if (!call.OutcomeOk && !string.IsNullOrWhiteSpace(call.Result))
             {
                 text.AppendLine(CultureInfo.InvariantCulture, $"  - result: {OneLine(call.Result, 300)}");
+            }
+
+            // And the plan itself, every time it is written. "Plan updated: 3/5 complete" is a
+            // ratio; which three, and what the other two were, is the thing a reader of this
+            // digest has never been shown.
+            if (string.Equals(call.Name, TodoToolName, StringComparison.Ordinal))
+            {
+                AppendPlanUpdate(text, ReadPlan(call), ref plan);
             }
         }
 

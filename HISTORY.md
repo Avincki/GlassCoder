@@ -9,6 +9,54 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-15 (last, later still) — The digest says what the plan was
+
+Every transcript this harness has ever written said `Plan updated: 3/5 complete` and never once
+what the five were. The plan is the only thing in a run the agent writes about the whole job rather
+than about the step in front of it, and three retrospectives in a row reasoned about planning
+behaviour - authored before the first observation, never absorbing a failure, five of twenty-two
+steps spent on bookkeeping - from a ratio.
+
+`RetrospectiveTranscript` now renders it after the goal, from the last `update_todos` observation,
+which is the harness's own record of what it accepted. With the step numbers, because they carry
+the question the reviewers kept asking: a plan written at step 0, before any tool has reported
+anything, and never touched again is a different object from one that learned something. Re-rendered
+from run `dbaa0580`'s own log:
+
+```
+Written at step 0, last updated at step 14 (4 updates), 3 of 3 complete.
+
+- [done] Create WPF application with XAML and code-behind
+- [done] Create unit tests for conversion logic
+- [done] Build and verify application and tests
+```
+
+Three of three complete, and the third item is "verify application" on the run that never launched
+it. A run that never planned says so in one line, for the same reason every other absence in this
+digest is stated rather than left to be inferred.
+
+**And every update shows the plan as it then stood**, under the step that wrote it, with what that
+update moved: `plan (2 items moved), 1 of 3 complete`. The section at the top is where the run
+ended up; a reader of step 10 wants what the run thought the job was at step 10. The same run again:
+
+```
+### Step 0 · worker · continued
+- `update_todos` [ok] Plan updated: 0/3 complete.
+  - plan (first written), 0 of 3 complete:
+    - [to do] Create WPF application with XAML and code-behind
+    - [to do] Create unit tests for conversion logic
+    - [to do] Build and verify application and tests
+```
+
+Three items, written at step 0 - before `list_projects` returned at step 1 - and never one item
+longer for the rest of the run. That is the observation three retrospectives made by inference; it
+is now on the page. An update that moved nothing says `plan: unchanged` rather than reprinting the
+list, because a re-announcement is a fact about the run and not a second copy of it; an emptied plan
+says `emptied`; and a payload the digest cannot parse says so instead of reading as a run that never
+planned.
+
+---
+
 ## 2026-08-15 (last, later) — The panel could not see an absence
 
 Run `dbaa0580`'s retrospective, all six ticked items. The run looks like the efficiency win the

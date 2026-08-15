@@ -75,6 +75,125 @@ public sealed class RetrospectiveTranscriptTests
         Render(unverified: false, noticed: true).ShouldContain("passed (with a notice)");
     }
 
+    // ── The plan ──
+    //
+    // Every digest said "Plan updated: 3/5 complete" and never once what the five were, so three
+    // retrospectives running reasoned about planning behaviour from a ratio. The plan is the only
+    // thing in the transcript the agent wrote about the whole job rather than the step in front of
+    // it, and it was the one thing the digest did not carry.
+
+    /// <summary>The payload an <c>update_todos</c> call really returns, from this repository's logs.</summary>
+    private const string PlanPayload =
+        """
+        {"ok":true,"tool":"update_todos","summary":"Plan updated: 1/3 complete.","data":{"items":[
+        {"id":"create-solution","title":"Create solution structure","status":"Completed"},
+        {"id":"create-wpf-app","title":"Create WPF application with UI","status":"InProgress"},
+        {"id":"create-tests","title":"Create unit tests","status":"Pending"}],"pending":2,"completed":1}}
+        """;
+
+    [Fact]
+    public void The_digest_says_what_the_plan_actually_was()
+    {
+        string digest = RenderPlan(PlanPayload);
+
+        digest.ShouldContain("## The plan it made");
+        digest.ShouldContain("[done] Create solution structure");
+        digest.ShouldContain("[in progress] Create WPF application with UI");
+        digest.ShouldContain("[to do] Create unit tests");
+    }
+
+    [Fact]
+    public void The_digest_says_when_the_plan_was_written_and_how_often_it_moved()
+    {
+        // A plan authored at step 0, before any tool has reported anything, and never touched
+        // again is a different object from one that absorbed what the run learned - and that is
+        // the distinction three reviewers in a row have had to guess at.
+        string digest = RenderPlan(PlanPayload);
+
+        digest.ShouldContain("Written at step 0");
+        digest.ShouldContain("last updated at step 4");
+        digest.ShouldContain("2 updates");
+        digest.ShouldContain("1 of 3 complete");
+    }
+
+    [Fact]
+    public void A_run_that_never_planned_says_so()
+    {
+        string digest = Render(unverified: false);
+
+        digest.ShouldContain("No plan was recorded");
+    }
+
+    [Fact]
+    public void Every_update_shows_the_plan_as_it_then_stood()
+    {
+        // The plan at the top is where the run ended up. A reader of step 4 wants what the run
+        // thought the job was at step 4 - and which step moved it.
+        string digest = RenderPlan(PlanPayload);
+
+        digest.ShouldContain("- plan (first written)");
+        digest.ShouldContain("- plan (1 item moved, 2 added), 1 of 3 complete:");
+        digest.ShouldContain("    - [in progress] Create WPF application with UI");
+    }
+
+    [Fact]
+    public void A_plan_that_moved_nothing_is_not_reprinted()
+    {
+        // A re-announcement is a fact about the run, not another copy of the list. This repository
+        // has spent whole steps on updates that moved nothing.
+        string digest = RetrospectiveTranscript.Render(
+            [Planned(0, PlanPayload), Planned(3, PlanPayload)],
+            new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = 2 });
+
+        digest.ShouldContain("- plan: unchanged, still 1 of 3 complete");
+
+        // Once in the step block, once at the top - and not a third time for the repeat.
+        digest.Split("[in progress] Create WPF application with UI").Length.ShouldBe(3);
+    }
+
+    [Fact]
+    public void An_update_whose_items_cannot_be_read_says_that_rather_than_nothing()
+    {
+        string digest = RetrospectiveTranscript.Render(
+            [Planned(0, "not json at all")],
+            new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = 1 });
+
+        digest.ShouldContain("could not be read back");
+    }
+
+    /// <summary>The plan as it was first written: one item, nothing done.</summary>
+    private const string FirstPlanPayload =
+        """
+        {"ok":true,"tool":"update_todos","summary":"Plan updated: 0/1 complete.","data":{"items":[
+        {"id":"create-solution","title":"Create solution structure","status":"Pending"}],"pending":1,"completed":0}}
+        """;
+
+    /// <summary>Two <c>update_todos</c> steps, the second carrying the plan as it ended.</summary>
+    private static string RenderPlan(string payload) =>
+        RetrospectiveTranscript.Render(
+            [Planned(0, FirstPlanPayload), Planned(4, payload)],
+            new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = 2 });
+
+    private static StepRecord Planned(int step, string payload) =>
+        new()
+        {
+            RunId = "run-1",
+            TaskId = "desktop",
+            StepIndex = step,
+            Role = "worker",
+            StartedAt = DateTimeOffset.UnixEpoch,
+            Prompt = [],
+            ToolCalls =
+            [
+                new ToolCallRecord(
+                    $"call-{step}", "update_todos", null, "Succeeded", true, 1,
+                    Result: payload, Error: null, Summary: "Plan updated."),
+            ],
+            ModelLatencyMs = 1,
+            StepLatencyMs = 1,
+            Outcome = "continued",
+        };
+
     private static StepCritiqueRecord Critique(bool refuted, int refutingVotes, int respondingVotes) =>
         new("critic",
             refuted,
