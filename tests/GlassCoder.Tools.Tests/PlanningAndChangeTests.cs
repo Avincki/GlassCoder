@@ -32,6 +32,69 @@ public sealed class PlanningAndChangeTests : IDisposable
         list.Items[1].Status.ShouldBe(TodoStatus.InProgress);
     }
 
+    // ── The plan is not the oracle ──
+    //
+    // Run e426f418's plan closed with "Build and run tests" - work the ladder had done after every
+    // applied change since step 2. The agent read the first non-empty green as that item, ticked
+    // 5/5, and claimed the goal on the next step. Two things stand in for each other here: a
+    // finished plan for a met goal, and a planned build for the automatic one.
+
+    [Fact]
+    public void A_complete_plan_says_it_is_not_evidence_the_goal_is_met()
+    {
+        TodoTool tool = new(new TodoList());
+
+        ToolObservation<TodoResult> observation = tool.UpdateTodos([
+            new TodoItem("a", "Write the converter", TodoStatus.Completed),
+            new TodoItem("b", "Wire the window", TodoStatus.Completed),
+        ]);
+
+        observation.Ok.ShouldBeTrue("the plan is the agent's to write; this is a notice, not a gate");
+        observation.Summary.ShouldNotBeNull().ShouldContain("not evidence the goal is met");
+        observation.Summary.ShouldContain("2/2 complete");
+    }
+
+    [Fact]
+    public void A_plan_still_running_gets_the_short_line()
+    {
+        TodoTool tool = new(new TodoList());
+
+        ToolObservation<TodoResult> observation = tool.UpdateTodos([
+            new TodoItem("a", "Write the converter", TodoStatus.Completed),
+            new TodoItem("b", "Wire the window"),
+        ]);
+
+        observation.Summary.ShouldNotBeNull().ShouldBe("Plan updated: 1/2 complete.");
+    }
+
+    [Fact]
+    public void An_item_that_only_restates_the_ladder_is_named()
+    {
+        TodoTool tool = new(new TodoList());
+
+        ToolObservation<TodoResult> observation = tool.UpdateTodos([
+            new TodoItem("a", "Write the converter"),
+            new TodoItem("b", "Build and run tests"),
+        ]);
+
+        observation.Ok.ShouldBeTrue("refusing would spend a step on a rewrite, which is the waste this prevents");
+        observation.Summary.ShouldNotBeNull().ShouldContain("'Build and run tests' restates");
+    }
+
+    [Fact]
+    public void Real_work_that_merely_mentions_building_is_left_alone()
+    {
+        // Whole titles only. "Build the settings dialog" is the job, not the ladder's job.
+        TodoTool tool = new(new TodoList());
+
+        ToolObservation<TodoResult> observation = tool.UpdateTodos([
+            new TodoItem("a", "Build the settings dialog"),
+            new TodoItem("b", "Test the conversion in the running window"),
+        ]);
+
+        observation.Summary.ShouldNotBeNull().ShouldBe("Plan updated: 0/2 complete.");
+    }
+
     [Fact]
     public void A_plan_with_two_items_in_progress_is_refused()
     {

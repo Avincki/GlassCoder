@@ -4,6 +4,7 @@ using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
+using GlassCoder.Tools.Verification;
 using Microsoft.Extensions.Logging;
 
 namespace GlassCoder.Tools.Build;
@@ -110,13 +111,37 @@ public sealed class LaunchAppTool : IToolSet
             return Observation.Fail<LaunchAppResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
         }
 
+        // A directory that holds exactly one runnable project is not ambiguous, and refusing it
+        // cost a step on four consecutive desktop runs - ae72c5ad step 10, dd11ef7c step 19,
+        // 457867c7 step 24, and the same shape reached `build` as MSB1011 on dbaa0580. The
+        // precedent for accepting the spelling the model actually sends rather than the one the
+        // API prefers is task 45's line endings and the argument aliases of 2026-08-08.
         if (Directory.Exists(verdict.FullPath))
         {
-            return Observation.Fail<LaunchAppResult>(
-                ToolName,
-                ToolErrorCodes.InvalidArgument,
-                $"'{verdict.RelativePath}' is a directory, and this needs one project to run.",
-                "Pass the .csproj of the executable project - list_projects names them.");
+            List<string> runnable =
+            [
+                .. ProjectLocator.FindAllProjects(verdict.FullPath).Where(ProjectLocator.IsExecutableProject),
+            ];
+
+            if (runnable.Count != 1)
+            {
+                string offer = runnable.Count == 0
+                    ? "It holds no project that produces an executable."
+                    : "It holds " + string.Join(", ", runnable.Take(6).Select(_guard.ToRelativePath)) +
+                      " - name the one to run.";
+
+                return Observation.Fail<LaunchAppResult>(
+                    ToolName,
+                    ToolErrorCodes.InvalidArgument,
+                    $"'{verdict.RelativePath}' is a directory, and this needs one project to run.",
+                    offer);
+            }
+
+            verdict = _guard.Resolve(_guard.ToRelativePath(runnable[0]), PathAccess.Read);
+            if (!verdict.Allowed || verdict.FullPath is null)
+            {
+                return Observation.Fail<LaunchAppResult>(ToolName, ToolErrorCodes.PathNotAllowed, verdict.Reason!);
+            }
         }
 
         int seconds = Math.Clamp(timeoutSeconds, 1, MaxTimeoutSeconds);

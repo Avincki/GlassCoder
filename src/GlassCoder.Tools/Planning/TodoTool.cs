@@ -37,9 +37,14 @@ public sealed class TodoTool : IToolSet
 
     /// <summary>Replaces the plan.</summary>
     [GlassCoderTool(ToolName, Order = 5)]
+    // "Break a multi-step task down before starting" paid for the clause below. Decomposition is
+    // what a model does with a plan tool unprompted; planning the work the ladder already does is
+    // what it does not stop doing - run e426f418 closed with "Build and run tests" while every
+    // applied change from step 2 had been compiled and tested on its own observation.
     [Description("Record or update your plan. Send the complete list every time - it replaces the previous "
-        + "plan. Break a multi-step task down before starting, keep exactly one item InProgress, and mark "
-        + "items Completed as you finish them.")]
+        + "plan. Keep exactly one item InProgress, and mark items Completed as you finish them. Do not plan "
+        + "a build or test step - applied changes are verified for you. Plan what verification cannot see: "
+        + "a launch, a probe, behaviour in a running window.")]
     public ToolObservation<TodoResult> UpdateTodos(
         [Description("The complete plan, every item.")]
         IReadOnlyList<TodoItem> items)
@@ -89,6 +94,75 @@ public sealed class TodoTool : IToolSet
         TodoResult result = new(cleaned, cleaned.Count - completed, completed);
 
         _logger.LogInformation("Plan updated: {Completed}/{Total} complete", completed, cleaned.Count);
-        return Observation.Ok(ToolName, result, $"Plan updated: {completed}/{cleaned.Count} complete.");
+        return Observation.Ok(
+            ToolName,
+            result,
+            $"Plan updated: {completed}/{cleaned.Count} complete." +
+            FinishedPlanNotice(completed, cleaned.Count) +
+            LadderDuplicateNotice(cleaned));
     }
+
+    /// <summary>
+    /// What a finished plan is and is not.
+    /// <para>
+    /// On run <c>e426f418</c> the <c>5/5</c> line was the last thing the agent read before claiming
+    /// the goal at the next step, and the plan's closing item had been "Build and run tests" - work
+    /// the ladder had already done after every applied change since step 2. A plan is the agent's
+    /// own decomposition; finishing it says the decomposition is finished, which is a different
+    /// claim from the one the critics are about to judge.
+    /// </para>
+    /// <para>
+    /// A sentence, not a refusal and not a gate: the tool takes the plan it was given, and the
+    /// panel remains the judge of the goal.
+    /// </para>
+    /// </summary>
+    private static string FinishedPlanNotice(int completed, int total) =>
+        total > 0 && completed == total
+            ? " The plan is complete; that is not evidence the goal is met. Cite what the automatic " +
+              "verification showed, and finish on evidence it could not see."
+            : string.Empty;
+
+    /// <summary>
+    /// Names a plan item that only restates the ladder, once per call.
+    /// <para>
+    /// The cheap half of the schema clause, for a model that writes the closer anyway - which is
+    /// what happened at step 0 of run <c>e426f418</c>, under a system prompt that already told it
+    /// not to make the call. Naming beats refusing: a refusal spends a step on a rewrite, which is
+    /// the waste this exists to prevent.
+    /// </para>
+    /// </summary>
+    private static string LadderDuplicateNotice(List<TodoItem> items)
+    {
+        List<string> duplicates =
+        [
+            .. items.Where(i => LadderTitles.Contains(i.Title.Trim())).Select(i => $"'{i.Title.Trim()}'"),
+        ];
+
+        return duplicates.Count == 0
+            ? string.Empty
+            : $" {string.Join(", ", duplicates)} restates the automatic verification, which runs after " +
+              "every applied change - the plan does not need it.";
+    }
+
+    /// <summary>
+    /// Titles that name the ladder's own job. Whole titles only, case-insensitively: an item called
+    /// "build the settings dialog" is real work, and matching on the word would call it a duplicate.
+    /// </summary>
+    private static readonly HashSet<string> LadderTitles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "build",
+        "build and test",
+        "build and run tests",
+        "build and verify",
+        "final build",
+        "final test",
+        "run tests",
+        "run_tests",
+        "run the tests",
+        "test",
+        "tests",
+        "verify",
+        "verify all",
+        "verify everything",
+    };
 }

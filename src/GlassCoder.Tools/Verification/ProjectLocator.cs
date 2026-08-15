@@ -382,6 +382,64 @@ public static class ProjectLocator
         }
     }
 
+    /// <summary>
+    /// Attribute spellings that mean "this method is a test", across the frameworks this harness
+    /// scaffolds. Matched as text, opening bracket included, so <c>[Fact]</c> and
+    /// <c>[Fact(Skip = "…")]</c> both count and a type called <c>FactoryTests</c> does not.
+    /// </summary>
+    private static readonly string[] TestAttributes =
+        ["[Fact", "[Theory", "[Test]", "[Test(", "[TestMethod", "[TestCase", "[DataTestMethod"];
+
+    /// <summary>
+    /// Whether any source under this path declares a test.
+    /// <para>
+    /// A finer question than <see cref="AnyTestProject"/>, and the one the test rung should ask.
+    /// Steps 5 to 12 of run <c>e426f418</c> had an xunit project with no test file in it, so a
+    /// framework reference said yes and <c>dotnet test</c> was spawned eight times to report that
+    /// it had discovered nothing.
+    /// </para>
+    /// <para>
+    /// <strong>Fails toward running the tests.</strong> A file that cannot be read, a framework
+    /// whose attribute is not on the list, an unusual spelling - all answer yes, and the process
+    /// runs as it always did. A missed skip costs seconds; a wrong skip hides a red suite, and
+    /// this rung is the one that must never be optimistic.
+    /// </para>
+    /// </summary>
+    public static bool DeclaresAnyTest(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        try
+        {
+            string directory = Directory.Exists(path) ? path : Path.GetDirectoryName(Path.GetFullPath(path)) ?? ".";
+
+            foreach (string project in FindAllProjects(directory).Where(IsTestProject))
+            {
+                string projectDirectory = Path.GetDirectoryName(project) ?? directory;
+                foreach (string file in Directory.EnumerateFiles(projectDirectory, "*.cs", SearchOption.AllDirectories))
+                {
+                    if (file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
+                        file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string text = File.ReadAllText(file);
+                    if (TestAttributes.Any(a => text.Contains(a, StringComparison.Ordinal)))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
     /// <summary>Whether this project file references a test framework.</summary>
     public static bool IsTestProject(string projectFile)
     {

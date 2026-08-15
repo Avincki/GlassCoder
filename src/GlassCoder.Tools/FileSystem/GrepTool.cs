@@ -48,8 +48,11 @@ public sealed class GrepTool : IToolSet
 
     /// <summary>Searches workspace files for a regular expression.</summary>
     [GlassCoderTool(ToolName, Order = 20)]
-    [Description("Search the workspace with a .NET regular expression, returning matching lines with their "
-        + "file and line number. The cheapest way to locate code - prefer it to reading whole files.")]
+    // "Returning matching lines with their file and line number" described the result the model is
+    // about to read. Cut to pay for update_todos' plan rule; the steer that earns its place - use
+    // this before reading whole files - stays.
+    [Description("Search the workspace with a .NET regular expression. The cheapest way to locate code - "
+        + "prefer it to reading whole files.")]
     public ToolObservation<GrepResult> Grep(
         [Description("The .NET regular expression, for example 'class\\s+AgentLoop'.")]
         string pattern,

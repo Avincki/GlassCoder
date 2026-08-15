@@ -9,7 +9,52 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
-## 2026-08-15 (end of day, later) — Key the mechanism on the fact, not on the event
+## 2026-08-15 (night) — Two test oracles, one job each
+
+The `able-to-see` and `distinct-tests` work orders, combined. The first was already fully
+implemented; what was left of it was one unticked leftover worth doing. The second is four items
+about the same shape one organ over: **a signal standing in for the thing it is not.** A launch that
+only watched standing in for "the window is right"; a ticked plan and a green rung standing in for
+"the goal is met".
+
+**The plan stops impersonating the oracle.** Run `e426f418`'s plan closed with *Build and run
+tests* - work the ladder had done after every applied change since step 2. The agent read the first
+non-empty green as that item, ticked 5/5, and claimed the goal on the next step; the critics then
+asked for a launch the plan had never contained. Three changes to `update_todos`: the schema says
+not to plan a build or test step and to plan what verification cannot see; a complete plan says in
+its own summary that this is not evidence the goal is met; and an item whose whole title restates
+the ladder is named once per call. Whole titles only - *"Build the settings dialog"* is the job, not
+the ladder's job - and never a refusal, because a refusal spends a step on a rewrite, which is the
+waste being prevented.
+
+**Decided: the system prompt was not the place.** The operator's `%APPDATA%` copy shadows the code
+default and already says *"applied changes are verified for you… call build or run_tests yourself
+only when nothing verified your last change."* The run obeyed that and planned the build anyway.
+The rule belongs on the tool the model is writing into, not in a prompt it has already read. The
+Low item that would have added the clause to `AgentOptions.SystemPrompt` is declined for the same
+reason it was flagged: dead text on this machine unless the shadow is edited too, and the shadow is
+the operator's file.
+
+**Paid for, as the standing rule requires.** `update_todos` grew 174 characters and the default
+profile had 49 of headroom. Dropping *"Break a multi-step task down before starting"* - decomposition
+is what a model does with a plan tool unprompted - covered part of it; the rest came from two more
+descriptions that were describing their own return value: `grep`'s *"returning matching lines with
+their file and line number"* and `run_tests`' sentence about `listOnly`, which the `listOnly`
+parameter says one line further down. No ceiling moved.
+
+**The test rung asks the finer question now.** The gate shipped this afternoon asked whether a
+project references a test framework; steps 5 to 12 of `e426f418` had an xunit project whose first
+test arrived at step 12, so the answer was yes eight times over and `dotnet test` was spawned each
+time to report that it had discovered nothing. It now asks whether any source declares a test, and
+says which of the two facts is true. **The check fails toward running the tests**: an unreadable
+file, an unlisted attribute, an unusual spelling - all answer yes and the process runs exactly as
+before. A missed skip costs seconds; a wrong skip hides a red suite.
+
+**And `launch_app` takes a directory that holds one runnable project.** Occurrence four - `ae72c5ad`
+step 10, `dd11ef7c` step 19, `457867c7` step 24, and the same shape as `dbaa0580`'s MSB1011 - one
+step every desktop run. Several runnable projects still refuse and name them; a directory with
+nothing runnable says that, rather than pointing at `list_projects`, which would list projects none
+of which can be launched.
 
 Run `29356042`'s retrospective, all five ticked items. Its own summary of the pattern is the thing
 worth keeping: **a mechanism keyed to the shape of the run that revealed it goes blind the moment

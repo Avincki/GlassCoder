@@ -102,8 +102,8 @@ public sealed class RunTestsTool : IToolSet
 
     /// <summary>Runs the tests for a project, solution or directory.</summary>
     [GlassCoderTool(ToolName, Order = 60)]
-    [Description("Run tests with dotnet test. Build first. Set listOnly to discover test names instead "
-        + "of running them.")]
+    // The listOnly sentence said what the listOnly parameter's own description says, one line down.
+    [Description("Run tests with dotnet test. Build first.")]
     public async Task<ToolObservation<TestRunResult>> RunTestsAsync(
         [Description("Repo-relative project, solution or directory. '.' is everything.")]
         string path = ".",

@@ -76,13 +76,55 @@ public sealed class LaunchAppTests : IDisposable
     }
 
     [Fact]
-    public async Task A_directory_is_refused_rather_than_guessed_at()
+    public async Task A_directory_holding_one_runnable_project_is_launched()
     {
+        // Occurrence four of a one-step refusal: ae72c5ad step 10, dd11ef7c step 19, 457867c7
+        // step 24, and the same shape as MSB1011 in dbaa0580's build. A directory with exactly one
+        // executable project in it is not ambiguous.
+        _workspace.WriteFile(
+            "src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup></Project>");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueTimedOut();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner).LaunchAsync("src/App");
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Path.ShouldEndWith("App.csproj", Case.Insensitive);
+        runner.Requests.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task A_directory_holding_several_runnable_projects_still_refuses_and_names_them()
+    {
+        _workspace.WriteFile(
+            "src/App/One.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup></Project>");
+        _workspace.WriteFile(
+            "src/App/Two.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup></Project>");
+
         ToolObservation<LaunchAppResult> observation = await Tool(new FakeProcessRunner())
             .LaunchAsync("src/App");
 
         observation.Ok.ShouldBeFalse();
-        observation.Error!.Hint.ShouldContain("list_projects");
+        observation.Error!.Hint.ShouldNotBeNull().ShouldContain("One.csproj");
+        observation.Error.Hint.ShouldContain("Two.csproj");
+    }
+
+    [Fact]
+    public async Task A_directory_with_nothing_runnable_says_that_rather_than_naming_a_tool()
+    {
+        // The library case. Pointing at list_projects here sends the model to a tool that will
+        // list projects none of which can be launched - the answer belongs in this message.
+        _workspace.WriteFile("src/App/Lib.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+
+        ToolObservation<LaunchAppResult> observation = await Tool(new FakeProcessRunner())
+            .LaunchAsync("src/App");
+
+        observation.Ok.ShouldBeFalse();
+        observation.Error!.Hint.ShouldNotBeNull().ShouldContain("no project that produces an executable");
     }
 
     [Fact]

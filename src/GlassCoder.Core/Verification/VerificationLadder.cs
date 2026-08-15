@@ -368,18 +368,29 @@ public sealed class VerificationLadder : IVerificationLadder
                 // about files on disk. A path the guard will not resolve is not one this can
                 // answer, and the rung runs exactly as it did before.
                 PathGuardResult target = _guard.Resolve(request.ProjectPath, PathAccess.Read);
-                if (target.Allowed && target.FullPath is not null &&
-                    !ProjectLocator.AnyTestProject(target.FullPath))
+                if (target.Allowed && target.FullPath is not null)
                 {
-                    return new RungResult(
-                        rung,
-                        true,
-                        "No project in the workspace references a test framework yet, so there was " +
-                        "nothing for this rung to run - nothing was verified.",
-                        Elapsed(start))
+                    // Two questions, because they have different answers and the honest sentence
+                    // differs. Run e426f418 had a test project from step 5 and its first test at
+                    // step 12, so the framework reference said yes eight times over and the runner
+                    // was spawned each time to report that it had discovered nothing.
+                    string? nothingToRun = !ProjectLocator.AnyTestProject(target.FullPath)
+                        ? "No project in the workspace references a test framework yet"
+                        : !ProjectLocator.DeclaresAnyTest(target.FullPath)
+                            ? "No test is declared in the workspace yet"
+                            : null;
+
+                    if (nothingToRun is not null)
                     {
-                        Unverified = true,
-                    };
+                        return new RungResult(
+                            rung,
+                            true,
+                            $"{nothingToRun}, so there was nothing for this rung to run - nothing was verified.",
+                            Elapsed(start))
+                        {
+                            Unverified = true,
+                        };
+                    }
                 }
 
                 string? filter = rung == VerificationRung.UnitTests ? request.TestFilter : null;
