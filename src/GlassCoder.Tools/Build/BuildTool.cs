@@ -81,8 +81,9 @@ public sealed class BuildTool : IToolSet
 
     /// <summary>Builds a project, solution or directory.</summary>
     [GlassCoderTool(ToolName, Order = 50)]
-    [Description("Build with dotnet build - the authoritative check that the code compiles. Run it after "
-        + "editing and before running tests.")]
+    // "The authoritative check that the code compiles" was written for a reader of this source.
+    // The model learns the same thing from being told when to call it, in half the characters.
+    [Description("Build with dotnet build. Run it after editing and before running tests.")]
     public async Task<ToolObservation<BuildResult>> BuildAsync(
         [Description("Repo-relative project, solution or directory. '.' is everything.")]
         string path = ".",

@@ -48,6 +48,21 @@ public sealed record ProcessRunRequest(string FileName, IReadOnlyList<string> Ar
 
     /// <summary>How often <see cref="ReadyWhen"/> is polled. Ignored when it is null.</summary>
     public TimeSpan ReadyPollInterval { get; init; } = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Called once with the child's process id after <see cref="ReadyWhen"/> first says yes, and
+    /// before the tree is killed - the only moment at which the process is both alive and worth
+    /// looking at.
+    /// <para>
+    /// This exists because "it drew a window" is the weakest interesting claim about a running
+    /// application, and every stronger one has to be made while it is still up. Awaited, so the
+    /// caller gets the whole window it asked for; bounded by the same timeout, because a callback
+    /// that hangs would hold open the process this class promises to kill; and a callback that
+    /// throws is swallowed, because whoever was looking making a mistake must not turn a launch
+    /// that worked into a launch that failed.
+    /// </para>
+    /// </summary>
+    public Func<int, CancellationToken, Task>? OnReady { get; init; }
 }
 
 /// <summary>What a child process did.</summary>

@@ -382,8 +382,12 @@ public static class RetrospectiveTranscript
 
         if (step.Verification is { } verification)
         {
+            // Through the shared renderer, because this line is why both reviewers of run
+            // ae72c5ad reported the harness as passing a test gate with no test in existence.
+            // The rung was honest - it recorded that it verified nothing - and this retelling,
+            // which is what stage 2 and the human read, said only "passed".
             text.AppendLine(CultureInfo.InvariantCulture,
-                $"- verification: {(verification.Passed ? "passed" : "FAILED")} at " +
+                $"- verification: {VerificationVerdict.Describe(verification.Passed, verification.Unverified, verification.Noticed)} at " +
                 $"{verification.FailedRung ?? verification.HighestRungReached} - {OneLine(verification.Summary, 300)}");
 
             if (verification.Critique is { } critique)

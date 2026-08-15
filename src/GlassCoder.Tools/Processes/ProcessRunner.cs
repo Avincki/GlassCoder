@@ -148,9 +148,25 @@ public sealed class ProcessRunner : IProcessRunner
         }
 
         // Ready means the process is still running and has told us what we waited to learn, so it
-        // is stopped on the same terms the timeout would have stopped it - just sooner.
+        // is stopped on the same terms the timeout would have stopped it - just sooner. Anything
+        // the caller wants to learn from the live process has to be learned here, in the gap
+        // between knowing it is up and stopping it.
         if (ready)
         {
+            if (request.OnReady is { } onReady)
+            {
+                try
+                {
+                    await onReady(process.Id, timeoutSource.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Including cancellation: the clock running out mid-look is a look that got
+                    // what it got. The kill below is the promise this class actually makes.
+                    _logger.LogDebug(ex, "The ready callback did not finish; stopping the process regardless");
+                }
+            }
+
             Kill(process);
         }
 

@@ -56,6 +56,25 @@ public sealed class RetrospectiveTranscriptTests
         digest.ShouldNotContain("[regression: accepted]");
     }
 
+    [Fact]
+    public void A_climb_that_verified_nothing_is_not_rendered_as_a_clean_pass()
+    {
+        // Run ae72c5ad, exactly: a UnitTests rung that ran and found no test, recorded honestly
+        // on the step and then retold here as "verification: passed at UnitTests". Both reviewers
+        // of that run read this line and reported the harness as passing a test gate over a
+        // workspace with no tests in it - a finding manufactured by the instrument.
+        string digest = Render(unverified: true);
+
+        digest.ShouldContain("verification: passed (0 tests) at UnitTests");
+        digest.ShouldNotContain("verification: passed at UnitTests");
+    }
+
+    [Fact]
+    public void A_pass_with_a_notice_carries_it()
+    {
+        Render(unverified: false, noticed: true).ShouldContain("passed (with a notice)");
+    }
+
     private static StepCritiqueRecord Critique(bool refuted, int refutingVotes, int respondingVotes) =>
         new("critic",
             refuted,
@@ -70,7 +89,11 @@ public sealed class RetrospectiveTranscriptTests
                 new ReviewVoteRecord(true, 0.9, "Compile and tests only - nothing ran the application.", Available: true, "evidence"),
             ]);
 
-    private static string Render(StepCritiqueRecord critique) =>
+    private static string Render(StepCritiqueRecord critique) => Render(critique, false, false);
+
+    private static string Render(bool unverified, bool noticed = false) => Render(null, unverified, noticed);
+
+    private static string Render(StepCritiqueRecord? critique, bool unverified, bool noticed) =>
         RetrospectiveTranscript.Render(
             [
                 new StepRecord
@@ -94,6 +117,8 @@ public sealed class RetrospectiveTranscriptTests
                         CritiqueCostUsd: 0m)
                     {
                         Critique = critique,
+                        Unverified = unverified,
+                        Noticed = noticed,
                     },
                 },
             ],

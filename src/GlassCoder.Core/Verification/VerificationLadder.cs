@@ -225,7 +225,7 @@ public sealed class VerificationLadder : IVerificationLadder
             _logger.LogInformation(
                 "Verification rung {Rung}: {Outcome} in {Duration:F0} ms",
                 rung,
-                result.Unverified ? "unverified" : result.Passed ? "passed" : "FAILED",
+                VerificationVerdict.Describe(result.Passed, result.Unverified, result.Noticed),
                 result.DurationMs);
 
             if (!result.Passed)

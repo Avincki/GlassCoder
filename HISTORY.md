@@ -9,6 +9,73 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-15 (later) — The rung that types, and three sentences the harness wrote
+
+Run `ae72c5ad`'s retrospective, all six ticked items. Three of them were strings the harness itself
+wrote; the fourth was the thing those strings kept apologising for.
+
+**`launch_app` grew a probe, and the refutation it could never answer is answerable.** Task 71
+shipped the tool knowing it topped out at *a window drew*, and said so. Three runs later the
+refutation — *runtime evidence only proves a window drew* — was still correct and still
+unanswerable, while every defect in `ae72c5ad`'s code review was thirty seconds of typing away. The
+tool now takes `probe`, a `';'`-separated line: `Celsius=100` types, `Convert!` clicks,
+`Fahrenheit?` reads back. It runs in the gap between `ReadyWhen` saying yes and the kill —
+`ProcessRunRequest.OnReady`, awaited, bounded by the same timeout, swallowed on failure — and the
+readback goes into the summary, which is what `RuntimeEvidence` hands the panel. Driven against
+`ae72c5ad`'s own converter it reports `CelsiusTextBox=100 ok; FahrenheitTextBox? → "212"`.
+
+**Decided**
+
+- **One string, not a list of objects.** The parameter costs 268 characters on every request of
+  every run, and an array-of-objects schema would have cost several hundred more. Three verbs fit
+  in one sentence; `PromptBudgetTests` records what was cut to pay for it, and no ceiling moved.
+- **A new project, `GlassCoder.Tools.Windows`.** The managed UI Automation client sits behind
+  PresentationCore, and `ArchitectureTests` asserts Core and Tools carry no UI dependency. Not a
+  file in `GlassCoder.Wpf` either: this is a harness capability that happens to need a desktop.
+  The console host does not register it and says *no UI probe is available on this host* rather
+  than reporting a window with nothing in it — watched-and-saw-nothing against never-looked, one
+  level up.
+- **The hedge is conditional now.** *Whether the window is right still needs eyes on it* is honest
+  about a launch that only watched and an understatement over a readback of the field the
+  refutation was about. It stands down exactly when something was read.
+- **A probe that throws is a reading, not a failed launch.** Recorded in the tool rather than left
+  to the runner's swallow, because a silent probe is the one outcome this must never report.
+
+**One renderer for the verdict, and a test that says so.** `Retrospective.cs` rendered
+`verification: passed at UnitTests` over a rung that had recorded finding no test, which is why
+both reviewers of `ae72c5ad` reported the harness as passing a test gate in a workspace with no
+tests. That was the third instance of the shape — the model-facing header on 2026-08-09, the
+critique tally on 2026-08-11 — each fixed where it was found, none of the fixes stopping the next.
+`VerificationVerdict.Describe` is now the only place the words are chosen, and a source scan fails
+the build on a surface that maps the pass flag straight onto the word for a pass. The scan found a
+**fourth** instance nobody had reported: `TranscriptViewModel`, the operator's own transcript.
+
+**Two sentences stopped overstating what the run had.** The advisory concession said *the compiler
+and test results above remain the authority* whatever the climb did; over an `Unverified` report it
+now names the compiler and says no test verified the change, and over a climb that never reached
+the tests it does not mention tests at all. And the refutation-recovery message stopped prescribing
+a launch the run had already made: with runtime evidence present it says the panel read that result
+before refusing, and asks for the probe or for code instead. Same correction as 2026-08-11's
+orphan-type notice — a remedy the harness can see is spent is worth one step and nothing else.
+
+**A repeated launch is marked `reused`, and the critique is finally counted.** `RuntimeEvidence`
+memoises on project + applied-change count + probe text, so `ae72c5ad`'s step 15 would now come
+back flagged rather than byte-identical and unremarked; the sentry has counted that flag since
+2026-08-11. And `RunMetrics` carries `CompletionCritiquePanels`, `CompletionCritiqueRefusals`,
+`CompletedOverRefutation` and `UnverifiedVerifications` — "completed over a unanimous refutation"
+has happened in `216360bf`, `d5edbc59` and `ae72c5ad`, and until now could only be established by
+reading three transcripts by hand.
+
+**Open**
+
+- The probe is Windows-and-desktop only. A console-host run says so; it does not acquire the rung.
+- Not re-run end to end through the loop: the probe was driven against the real application
+  directly. The next live run on a WPF goal is the actual test of whether the model reaches for it.
+- The three unticked items from this retrospective (the rating strip's caveat, `launch_app`
+  resolving a directory to its one project, and the build-warning oracle label) are untouched.
+
+---
+
 ## 2026-08-15 — Twenty prompts remembered, not one
 
 The goal box remembered exactly one prompt. It now keeps the last twenty, newest first, in a

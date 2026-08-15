@@ -31,6 +31,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GlassCoder.Lab.Tests", "tes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GlassCoder.Wpf.Tests", "tests\GlassCoder.Wpf.Tests\GlassCoder.Wpf.Tests.csproj", "{5D5D0CDB-685A-46B0-BCC2-BF40951490F8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GlassCoder.Tools.Windows", "src\GlassCoder.Tools.Windows\GlassCoder.Tools.Windows.csproj", "{CE1F551E-CC78-4494-9505-FB5CA67FAE58}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -185,6 +187,18 @@ Global
 		{5D5D0CDB-685A-46B0-BCC2-BF40951490F8}.Release|x64.Build.0 = Release|Any CPU
 		{5D5D0CDB-685A-46B0-BCC2-BF40951490F8}.Release|x86.ActiveCfg = Release|Any CPU
 		{5D5D0CDB-685A-46B0-BCC2-BF40951490F8}.Release|x86.Build.0 = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|x64.Build.0 = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Debug|x86.Build.0 = Debug|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|x64.ActiveCfg = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|x64.Build.0 = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|x86.ActiveCfg = Release|Any CPU
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -202,5 +216,6 @@ Global
 		{2D2DE322-761F-4C34-8A0A-0A5EC6542BD8} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{5CCC7989-7A65-4ACF-816F-2C44AC4044AF} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{5D5D0CDB-685A-46B0-BCC2-BF40951490F8} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{CE1F551E-CC78-4494-9505-FB5CA67FAE58} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

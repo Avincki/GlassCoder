@@ -50,8 +50,9 @@ public sealed class ListChangesTool : IToolSet
 
     /// <summary>Lists the files this run has changed.</summary>
     [GlassCoderTool(ToolName, Order = 6)]
-    [Description("List the files this run has changed, with net line counts and whether each was written or "
-        + "refused. Still correct after the conversation is compacted.")]
+    // Same cut, same reason: the line counts and the written/refused mark arrive in the result.
+    // What stays is the only part that changes when the model would call it.
+    [Description("List the files this run has changed. Still correct after the conversation is compacted.")]
     public ToolObservation<ListChangesResult> ListChanges()
     {
         string runId = RunContext.Current.RunId;

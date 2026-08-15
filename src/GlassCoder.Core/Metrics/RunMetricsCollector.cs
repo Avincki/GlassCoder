@@ -112,6 +112,11 @@ public sealed class RunMetricsCollector
                 continue;
             }
 
+            if (rung.Unverified)
+            {
+                UnverifiedVerifications++;
+            }
+
             switch (rung.Rung)
             {
                 case VerificationRung.Syntax when !rung.Passed:
@@ -145,6 +150,44 @@ public sealed class RunMetricsCollector
             }
         }
     }
+
+    /// <summary>Completion critique panels that ran this run - at most two, by construction.</summary>
+    public int CompletionCritiquePanels { get; private set; }
+
+    /// <summary>How many of them refuted the finished work.</summary>
+    public int CompletionCritiqueRefusals { get; private set; }
+
+    /// <summary>
+    /// Whether the run finished with a refutation standing.
+    /// <para>
+    /// The number this file was missing. It has now happened in runs <c>216360bf</c>,
+    /// <c>d5edbc59</c> and <c>ae72c5ad</c>; each was recorded on its own transcript and none was
+    /// countable across runs, so "is this getting better or worse" could only be answered by
+    /// reading three transcripts by hand. Not a verdict on the run - completing over an advisory
+    /// refutation is allowed and sometimes right - but a rate worth watching.
+    /// </para>
+    /// </summary>
+    public bool CompletedOverRefutation { get; private set; }
+
+    /// <summary>
+    /// Rungs that ran, failed nothing and verified nothing - a test rung that discovered no test.
+    /// Counted for the same reason: an arm whose greens are mostly this is not the arm its pass
+    /// rate says it is.
+    /// </summary>
+    public int UnverifiedVerifications { get; private set; }
+
+    /// <summary>Records what one completion panel concluded.</summary>
+    public void ObserveCompletionCritique(bool refuted)
+    {
+        CompletionCritiquePanels++;
+        if (refuted)
+        {
+            CompletionCritiqueRefusals++;
+        }
+    }
+
+    /// <summary>Records that the run completed anyway, with the panel unconvinced.</summary>
+    public void ObserveCompletionOverRefutation() => CompletedOverRefutation = true;
 
     /// <summary>
     /// What retrieval spent this run (workplan task 61), or null when no policy was in play.
@@ -194,6 +237,10 @@ public sealed class RunMetricsCollector
             RetrievalCallsAllowed = Retrieval?.Allowed ?? 0,
             RetrievalCallsBlocked = Retrieval?.Blocked ?? new Dictionary<string, int>(StringComparer.Ordinal),
             RetrievalCharsReturned = Retrieval?.CharsReturned ?? 0,
+            CompletionCritiquePanels = CompletionCritiquePanels,
+            CompletionCritiqueRefusals = CompletionCritiqueRefusals,
+            CompletedOverRefutation = CompletedOverRefutation,
+            UnverifiedVerifications = UnverifiedVerifications,
         };
     }
 

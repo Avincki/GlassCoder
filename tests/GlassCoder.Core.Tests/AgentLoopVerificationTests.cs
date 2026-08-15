@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Metrics;
 using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
 using GlassCoder.TestSupport;
@@ -548,6 +549,152 @@ public sealed class AgentLoopVerificationTests
     }
 
     /// <summary>
+    /// A remedy the harness can see is already spent is not offered again.
+    /// <para>
+    /// Run <c>ae72c5ad</c>: the application was launched at step 12, its result was inside the very
+    /// evidence the panel refuted at step 14, and the recovery message told the model to launch it.
+    /// So at step 15 it did, and the identical string came back - the harness naming the repeat as
+    /// the fix, and the next panel correctly reading the step as a non-event.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task With_the_app_already_launched_the_recovery_asks_for_more_than_another_launch()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.ToolCall("pretend_launch"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(true, [], 3, "3/3 refuted: only proves a window drew.")
+                {
+                    RespondingVotes = 3,
+                },
+            },
+            Runtime = new RuntimeEvidence(),
+        };
+
+        await harness.RunAsync();
+
+        string advisory = harness.Client.Requests[3].Messages
+            .Last(m => m.Role == ChatRole.User).Text.ShouldNotBeNull();
+
+        advisory.ShouldNotContain(
+            "Then call launch_app",
+            customMessage: "the launch already happened and the panel read it before refusing");
+        advisory.ShouldContain("already been launched this run");
+        advisory.ShouldContain("probe", customMessage: "and what is still missing is what the window shows for an input");
+    }
+
+    [Fact]
+    public async Task With_no_launch_yet_the_recovery_still_names_the_tool_that_answers_it()
+    {
+        // The other half of the same condition, and the behaviour task 71 shipped: a run that has
+        // never launched anything is being told about a capability it has not used.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(true, [], 3, "3/3 refuted: nothing ran it.") { RespondingVotes = 3 },
+            },
+            Runtime = new RuntimeEvidence(),
+        };
+
+        await harness.RunAsync();
+
+        string advisory = harness.Client.Requests[2].Messages
+            .Last(m => m.Role == ChatRole.User).Text.ShouldNotBeNull();
+
+        advisory.ShouldContain("Then call launch_app");
+    }
+
+    /// <summary>
+    /// The concession names only what actually verified the change.
+    /// <para>
+    /// In run <c>ae72c5ad</c> the test result the concession called an authority was a UnitTests
+    /// rung that ran and found no test - and the loop's own message, three hundred lines earlier,
+    /// had already said the climb verified nothing. The sentence pointed the model at the weakest
+    /// evidence in the run and offered it the exit, and the model took it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_advisory_concession_does_not_call_a_testless_climb_an_authority()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(true, [], 3, "3/3 refuted.") { RespondingVotes = 3 },
+            },
+        };
+
+        harness.Ladder.Enqueue(UnverifiedReport());
+
+        await harness.RunAsync();
+
+        string advisory = harness.Client.Requests[2].Messages
+            .Last(m => m.Role == ChatRole.User).Text.ShouldNotBeNull();
+
+        advisory.ShouldContain("no test verified this change");
+        advisory.ShouldNotContain(
+            "test results above remain the authority",
+            customMessage: "the test result above verified nothing, and said so on its own record");
+        advisory.ShouldContain("finish as-is if you disagree", customMessage: "the concession itself is unchanged");
+    }
+
+    [Fact]
+    public async Task Completing_over_a_refutation_is_counted_rather_than_left_in_the_transcript()
+    {
+        // Three runs have now finished over a unanimous refusal, each recorded only on its own
+        // transcript. A rate that has to be reconstructed by hand from three transcripts is not a
+        // measurement this harness has.
+        Harness harness = new(
+            FakeChatClient.ToolCall("mutate"),
+            FakeChatClient.Text("done"),
+            FakeChatClient.Text("done for real"))
+        {
+            Critics = new FakeCriticPanel
+            {
+                Next = new CritiqueResult(true, [], 3, "3/3 refuted.") { RespondingVotes = 3 },
+            },
+        };
+
+        harness.Ladder.Enqueue(UnverifiedReport());
+
+        await harness.RunAsync();
+
+        RunMetrics metrics = harness.Metrics.Records.ShouldHaveSingleItem();
+        metrics.CompletionCritiquePanels.ShouldBe(2);
+        metrics.CompletionCritiqueRefusals.ShouldBe(2);
+        metrics.CompletedOverRefutation.ShouldBeTrue();
+        metrics.UnverifiedVerifications.ShouldBe(1, "the climb that ran a test rung and found no test");
+    }
+
+    [Fact]
+    public async Task A_run_the_panel_accepted_says_so_in_the_same_numbers()
+    {
+        Harness harness = new(FakeChatClient.ToolCall("mutate"), FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+        };
+
+        await harness.RunAsync();
+
+        RunMetrics metrics = harness.Metrics.Records.ShouldHaveSingleItem();
+        metrics.CompletionCritiquePanels.ShouldBe(1);
+        metrics.CompletionCritiqueRefusals.ShouldBe(0);
+        metrics.CompletedOverRefutation.ShouldBeFalse();
+    }
+
+    /// <summary>
     /// The re-vote is told whether anything it asked for arrived (workplan task 72).
     /// <para>
     /// Between steps 22 and 27 of run <c>d5edbc59</c> the evidence set was identical - same rungs,
@@ -974,11 +1121,17 @@ public sealed class AgentLoopVerificationTests
 
         public RecordingMetricsRecorder Metrics { get; } = new();
 
+        /// <summary>
+        /// The run's runtime evidence, when a test needs the loop to know the application has
+        /// already been launched. Filled by the <c>pretend_launch</c> tool from inside the run.
+        /// </summary>
+        public RuntimeEvidence? Runtime { get; init; }
+
         public Task<AgentRunResult> RunAsync(CancellationToken cancellationToken = default)
         {
             AgentLoop loop = new(
                 new FakeChatClientFactory(Client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
-                new ToolRegistry([new MutatingTools(Changes)]),
+                new ToolRegistry([new MutatingTools(Changes, Runtime)]),
                 StepLogger,
                 TestContextAssembler.Create(),
                 Metrics,
@@ -986,7 +1139,8 @@ public sealed class AgentLoopVerificationTests
                 verifier: LadderOverride ?? Ladder,
                 changes: Changes,
                 verificationOptions: Options.Create(_options),
-                critics: CriticsOverride ?? Critics);
+                critics: CriticsOverride ?? Critics,
+                runtime: Runtime);
 
             return loop.RunAsync(
                 new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing.", CriticRole = "critic-remote" },
@@ -997,8 +1151,13 @@ public sealed class AgentLoopVerificationTests
     private sealed class MutatingTools : IToolSet
     {
         private readonly IChangeLog _changes;
+        private readonly RuntimeEvidence? _runtime;
 
-        public MutatingTools(IChangeLog changes) => _changes = changes;
+        public MutatingTools(IChangeLog changes, RuntimeEvidence? runtime = null)
+        {
+            _changes = changes;
+            _runtime = runtime;
+        }
 
         [GlassCoderTool("mutate", Order = 1)]
         [Description("Applies a change to the workspace, for tests.")]
@@ -1023,6 +1182,20 @@ public sealed class AgentLoopVerificationTests
             CodeChange change = _changes.Propose("src/C.cs", "remove", "public class C { }", string.Empty);
             _changes.Update(change.Id, ChangeStatus.Applied);
             return Observation.Ok("remove", new MutateData(change.Id), "removed");
+        }
+
+        /// <summary>
+        /// Stands in for <c>launch_app</c>. It has to be a tool rather than a line of setup because
+        /// <c>RuntimeEvidence</c> is keyed on <c>RunContext.Current.RunId</c>, which is an
+        /// AsyncLocal the loop sets inside the run - evidence seeded from the test thread would be
+        /// filed under "no-run" and the loop would never see it.
+        /// </summary>
+        [GlassCoderTool("pretend_launch", Order = 4)]
+        [Description("Records runtime evidence, for tests.")]
+        public ToolObservation<MutateData> PretendLaunch()
+        {
+            _runtime?.Record("'src/App.csproj' started and drew a window after 0.7s.", started: true);
+            return Observation.Ok("pretend_launch", new MutateData("launched"), "launched");
         }
     }
 

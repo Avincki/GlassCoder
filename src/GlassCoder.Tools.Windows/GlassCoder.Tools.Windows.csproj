@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Windows-only half of the tools: the pieces whose implementation lives in the Windows
+    desktop framework rather than in the base class library.
+
+    Its own project, and not a file in GlassCoder.Tools, because Tools targets net10.0 and must
+    keep doing so - ArchitectureTests asserts that the harness libraries carry no UI dependency, and
+    the managed UI Automation client sits behind PresentationCore. Its own project, and not a file
+    in GlassCoder.Wpf, because this is a harness capability that happens to need a desktop, not a
+    piece of the desktop application: the console host would take it tomorrow if it were ever
+    targeted at Windows.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>GlassCoder.Tools.Windows</RootNamespace>
+    <!-- For the UIAutomationClient and UIAutomationTypes references; no XAML is compiled here. -->
+    <UseWPF>true</UseWPF>
+    <!-- CLAUDE.md §13: warnings are errors alongside Core and Tools. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);CA1848;CA1031</WarningsNotAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GlassCoder.Tools\GlassCoder.Tools.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+</Project>

@@ -2,6 +2,7 @@ using System;
 using System.Windows.Threading;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Guardrails;
+using GlassCoder.Tools.Windows;
 using GlassCoder.Wpf.Services;
 using GlassCoder.Wpf.ViewModels;
 using GlassCoder.Wpf.Views;
@@ -76,6 +77,12 @@ public static class DesktopServiceCollectionExtensions
         // UI state, not settings: it lives in the registry precisely so it never reaches
         // IConfiguration, whose hash is what makes a run's arm identifiable.
         services.AddSingleton<IUiStateStore, RegistryUiStateStore>();
+
+        // The launch probe. Registered here rather than in the tool library because the managed UI
+        // Automation client lives behind PresentationCore, and Core and Tools are asserted to be
+        // free of that (ArchitectureTests). A host that cannot register it launches applications
+        // exactly as before and says it has no probe when asked for one.
+        services.AddWindowsTools();
 
         // Settings: transient, so Cancel discards the edits rather than leaving a half-edited
         // view model behind for the next time the dialog opens.

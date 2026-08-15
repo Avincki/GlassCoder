@@ -93,6 +93,26 @@ public sealed record RunMetrics
     /// <summary>Characters retrieval put into the conversation, which is the context it cost.</summary>
     public int RetrievalCharsReturned { get; init; }
 
+    /// <summary>
+    /// What the completion critique did this run: panels that spoke, and how many refused.
+    /// <para>
+    /// The harness measures tool-call validity, edits-to-green, recovery and cascade obsessively
+    /// and carried nothing at all about the critique - while "completed over a unanimous
+    /// refutation" happened in three separate runs, each visible only in its own transcript. By
+    /// this repository's own standard, greppable across runs beats reconstructed by hand.
+    /// </para>
+    /// </summary>
+    public int CompletionCritiquePanels { get; init; }
+
+    /// <inheritdoc cref="CompletionCritiquePanels" />
+    public int CompletionCritiqueRefusals { get; init; }
+
+    /// <summary>Whether the run finished with the panel still unconvinced.</summary>
+    public bool CompletedOverRefutation { get; init; }
+
+    /// <summary>Rungs that ran, failed nothing and verified nothing - test runs that found no test.</summary>
+    public int UnverifiedVerifications { get; init; }
+
     /// <summary>Edits applied.</summary>
     public required int Edits { get; init; }
 

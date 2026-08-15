@@ -128,6 +128,16 @@ public sealed class PromptBudgetTests : IDisposable
     /// <c>launch_app</c>'s own text was cut by 61. Every remaining ceiling moved by exactly what
     /// was left.
     /// </para>
+    /// <para>
+    /// <strong>And then <c>launch_app</c>'s probe was paid for in full, and no ceiling moved.</strong>
+    /// The <c>probe</c> parameter - the rung above "a window drew" - costs 268 characters, and 200
+    /// of them came from the same seam as last time: <c>list_projects</c> and <c>list_changes</c>
+    /// each described their own return value, and <c>build</c> called itself "the authoritative
+    /// check that the code compiles" to a reader who learns the same thing from being told when to
+    /// call it. Default measured 12,082 before and 12,152 after, against an unchanged 12,200. That
+    /// the payment was available twice running is not a promise it will be a third time: what is
+    /// left in these descriptions is now mostly the part that changes what the model does.
+    /// </para>
     /// </summary>
     public static TheoryData<string, int> Profiles => new()
     {

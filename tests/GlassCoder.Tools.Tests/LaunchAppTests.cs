@@ -1,4 +1,5 @@
 using GlassCoder.Tools.Build;
+using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Processes;
 using GlassCoder.Tools.Registry;
 using GlassCoder.TestSupport;
@@ -208,11 +209,217 @@ public sealed class LaunchAppTests : IDisposable
         observation.Summary.ShouldContain("still running");
     }
 
-    private LaunchAppTool Tool(IProcessRunner runner, IWindowPresence? windows = null) =>
-        new(runner, _workspace.Guard("src"), new RuntimeEvidence(), windows);
+    // ── The probe (the rung above "a window drew") ──
+
+    [Fact]
+    public async Task What_the_probe_reads_out_of_the_window_reaches_the_summary()
+    {
+        // The whole point of the rung: run ae72c5ad shipped a converter whose arithmetic nothing
+        // had ever exercised, and three critics refuted it for exactly that. A readback of the
+        // other box after typing into the first is the evidence they were asking for.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady(TimeSpan.FromSeconds(0.7));
+        StubProbe probe = new(readsBack: "212");
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), probe)
+            .LaunchAsync("src/App/App.csproj", timeoutSeconds: 10, probe: "Celsius=100; Convert!; Fahrenheit?");
+
+        probe.Steps.Count.ShouldBe(3);
+        probe.ProcessId.ShouldBe(runner.ReadyProcessId, "the probe must look at the process that drew the window");
+        observation.Summary.ShouldContain("Fahrenheit? → \"212\"");
+
+        // And the hedge stands down: it is true of a launch that only watched, and an understatement
+        // over a readback of the very field the refutation was about.
+        observation.Summary.ShouldNotContain("needs eyes on it");
+    }
+
+    [Fact]
+    public async Task A_probe_that_reads_nothing_leaves_the_hedge_where_it_was()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), new StubProbe(null))
+            .LaunchAsync("src/App/App.csproj", probe: "Missing?");
+
+        observation.Summary.ShouldContain("needs eyes on it");
+        observation.Summary.ShouldContain("no element by that name");
+    }
+
+    [Fact]
+    public async Task A_host_with_no_probe_says_so_rather_than_implying_there_was_nothing_to_see()
+    {
+        // Watched-and-saw-nothing against never-looked, one level up: the console host has no UI
+        // Automation to offer, and a silent launch would read as a window with nothing in it.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true))
+            .LaunchAsync("src/App/App.csproj", probe: "Fahrenheit?");
+
+        observation.Summary.ShouldContain("No UI probe is available");
+        observation.Summary.ShouldContain("needs eyes on it");
+    }
+
+    [Fact]
+    public async Task A_launch_with_no_probe_asked_for_is_exactly_what_it_was_before()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        StubProbe probe = new("212");
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), probe)
+            .LaunchAsync("src/App/App.csproj");
+
+        runner.Requests.Single().OnReady.ShouldBeNull("nothing was asked for, so nothing should be attached");
+        probe.Steps.ShouldBeEmpty();
+        observation.Summary.ShouldContain("needs eyes on it");
+        observation.Summary.ShouldNotContain("Probe:");
+    }
+
+    [Fact]
+    public async Task A_probe_that_throws_does_not_turn_a_launch_that_worked_into_a_failure()
+    {
+        // The tool is holding a live application it is about to kill. A probe that falls over is a
+        // piece of missing evidence, never a failed launch - and the process still gets stopped.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        ToolObservation<LaunchAppResult> observation = await Tool(runner, new StubWindows(true), new ThrowingProbe())
+            .LaunchAsync("src/App/App.csproj", probe: "Fahrenheit?");
+
+        observation.Ok.ShouldBeTrue();
+        observation.Data!.Started.ShouldBeTrue();
+        observation.Summary.ShouldContain("drew a window");
+    }
+
+    [Fact]
+    public async Task The_probe_is_kept_for_the_completion_critique_with_everything_else()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        RuntimeEvidence evidence = new();
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+
+        await new LaunchAppTool(runner, _workspace.Guard("src"), evidence, new StubWindows(true), new StubProbe("212"))
+            .LaunchAsync("src/App/App.csproj", probe: "Fahrenheit?");
+
+        evidence.Latest.ShouldNotBeNull().ShouldContain("→ \"212\"");
+    }
+
+    // ── A launch that cannot show anything new ──
+
+    [Fact]
+    public async Task The_same_launch_over_an_unchanged_tree_is_answered_rather_than_re_run()
+    {
+        // Run ae72c5ad, step 15: refuted at step 14, the model re-issued step 12's launch and got
+        // a byte-identical string back. The launch was not wrong, it was spent - and nothing said so.
+        ChangeLog changes = new();
+        RuntimeEvidence evidence = new();
+        FakeProcessRunner runner = new();
+        runner.EnqueueTimedOut();
+
+        LaunchAppTool tool = new(runner, _workspace.Guard("src"), evidence, null, null, changes);
+
+        await tool.LaunchAsync("src/App/App.csproj", timeoutSeconds: 2);
+        ToolObservation<LaunchAppResult> second = await tool.LaunchAsync("src/App/App.csproj", timeoutSeconds: 2);
+
+        runner.Requests.Count.ShouldBe(1, "the second launch had nothing new to find out");
+        second.Reused.ShouldBeTrue("the sentry counts this flag, and it is how a repeat becomes visible");
+        second.Summary.ShouldContain("cannot show anything new");
+        second.Data!.Started.ShouldBeTrue("a reused answer is still the answer");
+    }
+
+    [Fact]
+    public async Task A_launch_after_an_applied_change_runs_for_real()
+    {
+        ChangeLog changes = new();
+        FakeProcessRunner runner = new();
+        runner.EnqueueTimedOut().EnqueueTimedOut();
+
+        LaunchAppTool tool = new(runner, _workspace.Guard("src"), new RuntimeEvidence(), null, null, changes);
+
+        await tool.LaunchAsync("src/App/App.csproj", timeoutSeconds: 2);
+
+        CodeChange change = changes.Propose("src/App/MainWindow.xaml", "edit_file", "before", "after");
+        changes.Update(change.Id, ChangeStatus.Applied);
+
+        ToolObservation<LaunchAppResult> second = await tool.LaunchAsync("src/App/App.csproj", timeoutSeconds: 2);
+
+        runner.Requests.Count.ShouldBe(2);
+        second.Reused.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Asking_the_window_a_different_question_is_a_different_launch()
+    {
+        // The tree is unchanged, but a probe that reads a different field reads a different fact -
+        // and reusing the previous answer would report on a control nobody asked about.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady().EnqueueReady();
+
+        LaunchAppTool tool = new(
+            runner, _workspace.Guard("src"), new RuntimeEvidence(), new StubWindows(true), new StubProbe("212"), new ChangeLog());
+
+        await tool.LaunchAsync("src/App/App.csproj", probe: "Celsius=100; Fahrenheit?");
+        ToolObservation<LaunchAppResult> second = await tool.LaunchAsync("src/App/App.csproj", probe: "Celsius=0; Fahrenheit?");
+
+        runner.Requests.Count.ShouldBe(2);
+        second.Reused.ShouldBeFalse();
+    }
+
+    private LaunchAppTool Tool(IProcessRunner runner, IWindowPresence? windows = null, IUiProbe? probe = null) =>
+        new(runner, _workspace.Guard("src"), new RuntimeEvidence(), windows, probe);
 
     private sealed class StubWindows(bool answer) : IWindowPresence
     {
         public bool HasVisibleWindow(int processId) => answer;
+    }
+
+    /// <summary>Answers every read with the same text, and remembers what it was asked to do.</summary>
+    private sealed class StubProbe(string? readsBack) : IUiProbe
+    {
+        public List<UiProbeStep> Steps { get; } = [];
+
+        public int ProcessId { get; private set; }
+
+        public Task<IReadOnlyList<UiProbeReading>> RunAsync(
+            int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken = default)
+        {
+            ProcessId = processId;
+            Steps.AddRange(steps);
+
+            return Task.FromResult<IReadOnlyList<UiProbeReading>>(
+            [
+                .. steps.Select(step => step.Action switch
+                {
+                    UiProbeAction.Read when readsBack is null =>
+                        new UiProbeReading($"{step.Element}?", Ok: false, Saw: null, Problem: "no element by that name"),
+                    UiProbeAction.Read =>
+                        new UiProbeReading($"{step.Element}?", Ok: true, Saw: readsBack, Problem: null),
+                    _ => new UiProbeReading(step.Element, Ok: true, Saw: null, Problem: null),
+                }),
+            ]);
+        }
+    }
+
+    private sealed class ThrowingProbe : IUiProbe
+    {
+        public Task<IReadOnlyList<UiProbeReading>> RunAsync(
+            int processId, IReadOnlyList<UiProbeStep> steps, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("the automation client fell over");
     }
 }

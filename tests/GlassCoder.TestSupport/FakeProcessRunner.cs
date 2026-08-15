@@ -50,8 +50,15 @@ public sealed class FakeProcessRunner : IProcessRunner
         return this;
     }
 
+    /// <summary>
+    /// The process id handed to <see cref="ProcessRunRequest.OnReady"/>, for a caller that wants
+    /// to assert what it was told to look at.
+    /// </summary>
+    public int ReadyProcessId { get; set; } = 4242;
+
     /// <inheritdoc />
-    public Task<ProcessRunResult> RunAsync(ProcessRunRequest request, CancellationToken cancellationToken = default)
+    public async Task<ProcessRunResult> RunAsync(
+        ProcessRunRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         Requests.Add(request);
@@ -70,6 +77,15 @@ public sealed class FakeProcessRunner : IProcessRunner
             }
         }
 
-        return Task.FromResult(result);
+        // And a ready callback runs on exactly the result that says the process reached ready,
+        // before the caller sees anything - the one gap the real runner leaves between knowing the
+        // process is up and killing it. A fake that skipped this would let a caller's probe pass
+        // its tests and never run against the real thing.
+        if (result.ReadySignalled && request.OnReady is { } onReady)
+        {
+            await onReady(ReadyProcessId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return result;
     }
 }

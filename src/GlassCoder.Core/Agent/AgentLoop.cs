@@ -147,7 +147,11 @@ public sealed class AgentLoop : IAgentLoop
         const int MaxCritiquePanels = 2;
         int critiquePanels = 0;
         string? critiqueCaveat = null;
-        string? lastVerificationSummary = null;
+
+        // The whole record, not just its summary: the completion panel's advisory wording names
+        // what actually verified the change, and a summary string cannot say whether the tests
+        // rung ran, ran and found nothing, or was never reached.
+        StepVerificationRecord? lastVerification = null;
 
         // What the first panel concluded, so the second can be told whether anything it asked for
         // arrived (workplan task 72).
@@ -254,8 +258,13 @@ public sealed class AgentLoop : IAgentLoop
                 {
                     critiquePanels++;
                     critique = await CritiqueCompletionAsync(
-                        request, response.Text, lastVerificationSummary, budget, critiqueHistory, cancellationToken)
+                        request, response.Text, lastVerification, budget, critiqueHistory, cancellationToken)
                         .ConfigureAwait(false);
+
+                    if (critique?.Record.Critique is { } panel)
+                    {
+                        metrics.ObserveCompletionCritique(panel.Refuted);
+                    }
 
                     if (critique?.Message is { } review)
                     {
@@ -278,6 +287,7 @@ public sealed class AgentLoop : IAgentLoop
                         critiqueCaveat = Cap(
                             $"Completed despite a second critique refutation. {review}",
                             MaxCritiqueFeedbackCharacters);
+                        metrics.ObserveCompletionOverRefutation();
                     }
                 }
 
@@ -354,7 +364,7 @@ public sealed class AgentLoop : IAgentLoop
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
                 sentry.ObserveVerification(
                     verification.Record.Passed, verification.Record.FailedRung, verification.Record.Noticed);
-                lastVerificationSummary = verification.Record.Summary;
+                lastVerification = verification.Record;
             }
 
             budget.CountStep();
@@ -629,7 +639,7 @@ public sealed class AgentLoop : IAgentLoop
 
         _logger.LogInformation(
             "Verification after step: {Outcome} at rung {Rung} in {Duration:F0} ms",
-            report.Passed ? report.Unverified ? "passed (0 tests)" : "passed" : "FAILED",
+            VerificationVerdict.Describe(report.Passed, report.Unverified, report.Noticed),
             report.FailedRung ?? report.HighestRungReached,
             report.DurationMs);
 
@@ -709,11 +719,13 @@ public sealed class AgentLoop : IAgentLoop
     private async Task<StepVerification?> CritiqueCompletionAsync(
         AgentRunRequest request,
         string claim,
-        string? evidence,
+        StepVerificationRecord? lastVerification,
         RunBudget budget,
         CritiqueHistory history,
         CancellationToken cancellationToken)
     {
+        string? evidence = lastVerification?.Summary;
+
         if (_critics is null || _changes is null || !_critics.CanCritique(request.CriticRole))
         {
             return null;
@@ -788,20 +800,32 @@ public sealed class AgentLoop : IAgentLoop
             // resubmitted - motion shaped like work. The screen sentence is run 216360bf's
             // scar: refuted over UI visibility, it wrote XAML-parsing layout tests that can
             // never pass in a plain test process, burned ~28 steps, and deleted them.
-            const string screen =
-                "If the refutation concerns what is visible on screen, fix the layout in the XAML " +
-                "(SizeToContent, Height, margins) - tests that parse XAML text prove nothing about " +
-                "rendering. Then call launch_app: it starts the application and reports whether it " +
-                "came up and drew a window, which is the evidence a refutation like that is asking " +
-                "for. ";
+            //
+            // And it is conditional, because the harness had learned to stop *saying* satisfiable
+            // things and not yet to stop *prescribing* them. Run ae72c5ad had already launched at
+            // step 12; its result was inside the very evidence this panel had just refuted; the
+            // sentence told the model to launch, so at step 15 it did, and the identical string
+            // came back. A remedy the harness can see is already spent is worth one step and
+            // nothing else - the same correction 2026-08-11 made to the orphan-type notice.
+            string screen = runtime is null
+                ? "If the refutation concerns what is visible on screen, fix the layout in the XAML " +
+                  "(SizeToContent, Height, margins) - tests that parse XAML text prove nothing about " +
+                  "rendering. Then call launch_app: it starts the application and reports whether it " +
+                  "came up and drew a window, which is the evidence a refutation like that is asking " +
+                  "for. "
+                : "The application has already been launched this run and the panel read that result " +
+                  "before refusing, so launching it again unchanged answers nothing. What is still " +
+                  "missing is what the window does: give launch_app a probe (Box=value types into a " +
+                  "control, Btn! clicks it, Out? reads one back) so the answer is what the window " +
+                  "showed for a given input, or change the code the refutation is about. ";
             string reasons = Cap(critique.Summary, MaxCritiqueFeedbackCharacters);
             message = _verification.CritiqueGates
                 ? $"A critique panel refuted the finished work: {reasons}\n" +
                   "Address the refutation with substantive work - new or changed code, and tests that " +
                   "exercise it; adding packages without tests that use them addresses nothing. " +
                   screen + "Then reply with your final summary to finish."
-                : $"Advisory review of the finished work - the compiler and test results above remain " +
-                  $"the authority, and you may finish as-is if you disagree: {reasons}\n" +
+                : $"Advisory review of the finished work - {Authority(lastVerification)}, and you may " +
+                  $"finish as-is if you disagree: {reasons}\n" +
                   "Address only what you agree with - with code and tests, not package references " +
                   "alone. " + screen + "Then reply with your final summary to finish.";
         }
@@ -833,6 +857,39 @@ public sealed class AgentLoop : IAgentLoop
             },
             message);
     }
+
+    /// <summary>
+    /// What the advisory concession is allowed to call the authority: only what actually ran.
+    /// <para>
+    /// The clause used to say "the compiler and test results above remain the authority" whatever
+    /// the climb had done. In run <c>ae72c5ad</c> the test result above was a UnitTests rung that
+    /// found no test - <see cref="StepVerificationRecord.Unverified"/> was set, and the loop's own
+    /// message three hundred lines earlier already said the climb verified nothing. The sentence
+    /// pointed the model at the weakest evidence in the run and offered it the exit, and the model
+    /// took it. This is the same correction 2026-08-09 made to the model-facing verdict; this was
+    /// the one remaining place that still overstated what a climb had established.
+    /// </para>
+    /// </summary>
+    private static string Authority(StepVerificationRecord? verification) => verification switch
+    {
+        // Nothing climbed at all. There is no authority to defer to, and inventing one would be
+        // the same lie in the other direction.
+        null => "nothing automatic verified this change",
+
+        // The tests rung ran and found nothing to run. Naming the compiler is honest; naming
+        // "test results" points at a rung that established nothing.
+        { Unverified: true } => "the compiler above remains the authority - no test verified this change",
+
+        // The climb stopped below the tests. Do not mention tests at all.
+        { } reached when !ReachedTests(reached) => "the compiler above remains the authority",
+
+        _ => "the compiler and test results above remain the authority",
+    };
+
+    /// <summary>Whether the climb got as far as a rung that runs tests.</summary>
+    private static bool ReachedTests(StepVerificationRecord verification) =>
+        Enum.TryParse(verification.HighestRungReached, out VerificationRung rung) &&
+        rung is VerificationRung.UnitTests or VerificationRung.FullSuite;
 
     /// <summary>
     /// One stable string for the evidence a panel judged (workplan task 72).

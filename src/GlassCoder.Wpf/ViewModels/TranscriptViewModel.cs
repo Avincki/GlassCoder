@@ -6,6 +6,7 @@ using System.Linq;
 using System.Windows.Data;
 using System.Windows.Threading;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Retrieval;
 using GlassCoder.Wpf.Mvvm;
 using Microsoft.Extensions.Options;
@@ -203,8 +204,11 @@ public sealed class StepRowViewModel
             if (Record.Verification is { } verification)
             {
                 text.AppendLine();
+                // The operator's copy of the verdict, through the same renderer as the log and the
+                // retrospective. It had the same defect they had, and nobody had looked: a climb
+                // that verified nothing read here as a clean pass.
                 text.AppendLine(CultureInfo.InvariantCulture,
-                    $"[verification {(verification.Passed ? "passed" : "FAILED")} at " +
+                    $"[verification {VerificationVerdict.Describe(verification.Passed, verification.Unverified, verification.Noticed)} at " +
                     $"{verification.FailedRung ?? verification.HighestRungReached} · {verification.DurationMs:F0} ms]");
                 text.AppendLine(verification.Summary);
 

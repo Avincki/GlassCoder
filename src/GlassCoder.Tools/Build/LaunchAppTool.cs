@@ -63,6 +63,8 @@ public sealed class LaunchAppTool : IToolSet
     private readonly IPathGuard _guard;
     private readonly RuntimeEvidence _evidence;
     private readonly IWindowPresence? _windows;
+    private readonly IUiProbe? _probe;
+    private readonly IChangeLog? _changes;
     private readonly ILogger<LaunchAppTool> _logger;
 
     /// <summary>Creates the tool.</summary>
@@ -71,12 +73,16 @@ public sealed class LaunchAppTool : IToolSet
         IPathGuard guard,
         RuntimeEvidence evidence,
         IWindowPresence? windows = null,
+        IUiProbe? probe = null,
+        IChangeLog? changes = null,
         ILogger<LaunchAppTool>? logger = null)
     {
         _processes = processes;
         _guard = guard;
         _evidence = evidence;
         _windows = windows;
+        _probe = probe;
+        _changes = changes;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<LaunchAppTool>.Instance;
     }
 
@@ -89,6 +95,9 @@ public sealed class LaunchAppTool : IToolSet
         string projectPath,
         [Description("Seconds to run before stopping it.")]
         int timeoutSeconds = 10,
+        [Description("Optional window checks by x:Name, ';'-separated: 'Box=12' types, 'Btn!' clicks, "
+            + "'Out?' reads.")]
+        string? probe = null,
         CancellationToken cancellationToken = default)
     {
         PathGuardResult verdict = _guard.Resolve(projectPath ?? string.Empty, PathAccess.Read);
@@ -121,10 +130,58 @@ public sealed class LaunchAppTool : IToolSet
             : new ProcessRunRequest(executable, [])
                 { WorkingDirectory = Path.GetDirectoryName(executable) };
 
+        // What the model asked to be read off the window, if anything. Parsed before the launch so
+        // a script that makes no sense is answered without starting anything.
+        UiProbeScript script = UiProbeScript.Parse(probe);
+
+        // The same launch twice over an unchanged tree cannot show anything new, and run ae72c5ad
+        // spent a step proving it: the identical call, the identical string back, and nothing in
+        // either saying it was a repeat. Same shape as build's and run_tests' reuse, so the sentry
+        // that already counts the flag sees this one too. The probe is part of the key - a
+        // different question of the same window is a different launch.
+        string memo = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{verdict.RelativePath}|{AppliedChanges()}|{probe ?? string.Empty}");
+
+        if (_evidence.TryReuse(memo, out LaunchAppResult reused, out string reusedSummary))
+        {
+            return Observation.Ok(
+                ToolName,
+                reused,
+                $"{reusedSummary} (Nothing has been applied since this ran, so the previous result " +
+                "was reused. A launch of an unchanged tree cannot show anything new - change " +
+                "something, or ask the probe a different question.)",
+                outcomeOk: reused.Started,
+                reused: true);
+        }
+        List<UiProbeReading> readings = [];
+        bool canProbe = script.Steps.Count > 0 && _probe is not null && watched;
+
         request = request with
         {
             Timeout = TimeSpan.FromSeconds(seconds),
             ReadyWhen = watched ? _windows!.HasVisibleWindow : null,
+
+            // The probe runs in the one gap where the application is both up and about to be
+            // killed. It cannot extend the launch: the timeout still owns the clock. Its own
+            // failure is recorded as a reading rather than allowed out - the runner would swallow
+            // it, and a silent probe is the one outcome this must never report.
+            OnReady = canProbe
+                ? async (processId, token) =>
+                {
+                    try
+                    {
+                        readings.AddRange(
+                            await _probe!.RunAsync(processId, script.Steps, token).ConfigureAwait(false));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "The UI probe failed on {Path}", verdict.RelativePath);
+                        readings.Add(new UiProbeReading(
+                            "probe", Ok: false, Saw: null, Problem: $"it could not run: {ex.Message}"));
+                    }
+                }
+                : null,
         };
 
         ProcessRunResult result;
@@ -159,13 +216,21 @@ public sealed class LaunchAppTool : IToolSet
             ShowedWindow = showedWindow,
         };
 
+        // Anything read out of the window replaces the hedge rather than joining it. "Whether the
+        // window is right still needs eyes on it" is the honest thing to say about a launch that
+        // only watched; said over a readback of the field it was asked about, it understates the
+        // evidence the tool is holding - and it was the sentence three critics quoted back at run
+        // ae72c5ad while the harness had nothing better to offer.
+        string hedge = readings.Any(r => r.Saw is not null)
+            ? "."
+            : "; whether the window is *right* still needs eyes on it.";
+
         string summary = (showedWindow, stayedUp, result.ExitCode) switch
         {
             (true, _, _) => string.Create(
                 CultureInfo.InvariantCulture,
                 $"'{verdict.RelativePath}' started and drew a window after " +
-                $"{result.Duration.TotalSeconds:F1}s, then was stopped. It runs and renders; " +
-                $"whether the window is *right* still needs eyes on it."),
+                $"{result.Duration.TotalSeconds:F1}s, then was stopped. It runs and renders{hedge}"),
 
             // Watched and saw nothing is a different fact from never having looked, and saying
             // the first when the second is true would invent evidence against the change.
@@ -188,17 +253,80 @@ public sealed class LaunchAppTool : IToolSet
                 $"without staying up.{Describe(result.StandardError)}"),
         };
 
+        summary += ProbeReport(script, readings, showedWindow, watched);
+
         // Kept for the completion critique, which is the panel that asked for this in the first
-        // place and cannot see a tool observation on its own.
-        _evidence.Record(summary, started);
+        // place and cannot see a tool observation on its own - and keyed, so the next identical
+        // call is answered rather than re-run.
+        _evidence.Record(summary, started, memo, payload);
 
         _logger.LogInformation(
             "launch_app on {Path}: started={Started}, stayedUp={StayedUp}, window={ShowedWindow}, " +
-            "exit={ExitCode}, {ElapsedMs:F0}ms",
-            verdict.RelativePath, started, stayedUp, showedWindow, result.ExitCode,
+            "probed={Probed}, exit={ExitCode}, {ElapsedMs:F0}ms",
+            verdict.RelativePath, started, stayedUp, showedWindow, readings.Count, result.ExitCode,
             result.Duration.TotalMilliseconds);
 
         return Observation.Ok(ToolName, payload, summary, outcomeOk: started);
+    }
+
+    /// <summary>
+    /// How much this run has applied so far, as one number.
+    /// <para>
+    /// Applied changes only, because that is the whole of what a relaunch could be showing:
+    /// a proposal that was refused moved no bytes, and a status re-announced at the value it
+    /// already held - which <c>AgentLoop</c> writes after every verified step - moves none either.
+    /// That re-announcement is what made the build cache unreadable for months, so this counts
+    /// states rather than listening for events.
+    /// </para>
+    /// </summary>
+    private int AppliedChanges() =>
+        _changes is null
+            ? 0
+            : _changes.All().Count(c =>
+                string.Equals(c.RunId, RunContext.Current.RunId, StringComparison.Ordinal) &&
+                c.Status == ChangeStatus.Applied);
+
+    /// <summary>
+    /// What the probe did, or why it did nothing - and never silence.
+    /// <para>
+    /// Every branch here says which of the four things happened, because they are four different
+    /// facts and only one of them is evidence about the code: the probe read the window; the host
+    /// has no probe to read it with; there was no window to read; the script did not parse. Run
+    /// <c>ae72c5ad</c> is the whole argument for the distinction - a launch that reported less than
+    /// it knew was read by three critics as a launch that had nothing to report.
+    /// </para>
+    /// </summary>
+    private string ProbeReport(
+        UiProbeScript script,
+        IReadOnlyList<UiProbeReading> readings,
+        bool showedWindow,
+        bool watched)
+    {
+        string complaint = script.Problem is null ? string.Empty : $" The probe was only partly read: {script.Problem}.";
+
+        if (script.Steps.Count == 0)
+        {
+            return complaint;
+        }
+
+        if (readings.Count > 0)
+        {
+            return $" Probe: {string.Join("; ", readings.Select(r => r.Describe()))}.{complaint}";
+        }
+
+        if (_probe is null)
+        {
+            return " No UI probe is available on this host, so nothing was read from the window." + complaint;
+        }
+
+        if (!watched)
+        {
+            return " There was no built executable to attach to, so the window could not be probed." + complaint;
+        }
+
+        return showedWindow
+            ? " The probe ran and read nothing." + complaint
+            : " No window appeared, so the probe never ran." + complaint;
     }
 
     /// <summary>
@@ -263,15 +391,57 @@ public sealed class RuntimeEvidence
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _latest =
         new(StringComparer.Ordinal);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Launch> _launches =
+        new(StringComparer.Ordinal);
+
     /// <summary>Records what the last launch in this run showed.</summary>
     /// <param name="summary">What the tool told the model.</param>
     /// <param name="started">Whether the application ran.</param>
-    public void Record(string summary, bool started)
+    /// <param name="key">
+    /// What this launch was: the project, the state of the change log, and the probe asked for.
+    /// Two launches with the same key cannot see different things, which is what makes the second
+    /// one reusable. Null skips the memo entirely.
+    /// </param>
+    /// <param name="payload">The result to hand back should the same launch be asked for again.</param>
+    public void Record(string summary, bool started, string? key = null, LaunchAppResult? payload = null)
     {
         ArgumentNullException.ThrowIfNull(summary);
         _latest[RunContext.Current.RunId] = $"Runtime: {(started ? "ok" : "FAILED")} - {summary}";
+
+        if (key is not null && payload is not null)
+        {
+            _launches[RunContext.Current.RunId] = new Launch(key, summary, payload);
+        }
+    }
+
+    /// <summary>
+    /// The previous launch, when it was this same launch - same project, same probe, and nothing
+    /// applied in between.
+    /// <para>
+    /// Run <c>ae72c5ad</c> is what this is for. Step 12 launched the application; the panel refuted
+    /// the work anyway; step 15 issued the identical call and got back a byte-identical string,
+    /// which the next panel correctly read as a non-event. The launch was not wrong, it was spent -
+    /// and nothing in the observation said so, exactly as <c>build</c>'s repeats said nothing
+    /// before task 74. The sentry already counts this flag.
+    /// </para>
+    /// </summary>
+    public bool TryReuse(string key, out LaunchAppResult payload, out string summary)
+    {
+        if (_launches.TryGetValue(RunContext.Current.RunId, out Launch? previous) &&
+            string.Equals(previous.Key, key, StringComparison.Ordinal))
+        {
+            payload = previous.Payload;
+            summary = previous.Summary;
+            return true;
+        }
+
+        payload = null!;
+        summary = string.Empty;
+        return false;
     }
 
     /// <summary>What this run has shown about running its application, or null if it never did.</summary>
     public string? Latest => _latest.GetValueOrDefault(RunContext.Current.RunId);
+
+    private sealed record Launch(string Key, string Summary, LaunchAppResult Payload);
 }
