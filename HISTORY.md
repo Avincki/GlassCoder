@@ -9,7 +9,25 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
-## 2026-08-15 (last, later still) — The digest says what the plan was
+## 2026-08-15 (end of day) — Clean takes the solution with it
+
+The operator found the workspace after a clean: `src` and `tests` swept, and `MultiplyApp.slnx`
+still at the root, naming projects that no longer existed. Clean's doc comment said a run's output
+lives inside the writable folders "and nowhere else" - true when it was written, and false since
+2026-08-11 admitted a short list of files at the workspace root. The button never caught up.
+
+A stale solution is not litter. It is what a `build` or a `run_tests` at the root resolves to, and
+an empty one runs zero tests and exits 0 - which reads as green and verifies nothing, the exact
+trap `dotnet_project`'s own refusal warns about.
+
+**Decided: solutions, and not the rest of that list.** The guard admits eight root patterns, and
+the first instinct was to sweep all of them - which is what the code did until
+`Clean_empties_the_writable_roots_and_touches_nothing_else` failed on a deleted `README.md`. That
+test has encoded Clean's boundary since the button existed, and it is right: a README, a
+`.gitignore` or a `Directory.Build.props` left behind costs the next run nothing and may be the
+operator's, while a solution decides what the next build points at. The sweep filters the guard's
+own list down to the solution patterns, so the two cannot drift apart, and the confirmation names
+the file before it goes - it is the one part of the sweep that reaches outside the granted folders.
 
 Every transcript this harness has ever written said `Plan updated: 3/5 complete` and never once
 what the five were. The plan is the only thing in a run the agent writes about the whole job rather

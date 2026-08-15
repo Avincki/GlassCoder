@@ -156,6 +156,20 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private readonly Dispatcher _dispatcher;
     private readonly Matcher? _denied;
     private readonly IReadOnlyList<string> _writableRoots;
+
+    /// <summary>
+    /// The solution patterns a run may write at the workspace root, taken from the guard's own
+    /// list of writable root files so the two cannot drift apart.
+    /// <para>
+    /// Solutions only, out of the eight patterns that list holds. A stale solution is the one
+    /// leftover that changes what the next run does - a build or a test at the root resolves to
+    /// it, finds projects that are no longer there, or finds it empty and reports green over zero
+    /// tests. The rest of the list is furniture: a <c>.gitignore</c>, a <c>Directory.Build.props</c>
+    /// or a <c>README.md</c> left behind costs the next run nothing, and the README in particular
+    /// has been Clean's stated boundary since the button existed.
+    /// </para>
+    /// </summary>
+    private readonly IReadOnlyList<string> _writableRootFiles;
     private readonly DropboxIgnoreMarker? _dropboxMarker;
     private readonly string _rootPrefix;
     private bool _isAgentRunning;
@@ -217,6 +231,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         }
 
         _writableRoots = [.. workspace.Value.WritablePaths];
+        _writableRootFiles =
+        [
+            .. workspace.Value.WritableRootFiles.Where(pattern =>
+                pattern.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) ||
+                pattern.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase)),
+        ];
 
         _changes.Changed += OnChanged;
 
@@ -443,12 +463,23 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Empties the writable roots so the next run starts from the blank workspace the opening
-    /// message promises. Only those roots: a run's output lives inside the folders the guard
-    /// lets it write and nowhere else, so a clean that reached further would be deleting things
-    /// no run ever made - a README beside them, or the workspace's own .git. Asks first, and
-    /// deletes what it can rather than stopping at the first locked file: half a clean plus an
-    /// honest count beats a sync client winning by holding one handle.
+    /// Empties the writable roots, and removes any solution a run left at the workspace root, so
+    /// the next run starts from the blank workspace the opening message promises.
+    /// <para>
+    /// The roots and the solution, and nothing else. A run's output lives inside the folders the
+    /// guard lets it write - plus, since 2026-08-11, a short list of files at the root, which is
+    /// how a <c>MultiplyApp.slnx</c> came to outlive every project it named. Of that list only a
+    /// solution changes what the next run does: a build or a test at the root resolves to it and
+    /// finds projects that are gone, or finds it empty and reports green over zero tests. A README
+    /// or a <c>.gitignore</c> left behind costs the next run nothing and may be the operator's, so
+    /// it stays - which is the boundary this button has held since it was written.
+    /// </para>
+    /// <para>
+    /// The solution is named in the confirmation rather than described, because it is the one part
+    /// of the sweep that reaches outside the granted folders. Asks first, and deletes what it can
+    /// rather than stopping at the first locked file: half a clean plus an honest count beats a
+    /// sync client winning by holding one handle.
+    /// </para>
     /// </summary>
     private void Clean()
     {
@@ -458,10 +489,15 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        List<FileInfo> rootFiles = RootFilesToClean();
         string names = string.Join(", ", _writableRoots);
+        string alsoNamed = rootFiles.Count == 0
+            ? string.Empty
+            : $"\n\nAnd the solution at the root:\n{string.Join("\n", rootFiles.Select(f => f.Name))}";
+
         if (!_shell.Confirm(
                 "Clean the workspace",
-                $"Delete everything inside {names} under:\n{RootPath}\n\n" +
+                $"Delete everything inside {names} under:\n{RootPath}{alsoNamed}\n\n" +
                 "The folders themselves stay. There is no undo."))
         {
             Status = "Clean cancelled; nothing was deleted.";
@@ -469,6 +505,40 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         }
 
         _ = CleanAsync(names);
+    }
+
+    /// <summary>
+    /// The solutions at the workspace root, which a run could have written and no other part of
+    /// the sweep reaches.
+    /// <para>
+    /// Read fresh at each call rather than cached: the operator can change the root, and a list
+    /// gathered when the pane loaded would name files from a workspace nobody is looking at.
+    /// </para>
+    /// </summary>
+    private List<FileInfo> RootFilesToClean()
+    {
+        try
+        {
+            DirectoryInfo root = new(RootPath);
+            if (!root.Exists)
+            {
+                return [];
+            }
+
+            return
+            [
+                .. _writableRootFiles
+                    .SelectMany(pattern => root.EnumerateFiles(pattern, SearchOption.TopDirectoryOnly))
+                    .DistinctBy(f => f.FullName, StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase),
+            ];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // A root that cannot be listed is a root with nothing to offer here; the folder sweep
+            // reports its own failures and this must not pre-empt them.
+            return [];
+        }
     }
 
     /// <summary>
@@ -556,6 +626,17 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     failures.Add($"{root}: {ex.Message}");
+                }
+            }
+
+            // The root files last, after the folders they refer to are gone: a solution deleted
+            // first would leave the projects it named looking like the deliverable for as long as
+            // the sweep takes, and a failure here is reported on the same terms as any other.
+            foreach (FileInfo file in RootFilesToClean())
+            {
+                if (TryDelete(file, failures))
+                {
+                    removed++;
                 }
             }
 

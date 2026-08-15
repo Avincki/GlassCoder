@@ -55,6 +55,58 @@ public sealed class TestRunConvenienceTests
     }
 
     [Fact]
+    public void Clean_removes_the_solution_a_run_left_at_the_root()
+    {
+        // The workspace after a clean, as the operator found it: src and tests swept, and
+        // MultiplyApp.slnx still at the root naming projects that no longer exist. A build or a
+        // test at the root resolves to that solution - and an empty one runs zero tests and exits
+        // 0, which reads as green and verifies nothing.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/Program.cs", "class P { }");
+        workspace.WriteFile("MultiplyApp.slnx", "<Solution />");
+
+        FakeShell shell = new();
+        bool solutionGone = OverPane(workspace, shell, (dispatcher, pane) =>
+        {
+            CleanAndWait(dispatcher, pane);
+            return !File.Exists(Path.Combine(workspace.Root, "MultiplyApp.slnx"));
+        });
+
+        solutionGone.ShouldBeTrue("a stale solution is what the next run builds and tests against");
+
+        // Named before it goes: this is the half of the sweep that touches the workspace root.
+        shell.LastQuestion.ShouldNotBeNull().ShouldContain("MultiplyApp.slnx");
+    }
+
+    [Fact]
+    public void Clean_leaves_the_root_files_that_cost_the_next_run_nothing()
+    {
+        // A solution decides what a build at the root resolves to. A README, a .gitignore or a
+        // Directory.Build.props does not, and may be the operator's - so the sweep reaches for the
+        // one and not the others, even though the guard would let a run write any of them.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("README.md", "mine");
+        workspace.WriteFile(".gitignore", "bin/");
+        workspace.WriteFile("Directory.Build.props", "<Project />");
+        workspace.WriteFile("notes.txt", "also mine");
+
+        (bool readme, bool ignore, bool props, bool notes) = OverPane(workspace, new FakeShell(), (dispatcher, pane) =>
+        {
+            CleanAndWait(dispatcher, pane);
+            return (
+                File.Exists(Path.Combine(workspace.Root, "README.md")),
+                File.Exists(Path.Combine(workspace.Root, ".gitignore")),
+                File.Exists(Path.Combine(workspace.Root, "Directory.Build.props")),
+                File.Exists(Path.Combine(workspace.Root, "notes.txt")));
+        });
+
+        readme.ShouldBeTrue("Clean's stated boundary since the button existed");
+        ignore.ShouldBeTrue();
+        props.ShouldBeTrue();
+        notes.ShouldBeTrue("no run could have written it, so no clean may remove it");
+    }
+
+    [Fact]
     public void A_read_only_file_deep_in_a_subfolder_does_not_stop_the_clean()
     {
         // Build output copies the read-only attribute in from packages, and a plain recursive
