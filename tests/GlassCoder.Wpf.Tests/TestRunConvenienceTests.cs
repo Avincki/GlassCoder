@@ -289,51 +289,128 @@ public sealed class TestRunConvenienceTests
         executable.ShouldBeFalse("a build racing the agent's own builds helps neither");
     }
 
-    // ── The last goal ──
+    // ── The remembered goals ──
 
     [Fact]
     public void The_goal_box_opens_with_the_last_run_s_prompt()
     {
         using TempWorkspace workspace = new();
-        FakeUiStateStore store = new() { LastGoal = "make a wpf app that multiplies two numbers" };
+        FakeUiStateStore store = new("make a wpf app that multiplies two numbers", "an older one");
 
         string goal = OverShell(workspace, store, (_, shell) => shell.Goal);
 
-        goal.ShouldBe("make a wpf app that multiplies two numbers");
+        goal.ShouldBe("make a wpf app that multiplies two numbers", "newest first, and the newest pre-fills");
+    }
+
+    [Fact]
+    public void The_picker_offers_every_remembered_prompt_newest_first()
+    {
+        using TempWorkspace workspace = new();
+        FakeUiStateStore store = new("newest", "middle", "oldest");
+
+        string[] offered = OverShell(workspace, store, (_, shell) => shell.RecentGoals.ToArray());
+
+        offered.ShouldBe(["newest", "middle", "oldest"]);
+    }
+
+    [Fact]
+    public void The_picker_is_hidden_until_something_has_been_run()
+    {
+        using TempWorkspace workspace = new();
+
+        bool offered = OverShell(workspace, new FakeUiStateStore(), (_, shell) => shell.HasRecentGoals);
+
+        offered.ShouldBeFalse("an empty dropdown on a first-ever start is a control that does nothing");
+    }
+
+    [Fact]
+    public void Picking_a_prompt_clears_the_box_before_it_pastes()
+    {
+        using TempWorkspace workspace = new();
+        FakeUiStateStore store = new("the remembered prompt");
+
+        List<string> boxAfterEachChange = OverShell(workspace, store, (dispatcher, shell) =>
+        {
+            shell.Goal = "half a sentence the operator was typing";
+
+            List<string> seen = [];
+            shell.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(MainWindowViewModel.Goal))
+                {
+                    seen.Add(shell.Goal);
+                }
+            };
+
+            shell.SelectedRecentGoal = "the remembered prompt";
+            UiThread.Pump(dispatcher, () => shell.SelectedRecentGoal is null)
+                .ShouldBeTrue("the picker never returned to no selection");
+            return seen;
+        });
+
+        boxAfterEachChange.ShouldBe(["", "the remembered prompt"],
+            "a pick replaces the box, so what was half-typed cannot end up spliced onto it");
+    }
+
+    [Fact]
+    public void The_picker_lets_the_same_prompt_be_picked_twice()
+    {
+        using TempWorkspace workspace = new();
+        FakeUiStateStore store = new("the remembered prompt");
+
+        // Pumped between the picks because the return to no selection is posted rather than
+        // assigned - see SelectedRecentGoal. In the app the dispatcher runs between two clicks;
+        // here it has to be made to.
+        (string? selection, string goal) = OverShell(workspace, store, (dispatcher, shell) =>
+        {
+            shell.SelectedRecentGoal = "the remembered prompt";
+            UiThread.Pump(dispatcher, () => shell.SelectedRecentGoal is null).ShouldBeTrue();
+
+            shell.Goal = "edited away";
+            shell.SelectedRecentGoal = "the remembered prompt";
+            string picked = shell.Goal;
+
+            UiThread.Pump(dispatcher, () => shell.SelectedRecentGoal is null).ShouldBeTrue();
+            return (shell.SelectedRecentGoal, picked);
+        });
+
+        goal.ShouldBe("the remembered prompt", "the second pick has to land or the picker is a one-shot");
+        selection.ShouldBeNull("the box, not the picker, is the answer to what will run");
     }
 
     [Fact]
     public void Pressing_run_saves_the_goal_for_the_next_start()
     {
         using TempWorkspace workspace = new();
-        FakeUiStateStore store = new();
+        FakeUiStateStore store = new("something older");
 
-        string? saved = OverShell(workspace, store, (dispatcher, shell) =>
+        (IReadOnlyList<string> saved, string[] offered) = OverShell(workspace, store, (dispatcher, shell) =>
         {
             shell.Goal = "multiply two numbers";
             shell.RunCommand.Execute(null);
             UiThread.Pump(dispatcher, () => !shell.IsRunning).ShouldBeTrue("the stub run never finished");
-            return store.LastGoal;
+            return (store.RecentGoals, shell.RecentGoals.ToArray());
         });
 
-        saved.ShouldBe("multiply two numbers");
+        saved.ShouldBe(["multiply two numbers", "something older"]);
+        offered.ShouldBe(["multiply two numbers", "something older"], "the picker shows the run that just happened");
     }
 
     [Fact]
     public void An_empty_goal_is_not_saved_over_the_last_real_one()
     {
         using TempWorkspace workspace = new();
-        FakeUiStateStore store = new() { LastGoal = "the real prompt" };
+        FakeUiStateStore store = new("the real prompt");
 
-        string? saved = OverShell(workspace, store, (dispatcher, shell) =>
+        IReadOnlyList<string> saved = OverShell(workspace, store, (dispatcher, shell) =>
         {
             shell.Goal = "   ";
             shell.RunCommand.Execute(null);
             UiThread.Pump(dispatcher, () => !shell.IsRunning).ShouldBeTrue();
-            return store.LastGoal;
+            return store.RecentGoals;
         });
 
-        saved.ShouldBe("the real prompt", "a run that never started has nothing worth remembering");
+        saved.ShouldBe(["the real prompt"], "a run that never started has nothing worth remembering");
     }
 
     // ── Scaffolding ──
@@ -404,10 +481,18 @@ public sealed class TestRunConvenienceTests
         return services.BuildServiceProvider();
     }
 
-    /// <summary>Answers the confirmation without a window, and remembers what was asked.</summary>
-    private sealed class FakeUiStateStore : IUiStateStore
+    /// <summary>
+    /// The remembered goals without a registry, seeded newest-first. It reuses
+    /// <see cref="PromptHistory"/> rather than reimplementing the ordering, so a test that passes
+    /// here is not passing against a second, kinder set of rules than the real store's.
+    /// </summary>
+    private sealed class FakeUiStateStore(params string[] seeded) : IUiStateStore
     {
-        public string? LastGoal { get; set; }
+        private IReadOnlyList<string> _recent = seeded;
+
+        public IReadOnlyList<string> RecentGoals => _recent;
+
+        public void RememberGoal(string goal) => _recent = PromptHistory.With(_recent, goal);
     }
 
     /// <summary>Completes immediately, so a shell test never waits on a model that is not there.</summary>

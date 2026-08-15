@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
+    private string? _selectedRecentGoal;
     private string _status = "Ready.";
     private bool _isRunning;
     private bool _useRemoteCritic;
@@ -86,10 +88,11 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Workspace = workspace;
         _currentView = transcript;
 
-        // The last run's goal, so a repeated test run is a press of Run rather than a paste.
-        // Still just a pre-fill: the box is editable and empty on a first-ever start.
-        string? saved = _uiState?.LastGoal;
-        _goal = string.IsNullOrWhiteSpace(saved) ? string.Empty : saved;
+        // The goals of recent runs, newest first, for the picker - and the newest of them in the
+        // box, so a repeated test run is a press of Run rather than a paste. Still just a
+        // pre-fill: the box is editable and empty on a first-ever start.
+        ReadRecentGoals();
+        _goal = RecentGoals.Count > 0 ? RecentGoals[0] : string.Empty;
 
         RunCommand = new RelayCommand(async () => await RunAsync().ConfigureAwait(true), () => !IsRunning);
         CancelCommand = new RelayCommand(() => _cancellation?.Cancel(), () => IsRunning);
@@ -161,6 +164,49 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     {
         get => _goal;
         set => SetProperty(ref _goal, value);
+    }
+
+    /// <summary>
+    /// The goals of recent runs, newest first, as offered by the picker above the goal box.
+    /// </summary>
+    public ObservableCollection<string> RecentGoals { get; } = [];
+
+    /// <summary>Whether there is any history to pick from - false on a first-ever start.</summary>
+    public bool HasRecentGoals => RecentGoals.Count > 0;
+
+    /// <summary>
+    /// The goal picked from the history, which becomes the contents of the goal box.
+    /// <para>
+    /// Picking replaces the box, it never merges with it: the box is cleared and then filled, so
+    /// a half-typed goal cannot end up spliced onto a remembered one. The picker then returns to
+    /// no selection, which is what lets the same entry be picked twice - and is honest besides,
+    /// because the moment the box is edited the picker no longer describes what will run.
+    /// </para>
+    /// </summary>
+    public string? SelectedRecentGoal
+    {
+        get => _selectedRecentGoal;
+        set
+        {
+            if (!SetProperty(ref _selectedRecentGoal, value) || string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            Goal = string.Empty;
+            Goal = value;
+
+            // Posted, not assigned. A source change raised inside a binding's own target-to-source
+            // push is ignored by the binding engine, so clearing the field here would leave the
+            // combo box still showing a selection this property no longer holds - and a control
+            // whose selection never changes raises nothing when the same row is picked again, so
+            // the second pick would silently do nothing. Posting lets the transfer finish first.
+            _dispatcher.BeginInvoke(() =>
+            {
+                _selectedRecentGoal = null;
+                OnPropertyChanged(nameof(SelectedRecentGoal));
+            });
+        }
     }
 
     /// <summary>What the shell is doing.</summary>
@@ -415,6 +461,22 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Re-reads the picker's list from the store. The store owns the order and the cap, so the
+    /// list is replaced wholesale rather than nudged here - two places deciding what "most
+    /// recent" means is how a restart starts disagreeing with the session that preceded it.
+    /// </summary>
+    private void ReadRecentGoals()
+    {
+        RecentGoals.Clear();
+        foreach (string goal in _uiState?.RecentGoals ?? [])
+        {
+            RecentGoals.Add(goal);
+        }
+
+        OnPropertyChanged(nameof(HasRecentGoals));
+    }
+
     private Task RunAsync() => RunAsync(Goal, attempt: 1);
 
     /// <summary>
@@ -448,10 +510,12 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         // Saved at the moment it becomes what runs - not on every keystroke, and before the run
-        // rather than after it, so a crash mid-run still leaves the goal for the next start.
+        // rather than after it, so a crash mid-run still leaves the goal for the next start. What
+        // is remembered is what ran, which is why a retry's composed goal is remembered too.
         if (_uiState is not null)
         {
-            _uiState.LastGoal = goal;
+            _uiState.RememberGoal(goal);
+            ReadRecentGoals();
         }
 
         IsRunning = true;

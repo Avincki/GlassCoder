@@ -9,6 +9,34 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-15 — Twenty prompts remembered, not one
+
+The goal box remembered exactly one prompt. It now keeps the last twenty, newest first, in a
+picker above the box; the newest still pre-fills on start, so nothing about the old habit changes.
+
+**Decided**
+
+- **The ordering rule lives in `PromptHistory`, not in the store.** Newest first, no duplicates
+  (a re-run moves its prompt up rather than repeating it), twenty at most. The registry store and
+  the test fake both call it, so a test cannot pass against a kinder set of rules than the app's.
+  Ordinal comparison: two prompts differing only in whitespace are two prompts to the model, so
+  collapsing them here would offer a list entry that is not what ran.
+- **`RecentGoals` is a `REG_MULTI_SZ` under `HKCU\Software\GlassCoder`**, and the old `LastGoal`
+  value is read as a one-entry history on first start and then retired — an upgrade keeps its
+  prompt. `ArgumentException` joined the swallowed failures on write, because `MULTI_SZ` cannot
+  hold an embedded NUL and a pasted prompt is not ours to vet. Losing the pre-fill still beats
+  interrupting a run.
+- **The picker returns to no selection, and the reset has to be *posted*.** A source change raised
+  inside a binding's own target-to-source push is ignored by the binding engine: assigning it
+  directly left the combo box showing a selection the view model no longer held, and — since a
+  control whose selection never changes raises nothing — the same row picked a second time would
+  have silently done nothing. Verified in the running app through UI Automation, which is the only
+  place the difference is visible; the view-model test passed either way.
+- **Picking clears the box before it fills it**, so a half-typed goal cannot end up spliced onto a
+  remembered one. That is two `Goal` notifications on purpose, and the test asserts the pair.
+
+---
+
 ## 2026-08-11 (later) — A signal cheaper to satisfy than the thing it stands for
 
 Run `46231701`'s retrospective found one property behind four incidents: **a sentence can be made

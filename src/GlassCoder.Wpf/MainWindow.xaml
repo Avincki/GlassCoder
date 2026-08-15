@@ -8,6 +8,7 @@
 
   <Window.Resources>
     <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    <conv:PromptSummaryConverter x:Key="PromptSummary" />
     <!-- Navigation is data-templated: selecting a surface swaps the view model, and WPF picks
          the view. No code-behind, no navigation service to keep in sync (CLAUDE.md §14). -->
     <DataTemplate DataType="{x:Type vm:TranscriptViewModel}">
@@ -66,17 +67,42 @@
                   ToolTip="What this is, who built it, and which build you are running." />
         </StackPanel>
 
-        <!-- Five lines visible, wrap, scroll past that: room for a real description rather than a
-             one-line title. The goal still reaches the model as a plain string - a rich-text box
-             would either strip its formatting on the way out or leak XAML into the prompt, so this
-             stays a TextBox and any structure a user wants is theirs to write as plain text.
-             Declared last so LastChildFill hands it the width the brand and buttons did not take. -->
-        <TextBox VerticalAlignment="Stretch" Padding="6,4" FontSize="13"
-                 AcceptsReturn="True" TextWrapping="Wrap"
-                 MinLines="5" MaxLines="5"
-                 VerticalScrollBarVisibility="Auto"
-                 SpellCheck.IsEnabled="True"
-                 Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}" />
+        <!-- The goal box and, above it, the picker for the goals of recent runs. Declared last so
+             LastChildFill hands the pair the width the brand and buttons did not take. -->
+        <DockPanel LastChildFill="True">
+          <!-- Hidden until there is something to pick: an always-present empty dropdown would be
+               a control that does nothing on a first-ever start. -->
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4"
+                     Visibility="{Binding HasRecentGoals, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock DockPanel.Dock="Left" Text="Recent" Foreground="#B0BEC5" FontSize="11"
+                       VerticalAlignment="Center" Margin="0,0,8,0" />
+            <!-- Shows no selection once a pick has been applied, so the box below is the single
+                 answer to "what will run" - see MainWindowViewModel.SelectedRecentGoal. -->
+            <ComboBox ItemsSource="{Binding RecentGoals}" MaxDropDownHeight="360"
+                      SelectedItem="{Binding SelectedRecentGoal}"
+                      ToolTip="The goals of recent runs, newest first. Picking one replaces the box below.">
+              <ComboBox.ItemTemplate>
+                <DataTemplate>
+                  <!-- One line per prompt however many lines were typed, trimmed to the width,
+                       with the whole of it on hover. -->
+                  <TextBlock Text="{Binding Converter={StaticResource PromptSummary}}"
+                             TextTrimming="CharacterEllipsis" ToolTip="{Binding}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </DockPanel>
+
+          <!-- Five lines visible, wrap, scroll past that: room for a real description rather than a
+               one-line title. The goal still reaches the model as a plain string - a rich-text box
+               would either strip its formatting on the way out or leak XAML into the prompt, so this
+               stays a TextBox and any structure a user wants is theirs to write as plain text. -->
+          <TextBox VerticalAlignment="Stretch" Padding="6,4" FontSize="13"
+                   AcceptsReturn="True" TextWrapping="Wrap"
+                   MinLines="5" MaxLines="5"
+                   VerticalScrollBarVisibility="Auto"
+                   SpellCheck.IsEnabled="True"
+                   Text="{Binding Goal, UpdateSourceTrigger=PropertyChanged}" />
+        </DockPanel>
       </DockPanel>
     </Border>
 
