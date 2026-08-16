@@ -108,7 +108,7 @@ Continuous regeneration solves the hard part. It also creates four failure modes
 
 | Concern | Why it bites | What the build config should do |
 |---|---|---|
-| **Trigger loop** | GlassContext's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros. | Add a trigger rule excluding the generated paths and the bot identity — e.g. `-:user=ccg-bot:**` plus `-:**/CLAUDE.md`, `-:docs/llms/**`. Verify by watching the build queue after a bot commit, not by reasoning about it. |
+| **Trigger loop** | GlassContext's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros. | Add a trigger rule excluding the generated paths and the bot identity — e.g. `-:user=glasscontext-bot:**` plus `-:**/CLAUDE.md`, `-:docs/llms/**`. Verify by watching the build queue after a bot commit, not by reasoning about it. |
 | **Cost per commit** | Whole-repo Path 2 intent enrichment on every push spends the most tokens on the files that change least. This is Part 01's "target it" verdict, now with a meter running. | Let the content-hash cache do its job: enrich only files whose hash changed *and* that are on the intent-carrying list. Log tokens per build so the cost is visible. |
 | **Diff churn** | LLM-generated prose differs run to run even when the source didn't change, producing noisy diffs that train everyone to ignore the file. | Pin the generator model and use temperature 0 for enrichment; never rewrite a file whose source hash is unchanged. Deterministic-in, deterministic-out. |
 | **Silent pipeline failure** | If the context build goes red and nobody notices, the repo looks fresh and is quietly frozen — the exact failure the automation was meant to prevent, now invisible. | Alert on failure, and stamp provenance *into* the generated file (source SHA + UTC timestamp + generator version) so staleness is legible from the artifact itself. |
@@ -128,7 +128,7 @@ The architecture already supports this cleanly: `GlassContext.Core` is specified
 **Build config — shape of the TeamCity job (reference):**
 
 - **Trigger:** VCS change on the default branch, with exclusion rules for generated paths and the bot author.
-- **Steps:** `ccg.exe generate --repo . --config ccg.glassproj` → `ccg.exe context-test --suite tests/context/` → commit + push if the working tree changed.
+- **Steps:** `glasscontext.exe generate --repo . --config glasscontext.glassproj` → `glasscontext.exe context-test --suite tests/context/` → commit + push if the working tree changed.
 - **Artifacts:** Token spend, files regenerated, Context Test pass rate — published per build so the trend is visible.
 - **Gate:** Context Test pass rate must not regress. Warn first, enforce once the suite is stable.
 

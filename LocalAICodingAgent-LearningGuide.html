@@ -251,7 +251,7 @@
     <p class="kick">On this page</p>
     <ol>
       <li><a href="#read"><span class="n">00</span><span>How to read this</span></a></li>
-      <li><a href="#ccg"><span class="n">01</span><span>Evaluating GlassContext</span></a></li>
+      <li><a href="#glasscontext"><span class="n">01</span><span>Evaluating GlassContext</span></a></li>
       <li><a href="#drift"><span class="n">02</span><span>Drift &amp; the TeamCity loop</span></a></li>
       <li><a href="#iron"><span class="n">03</span><span>The machines you have</span></a></li>
       <li><a href="#local"><span class="n">04</span><span>Recalibrating the case</span></a></li>
@@ -308,7 +308,7 @@
 
     <hr class="rule">
 
-    <section id="ccg" class="reveal">
+    <section id="glasscontext" class="reveal">
       <p class="part-kick">Part 01</p>
       <h2>Evaluating GlassContext</h2>
       <p>Judge each artifact GlassContext produces by one question: does it tell the agent something it <strong>couldn't cheaply get on its own</strong>, reliably, and fresh? Modern coding agents can <code>Read</code>, <code>Grep</code>, and <code>Glob</code> the source themselves, so the value of any generated file is roughly:</p>
@@ -382,7 +382,7 @@
           <caption>Design the build configuration around these</caption>
           <thead><tr><th>Concern</th><th>Why it bites</th><th>What the build config should do</th></tr></thead>
           <tbody>
-            <tr><td><strong>Trigger loop</strong></td><td>GlassContext's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros.</td><td>Add a trigger rule excluding the generated paths and the bot identity — e.g. <code>-:user=ccg-bot:**</code> plus <code>-:**/CLAUDE.md</code>, <code>-:docs/llms/**</code>. Verify by watching the build queue after a bot commit, not by reasoning about it.</td></tr>
+            <tr><td><strong>Trigger loop</strong></td><td>GlassContext's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros.</td><td>Add a trigger rule excluding the generated paths and the bot identity — e.g. <code>-:user=glasscontext-bot:**</code> plus <code>-:**/CLAUDE.md</code>, <code>-:docs/llms/**</code>. Verify by watching the build queue after a bot commit, not by reasoning about it.</td></tr>
             <tr><td><strong>Cost per commit</strong></td><td>Whole-repo Path 2 intent enrichment on every push spends the most tokens on the files that change least. This is Part 01's “target it” verdict, now with a meter running.</td><td>Let the content-hash cache do its job: enrich only files whose hash changed <em>and</em> that are on the intent-carrying list. Log tokens per build so the cost is visible.</td></tr>
             <tr><td><strong>Diff churn</strong></td><td>LLM-generated prose differs run to run even when the source didn't change, producing noisy diffs that train everyone to ignore the file.</td><td>Pin the generator model and use temperature 0 for enrichment; never rewrite a file whose source hash is unchanged. Deterministic-in, deterministic-out.</td></tr>
             <tr><td><strong>Silent pipeline failure</strong></td><td>If the context build goes red and nobody notices, the repo looks fresh and is quietly frozen — the exact failure the automation was meant to prevent, now invisible.</td><td>Alert on failure, and stamp provenance <em>into</em> the generated file (source SHA + UTC timestamp + generator version) so staleness is legible from the artifact itself.</td></tr>
@@ -404,7 +404,7 @@
         <div class="ph-head"><span class="ph-n">Build config</span><span class="ph-t">Shape of the TeamCity job</span><span class="ph-tag">Reference</span></div>
         <dl>
           <dt>Trigger</dt><dd>VCS change on the default branch, with exclusion rules for generated paths and the bot author.</dd>
-          <dt>Steps</dt><dd><code>ccg.exe generate --repo . --config ccg.glassproj</code> → <code>ccg.exe context-test --suite tests/context/</code> → commit + push if the working tree changed.</dd>
+          <dt>Steps</dt><dd><code>glasscontext.exe generate --repo . --config glasscontext.glassproj</code> → <code>glasscontext.exe context-test --suite tests/context/</code> → commit + push if the working tree changed.</dd>
           <dt>Artifacts</dt><dd>Token spend, files regenerated, Context Test pass rate — published per build so the trend is visible.</dd>
           <dt class="metric">Gate</dt><dd class="metric">Context Test pass rate must not regress. Warn first, enforce once the suite is stable.</dd>
         </dl>
