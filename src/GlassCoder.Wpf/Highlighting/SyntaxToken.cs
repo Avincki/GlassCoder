@@ -80,7 +80,7 @@ public static class SyntaxLanguageDetector
             ".CS" or ".CSX" => SyntaxLanguage.CSharp,
             ".XAML" or ".XML" or ".HTML" or ".HTM" or ".CSPROJ" or ".PROPS" or ".TARGETS"
                 or ".CONFIG" or ".SVG" or ".RESX" => SyntaxLanguage.Xml,
-            ".JSON" or ".JSONC" or ".CCGPROJ" => SyntaxLanguage.Json,
+            ".JSON" or ".JSONC" or ".GLASSPROJ" => SyntaxLanguage.Json,
             ".MD" or ".MARKDOWN" => SyntaxLanguage.Markdown,
             _ => SyntaxLanguage.None,
         };

@@ -1432,7 +1432,7 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
       <h3>Beyond the ladder</h3>
 
       <p>
-        Five documents live under <code>docs/NewFeatures</code>, written against the current
+        Six documents live under <code>docs/NewFeatures</code>, written against the current
         code so the names, configuration keys and estimates are real. None is a prerequisite for
         any phase above; the first has since been built, and its own page has been rewritten from
         a proposal into a description of what shipped.
@@ -1475,12 +1475,21 @@ glasscoder suite --config config/phase1.json   <span class="c"># edit + verify</
                   wire-a-module case.</td>
             </tr>
             <tr>
-              <td><a href="NewFeatures/ccg-preprocessor.html">The context generator as a preprocessor</a></td>
-              <td>ClaudeContextGenerator3's CLAUDE.md and WORKPLAN.md as GlassCoder's inputs —
+              <td><a href="NewFeatures/glasscontext-preprocessor.html">The context generator as a preprocessor</a></td>
+              <td>GlassContext's CLAUDE.md and WORKPLAN.md as GlassCoder's inputs —
                   root context, run queue, and the pass@1 measurement loop the two applications
                   close together.</td>
               <td>Analysis. Two config lines work today; the profile, the runner and the per-task
-                  oracle are what the value hinges on.</td>
+                  oracle are what the value hinges on. Revisited for the actual target in
+                  <a href="NewFeatures/glasscontext-csharp-apps.html">GlassContext for small-medium C# apps</a>.</td>
+            </tr>
+            <tr>
+              <td><a href="NewFeatures/glasscontext-csharp-apps.html">GlassContext for small-medium C# apps</a></td>
+              <td>The same pairing, with the target corrected: small-to-medium C# applications,
+                  not C++, Lisp or monoliths. Context pays as intent and an oracle-backed plan,
+                  not as a file catalog the harness already has.</td>
+              <td>Analysis. The exercise is the measurement: the same suite with
+                  <code>CLAUDE.agent.md</code> on and off.</td>
             </tr>
           </tbody>
         </table>

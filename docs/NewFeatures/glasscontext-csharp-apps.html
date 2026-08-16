@@ -1,0 +1,952 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Revisit: GlassContext as a preprocessor for GlassCoder when the target is small-to-medium C# applications — what that retires, what the equation actually multiplies, and why the pairing is still the right exercise.">
+<title>GlassCoder — Analysis: GlassContext for small-medium C# apps</title>
+
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Analysis · revisit · small-medium C#</div>
+    <h1>Intent and plan, not a catalog</h1>
+    <p class="standfirst">
+      The earlier preprocessor note treated C++ headers, legacy Lisp and monolith scale as the
+      hard limits. The actual target is small-to-medium C# applications. That retires those
+      limits, and it also retires most of what a file-by-file documentation mirror was going
+      to buy. The pairing is still the right exercise — because this is the only target both
+      applications can already finish, and the only place the context term can be measured.
+    </p>
+    <div class="specstrip">
+      <div><b>Status</b> analysis — nothing here is built</div>
+      <div><b>Producer</b> GlassContext (.NET&nbsp;8, WPF + UI-free Core)</div>
+      <div><b>Consumer</b> GlassCoder (.NET&nbsp;10, WPF + console host)</div>
+      <div><b>Target</b> small–medium C# apps (not large, not C++, not Lisp)</div>
+      <div><b>Equation</b> capability ≈ model × harness × context</div>
+      <div><b>Revisits</b> <a href="glasscontext-preprocessor.html">the context generator as a preprocessor</a></div>
+      <div><b>Date</b> 2026-08-16</div>
+    </div>
+    <div class="backlinks">
+      <a href="../index.html">← Operator's guide</a>
+      <a href="glasscontext-preprocessor.html">← Original preprocessor analysis</a>
+      <a href="harness-advisor.html">Proposal: the harness advisor →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#target">0 · The target</a></li>
+      <li><a href="#retires">1 · What this retires</a></li>
+      <li><a href="#equation">2 · The equation on this target</a></li>
+      <li><a href="#brings">3 · What GlassContext still brings</a></li>
+      <li><a href="#harness">4 · What the harness already covers</a></li>
+      <li><a href="#changes">5 · What to change and add</a></li>
+      <li><a href="#exercise">6 · Why the exercise is worthwhile</a></li>
+      <li><a href="#work">7 · Shape of the work</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="target">
+      <div class="part-head"><span class="num">00</span><h2>The target</h2></div>
+
+      <p>
+        GlassContext was built for multi-repo C++ / C# libraries with sibling DLLs
+        and archived Lisp. The <a href="glasscontext-preprocessor.html">preprocessor analysis</a> inherited
+        that flagship and spent a section on the C++ verification gap, regeneration cost on a
+        1.6M-LOC tree, and a path-resolution rule aimed at <code>.h</code> files. Those are the
+        wrong constraints.
+      </p>
+
+      <p>
+        The consumer is GlassCoder. The work GlassCoder is for is <b>small-to-medium C#
+        applications</b>: a handful of projects, tens to a few hundred source files, a solution
+        that <code>dotnet build</code> and <code>dotnet test --filter</code> already understand.
+        GlassCoder itself is one of those applications. The overlap is no longer a sliver. It is
+        the whole product surface.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>In scope</th><th>Out of scope</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>C# / .NET solutions, typically WPF + class libraries + tests</td>
+              <td>C++ headers, AutoLISP, hybrid survey libraries</td>
+            </tr>
+            <tr>
+              <td>One repo, or a solution whose projects already live inside it</td>
+              <td>Sibling DLL checkouts and <code>CLAUDEDOCS_*</code> fallbacks</td>
+            </tr>
+            <tr>
+              <td>30–300 <code>.cs</code> files; regeneration is a coffee break</td>
+              <td>Monoliths where a documentation mirror goes stale as you walk it</td>
+            </tr>
+            <tr>
+              <td>Oracles that are test class names</td>
+              <td>Prose acceptance against a legacy Lisp system</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="retires">
+      <div class="part-head"><span class="num">01</span><h2>What this retires</h2></div>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Previous limit</th><th>Status now</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>GlassCoder cannot verify C++ / Lisp</td>
+              <td>Irrelevant. Roslyn and <code>dotnet test</code> <em>are</em> the ladder.</td>
+            </tr>
+            <tr>
+              <td><code>docs/llms</code> regeneration dies on a huge tree</td>
+              <td>Irrelevant. A hundred files regenerate in a session.</td>
+            </tr>
+            <tr>
+              <td>Sibling DLL repos, <code>legacy/*.lsp</code>, <code>CLAUDEDOCS_*</code></td>
+              <td>Optional leftovers. They must not shape the emitter or the plan.</td>
+            </tr>
+            <tr>
+              <td>The worker cannot see the tree without a map in FILE&nbsp;1</td>
+              <td>False here. The workspace map lists up to 200 files and inlines the small ones.
+                  A small C# app is often fully oriented at step&nbsp;0.</td>
+            </tr>
+            <tr>
+              <td>Path&nbsp;2 intent is too expensive to run on everything</td>
+              <td>Inverted. On this size you <em>can</em> enrich every file, and freshness is cheap.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The pairing is a better fit than the first note said. That does not mean GlassContext as it
+        stands is the right preprocessor. It means the <em>harness</em> term is already strong,
+        so context only pays if it adds what the harness cannot see.
+      </p>
+    </section>
+
+    <!-- ============ 2 ============ -->
+    <section class="part" id="equation">
+      <div class="part-head"><span class="num">02</span><h2>The equation on this target</h2></div>
+
+<pre><code>capability ≈ model × harness × context</code></pre>
+
+      <p>
+        A product, not a sum: a zero on any term zeroes the result. GlassContext does not train a model
+        and does not replace the loop. For a 40–200 file C# solution the three terms sit like
+        this:
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Term</th><th>What it is here</th><th>What the pairing does</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Model</td>
+              <td>The served worker, the local critic, the optional remote second opinion</td>
+              <td>Nothing. Same aliases, same endpoints. Extraction goes up; weights do not.</td>
+            </tr>
+            <tr>
+              <td>Harness</td>
+              <td><code>list_projects</code>, <code>find_symbol</code>, in-memory compile,
+                  diagnostic summarizer, <code>dotnet test --filter</code>, workspace map</td>
+              <td>A small upgrade: consume a plan, gate the checkbox on an oracle, keep the
+                  todo list visible after compaction.</td>
+            </tr>
+            <tr>
+              <td>Context</td>
+              <td>What the worker believes before step&nbsp;1, and what it can retrieve later</td>
+              <td>The term that moves — and only if it is purpose, conventions, gotchas and a
+                  sliced next unit of work, not a file catalog.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Discovery of <em>where code is</em> is a harness job now. The worker can already open
+        <code>Foo.cs</code>. The product goes up when it does not have to <em>infer</em> why
+        <code>Foo</code> exists, which layer it belongs in, and what “done” means.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">More content is not more context</span>
+        <p>
+          Dumping FILE&nbsp;1 plus the whole <code>docs/llms</code> tree into every step would
+          lower the product. Dilution costs wall-clock on every step; the useful tail is
+          truncated; the worker follows Claude Code rituals it cannot keep. Wrong context is
+          not a small context. It is a smaller product. The agent-profile plus retrieval-on-demand
+          split raises <em>useful</em> context without raising <em>resident</em> context.
+        </p>
+      </div>
+
+      <p>
+        Three qualities, if GlassContext emits them for this reader:
+      </p>
+
+      <ol class="prose">
+        <li><b>Identity at step 0</b> — what the app does, how it builds and tests, which rules
+            constrain an edit. That is <code>CLAUDE.agent.md</code> in the 6 000-token root.</li>
+        <li><b>Intent on demand</b> — why a member exists, what it mutates, the gotcha a caller
+            must know, an example mined from tests. That is Path&nbsp;2, pulled only when the
+            worker touches the file.</li>
+        <li><b>A framed next unit of work</b> — not “here is the repo,” but “task
+            <code>retry-transport</code>: change these files; done means this test is green.”</li>
+      </ol>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="brings">
+      <div class="part-head"><span class="num">03</span><h2>What GlassContext still brings</h2></div>
+
+      <h3>Still high value</h3>
+
+      <ul class="prose">
+        <li><b>Path 2 intent</b> — purpose, gotchas, test-mined examples. <code>find_symbol</code>
+            answers “where is it declared.” Intent answers what a syntax tree will not. On this
+            size the content-hash cache makes a full pass affordable.</li>
+        <li><b>Module C’s human-gated narrative</b> — a two-page product brief (what the app does,
+            layering, “no logic in code-behind,” where a feature lives) is exactly the lean root
+            a local worker needs, if you stop asking Module C for a Claude Code ritual document.</li>
+        <li><b>A workplan with <code>dotnet test --filter</code> oracles</b> — the missing-oracle
+            gap is easy to close. Every task can name a test class. GlassCoder already has
+            <code>TestFilter</code>. A workplan row becomes a suite row.</li>
+        <li><b>Tutorial / from-scratch rebuilds</b> — a small C# app can be rebuilt from empty.
+            Every ablation arm starts byte-identical. That is a project-scale benchmark, not a
+            demo.</li>
+      </ul>
+
+      <h3>Value collapses, or becomes optional</h3>
+
+      <ul class="prose">
+        <li><b>FILE 1 as emitted today</b> — personal-context rituals, “tick the checkbox
+            yourself,” legacy Lisp, sibling header paths. On a single-repo C# app the workspace
+            map plus <code>list_projects</code> already give orientation. Loading stock FILE&nbsp;1
+            into the root is dilution.</li>
+        <li><b><code>docs/llms</code> from <code>HeaderParser</code></b> — the C# regex requires an
+            access modifier and <code>name(…)</code>. It misses records, interfaces, properties,
+            primary constructors, expression-bodied members and most types. Without Path&nbsp;2
+            the pages restated what <code>read_file</code> already returns.</li>
+        <li><b>Sibling / legacy / Python / C++ walkers</b> — cheap to leave in the tree. They must
+            not drive defaults, prompts or FILE&nbsp;1 section order.</li>
+        <li><b>YouTrack-sized 1h–2d tasks</b> — a medium C# feature is often two to four GlassCoder
+            runs. Human-day estimates are the wrong unit.</li>
+      </ul>
+
+      <h3>Missing because the target is C#</h3>
+
+      <p>
+        GlassContext does not yet understand a .NET solution. That is now the real gap, not C++.
+      </p>
+
+      <ul class="prose">
+        <li>No <code>.sln</code> / <code>.csproj</code> graph in the root (who references whom,
+            which project is the test project, which is WPF).</li>
+        <li>No NuGet / central-package story.</li>
+        <li>No View / ViewModel / XAML pairing — both applications in this pairing are WPF, and
+            GlassContext treats <code>.xaml</code> as invisible (<code>FileExtensions</code> defaults to
+            <code>.h</code> and <code>.cs</code>).</li>
+        <li>Module briefs (FILE&nbsp;5) stay empty placeholders. On a six-project solution those
+            briefs <em>are</em> the map.</li>
+        <li>Parsing is regex. GlassCoder already has Roslyn in-process. GlassContext is the weaker C#
+            reader and the stronger intent writer. That split should be explicit.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 4 ============ -->
+    <section class="part" id="harness">
+      <div class="part-head"><span class="num">04</span><h2>What the harness already covers</h2></div>
+
+      <p>
+        At step 0 on a small C# repo the worker typically gets the system prompt, a workspace
+        map that is often a full listing, and the goal string. Then
+        <code>list_projects</code> names every <code>.csproj</code>, <code>find_symbol</code>
+        finds the declaration, the ladder compiles the edit in memory, and tests run with a
+        filter. Discovery and verification are solved.
+      </p>
+
+      <p>
+        What is not solved, and what still zeros the context term:
+      </p>
+
+      <ul class="prose">
+        <li><code>RootContextFiles</code> defaults to <code>[]</code>. The worker has no product
+            identity unless the goal text carries it.</li>
+        <li><code>update_todos</code> is invented mid-run and falls out of the window when the
+            conversation is compacted.</li>
+        <li>There is no next-task queue. One goal box, one paste.</li>
+        <li>Completing a plan is not “the feature works” unless an oracle says so — and run
+            <code>e426f418</code> showed a finished todo list impersonating a finished goal.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Do not rebuild inventory</span>
+        <p>
+          GlassContext features that re-implement <code>list_projects</code> or a file listing do not
+          multiply the product. Build the things the loop cannot see: purpose, conventions,
+          gotchas, and a sliced next unit of work with a test name on it.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="changes">
+      <div class="part-head"><span class="num">05</span><h2>What to change and add</h2></div>
+
+      <h3>On GlassContext — become a C# intent-and-plan preprocessor</h3>
+
+      <ul class="prose">
+        <li><b>An agent profile that is a product brief, not a shrunk FILE&nbsp;1.</b>
+            Emit <code>CLAUDE.agent.md</code>, about 1.5–3k tokens: what the app does, the
+            solution map (projects, references, the one build command and the one test command),
+            layering and conventions that constrain edits, and a pointer that per-file intent
+            lives at <code>docs/llms/&lt;mirrored path&gt;</code>. No personal-context ritual,
+            no checkbox instruction, no sibling or legacy sections unless they exist. Keep
+            FILE&nbsp;1 for Claude Code. Reuse the reviewer rubric — conciseness and
+            actionability are already two of its six criteria.</li>
+        <li><b>Replace regex C# parsing, or stop pretending the catalog is documentation.</b>
+            Drive member lists from Roslyn, or skip the HeaderParser pages and only emit
+            Path&nbsp;2. Signature-only markdown is not context on this target.</li>
+        <li><b>Fill per-project briefs, not per-folder indexes.</b>
+            <code>src/Foo.Core/CLAUDE.md</code>: purpose, public surface, what may depend on
+            it, “when changing X also change Y.” Six short files beat one generated tree of
+            150 signature pages.</li>
+        <li><b>See <code>.csproj</code> and <code>.xaml</code>.</b>
+            Default extensions should be <code>.cs</code>, with <code>.xaml</code> as paired
+            context (this view binds that view-model). The solution graph belongs in the
+            agent profile.</li>
+        <li><b>Workplan format v2, sized for a 30-step run.</b>
+            Stable task ids so <code>pass@1</code> survives a reorder; target projects and
+            files named; an <code>**Oracle:**</code> line that is a
+            <code>dotnet test --filter</code> expression; size in steps, not days; no “add
+            tests / run the build” tasks — the ladder already does that. Generate from the
+            accepted brief plus the solution graph, not only from a Module&nbsp;C draft.</li>
+        <li><b>Run Path&nbsp;2 on the files that carry rules, or on everything.</b>
+            On this size, “the 10–20% that carry intent” is a preference, not a cost limit.
+            Prefer domain, orchestration and guardrail types over generated code and trivial
+            DTOs. The content-hash cache stays.</li>
+        <li><b>Leave the C++ / Lisp surface parked.</b>
+            Do not delete it. Do not let it drive defaults.</li>
+      </ul>
+
+      <h3>On GlassCoder — consume, do not rediscover</h3>
+
+      <ul class="prose">
+        <li><b>Load <code>CLAUDE.agent.md</code> and measure it</b> against the existing
+            <code>no-context</code> arm. A reviewer score of 7.2 is an opinion about a document.
+            A <code>pass@1</code> and tokens-to-solve delta is a fact about it. Do this before
+            building anything else. Do not raise <code>MaxRootContextTokens</code> to fit
+            FILE&nbsp;1.</li>
+        <li><b>Put the selected workplan task in the opening user message</b> — id, text,
+            target files, oracle. Do not ask the worker to open <code>WORKPLAN.md</code>. The
+            harness already injects the goal; it just does not parse the file.</li>
+        <li><b>A workplan runner</b> that ticks the checkbox only when the named tests passed,
+            stops at the first failure, and resumes on the next unchecked row.
+            <code>Attempt</code> already exists for retries. The console host is the first
+            surface; the WPF goal box grows a “next unchecked task” picker, not a second
+            planner.</li>
+        <li><b>Hint the intent sidecar on first touch</b> of a source file — one line on the
+            observation, not a dump of the tree. Even though a small tree might
+            <em>fit</em> in the root, it is still the wrong resident set. Measure whether the
+            hint moves tokens-to-solve.</li>
+        <li><b>Seed <code>update_todos</code> from the task’s slices</b> and re-inject the
+            current list after compaction. The failure mode on a small app is not “lost in a
+            huge tree.” It is “claimed done because 5/5 todos ticked.”</li>
+        <li><b>Close the loop through retrospectives, not another planner.</b>
+            Session retrospectives already read <code>WORKPLAN.md</code>. Stage&nbsp;3 may
+            propose a split or a “this task was too big” flag; a human accepts; GlassContext’s workplan
+            view shows it. Both applications were designed with a human gate on
+            generate-plan-execute.</li>
+      </ul>
+
+      <h3>Deprioritize</h3>
+
+      <ul class="prose">
+        <li>In-process reference to GlassContext Core for regeneration — regen is fast; a button or a
+            CLI is enough until stale-detected-then-act is the bottleneck.</li>
+        <li>A C++ syntax rung as a prerequisite.</li>
+        <li>Monolith freshness as a design constraint.</li>
+        <li>Teaching the worker the <code>src/foo/Bar.h → docs/llms/…</code> rule as a central
+            feature. Keep the mapping. Discovery is not the bottleneck.</li>
+      </ul>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="exercise">
+      <div class="part-head"><span class="num">06</span><h2>Why the exercise is worthwhile</h2></div>
+
+      <p>
+        The catalog is not what multiplies capability. <b>Running the pairing is.</b> You get
+        a measured context term on the only target both applications can already finish: a C#
+        solution, Roslyn on the write, <code>dotnet test</code> as the oracle, a tree small
+        enough that “with context / without context” is a fair fight.
+      </p>
+
+      <p>
+        That is the thing neither application has alone. GlassContext can score a draft. GlassCoder can
+        score a run. Until the same tasks go through both, you do not know whether a page of
+        intent, a 2k-token brief, or a sliced workplan moved <code>pass@1</code> or only read
+        well. The founding guide called that the teacher. The exercise <em>is</em> that
+        measurement.
+      </p>
+
+<pre><code><span class="c">// the loop neither application closes by itself</span>
+GlassContext writes context  →  GlassCoder runs the same tasks with / without it
+                    →  pass@1 and tokens-to-solve say whether context paid
+                    →  GlassContext keeps the sections that moved the number
+                    →  capability goes up because the context term went up
+                       and you can prove it</code></pre>
+
+      <p>
+        It is also cheap enough to be honest. Path&nbsp;2 on a hundred files is a session, not
+        a pipeline. A workplan row with <code>--filter</code> is a suite row.
+        <code>StandardArms.NoContext</code> already exists and currently compares an empty list
+        to an empty list. You can learn in a week whether context paid, instead of arguing from
+        reviewer scores.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>If you do this</th><th>What you learn</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>A lean <code>CLAUDE.agent.md</code>, actually loaded</td>
+              <td>Whether identity at step&nbsp;0 earns its tokens, or the workspace map was
+                  already enough.</td>
+            </tr>
+            <tr>
+              <td>Intent on the types that carry rules</td>
+              <td>Whether gotchas and test-mined examples move edits-to-green, or only read well.</td>
+            </tr>
+            <tr>
+              <td>A few oracle-backed slices</td>
+              <td>Whether a framed unit of work beats a pasted paragraph — and whether the
+                  harness, not the model, can be trusted to tick the box.</td>
+            </tr>
+            <tr>
+              <td>The same suite with the root on and off</td>
+              <td>The context term as a number. Either it paid, or a plausible story is retired.
+                  Both results are progress.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Sitting on GlassContext output that never enters a GlassCoder run is not an exercise. Loading
+        stock FILE&nbsp;1 as-is will likely <em>hurt</em> tokens-to-solve. The worthwhile
+        version is the short identity, the retrievable intent, the oracle-backed slice, and
+        the A/B. If the delta is real, you have the preprocessor the equation was missing.
+        If it is not, you have a measurement. Either way the lab did its job.
+      </p>
+    </section>
+
+    <!-- ============ 7 ============ -->
+    <section class="part" id="work">
+      <div class="part-head"><span class="num">07</span><h2>Shape of the work</h2></div>
+
+      <p>
+        Continues the numbering from the <a href="glasscontext-preprocessor.html#work">preprocessor
+        note</a> (77–81, C1–C4), but drops the items that only existed for C++ or for
+        in-process regeneration. The profile and the oracle still come first: they are what
+        make the measurement worth running.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Task</th><th>Est.</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">C1′</td>
+              <td>GlassContext: agent-profile emitter — <code>CLAUDE.agent.md</code> as a 1.5–3k product
+                  brief (solution graph, build/test commands, layering), no session rituals.
+                  Reviewer loop reused to score it.</td>
+              <td class="m">1d</td>
+              <td class="m">—</td>
+            </tr>
+            <tr>
+              <td class="m">C2′</td>
+              <td>GlassContext: workplan format v2 — stable task ids, target files, an
+                  <code>**Oracle:**</code> line that is a <code>dotnet test --filter</code>
+                  expression, size in steps, no build/test tasks. Module&nbsp;D and Module&nbsp;F
+                  prompts updated.</td>
+              <td class="m">0.5d</td>
+              <td class="m">—</td>
+            </tr>
+            <tr>
+              <td class="m">C5</td>
+              <td>GlassContext: fill per-project FILE&nbsp;5 briefs from the solution graph; default
+                  extensions <code>.cs</code> (and <code>.xaml</code> as paired context). Park
+                  the C++ / Lisp defaults.</td>
+              <td class="m">1d</td>
+              <td class="m">C1′</td>
+            </tr>
+            <tr>
+              <td class="m">C6</td>
+              <td>GlassContext: stop emitting HeaderParser-only pages as if they were documentation —
+                  Roslyn member lists, or Path&nbsp;2 only. Persist the Path&nbsp;2 knobs so
+                  Apply Settings cannot wipe them.</td>
+              <td class="m">1d</td>
+              <td class="m">—</td>
+            </tr>
+            <tr>
+              <td class="m">77′</td>
+              <td>GlassCoder: point <code>RootContextFiles</code> at <code>CLAUDE.agent.md</code>
+                  on a small C# repo; run the suite baseline vs <code>no-context</code>; record
+                  the first real pass@1 delta for generated context.</td>
+              <td class="m">0.5d</td>
+              <td class="m">C1′</td>
+            </tr>
+            <tr>
+              <td class="m">78</td>
+              <td>GlassCoder: workplan runner — parse, run unchecked tasks in order, tick only
+                  on the oracle, stop at first failure, resume on re-invocation. Seed
+                  <code>update_todos</code> from the task and keep the list visible after
+                  compaction.</td>
+              <td class="m">1.5d</td>
+              <td class="m">77′</td>
+            </tr>
+            <tr>
+              <td class="m">80′</td>
+              <td>GlassCoder: honour the per-task <code>**Oracle:**</code> line as
+                  <code>TestFilter</code>; hint the intent sidecar on first touch of a source
+                  file; measure tokens-to-solve with and without the hint.</td>
+              <td class="m">0.5d</td>
+              <td class="m">78, C2′</td>
+            </tr>
+            <tr>
+              <td class="m">81</td>
+              <td>Run one Module&nbsp;F tutorial workplan from an empty directory as a
+                  project-scale benchmark arm; compare against the same plan under
+                  <code>no-context</code>.</td>
+              <td class="m">1d</td>
+              <td class="m">78, 80′</td>
+            </tr>
+            <tr>
+              <td class="m">C3</td>
+              <td>GlassContext: metrics importer — join <code>metrics.jsonl</code> per-task outcomes onto
+                  the workplan view; flag repeat failures for decomposition. Human-gated.</td>
+              <td class="m">1d</td>
+              <td class="m">78</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Acceptance</h3>
+
+      <ul class="prose">
+        <li>Running the suite with a GlassContext-generated <code>CLAUDE.agent.md</code> as root context
+            produces a measured pass@1 and tokens-to-solve delta against
+            <code>no-context</code> — a number, not an opinion.</li>
+        <li>A workplan checkbox is ticked by the harness only after the named tests passed; a
+            run the model merely believed finished leaves the box unticked.</li>
+        <li>Re-invoking the runner after an interruption resumes at the first unchecked task,
+            with attempt numbers intact in the metrics.</li>
+        <li>The agent profile contains a solution graph and no personal-context ritual; FILE&nbsp;1
+            remains the Claude Code document.</li>
+        <li>A tutorial workplan executed from an empty directory yields per-arm comparable
+            metrics and counts as a project-scale suite entry.</li>
+      </ul>
+
+      <div class="note">
+        <span class="tag">Read next</span>
+        <p>
+          <a href="glasscontext-preprocessor.html">The context generator as a preprocessor</a> is the
+          original mapping of artifacts to intakes; this page is the same pairing under the
+          target that is actually in scope.
+          <a href="mcp-retrieval.html">Retrieval over MCP</a> is knowledge from
+          <em>outside</em> the repo; this page is knowledge distilled from
+          <em>inside</em> it — and, on a small C# app, only the part the harness cannot already
+          see.
+          <a href="harness-advisor.html">The harness advisor</a> is the same measurement idea
+          pointed at GlassCoder’s own tools.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  GlassCoder analysis · GlassContext for small-medium C# apps · nothing implemented ·
+  revisit of <a href="glasscontext-preprocessor.html">the context generator as a preprocessor</a> ·
+  companion to the <a href="../index.html">operator's guide</a>
+</footer>
+</body>
+</html>

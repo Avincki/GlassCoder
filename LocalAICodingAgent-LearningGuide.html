@@ -251,7 +251,7 @@
     <p class="kick">On this page</p>
     <ol>
       <li><a href="#read"><span class="n">00</span><span>How to read this</span></a></li>
-      <li><a href="#ccg"><span class="n">01</span><span>Evaluating CCG</span></a></li>
+      <li><a href="#ccg"><span class="n">01</span><span>Evaluating GlassContext</span></a></li>
       <li><a href="#drift"><span class="n">02</span><span>Drift &amp; the TeamCity loop</span></a></li>
       <li><a href="#iron"><span class="n">03</span><span>The machines you have</span></a></li>
       <li><a href="#local"><span class="n">04</span><span>Recalibrating the case</span></a></li>
@@ -271,7 +271,7 @@
     <header class="hero">
       <p class="eyebrow">Field guide</p>
       <h1>Building a Local AI Coding Agent</h1>
-      <p class="lede">An evaluation of ClaudeContextGenerator, the case for pairing it with a local LLM, and a development roadmap for a learning environment that teaches you how an application like Claude actually works — by measuring it.</p>
+      <p class="lede">An evaluation of GlassContext, the case for pairing it with a local LLM, and a development roadmap for a learning environment that teaches you how an application like Claude actually works — by measuring it.</p>
       <div class="meta">
         <span>Rev. 2026-07-22</span><span>Hardware: DGX Spark · 8 × RTX PRO 6000 · DGX Station (option)</span><span>Stack: C# / .NET</span><span>Goal: understand, then build</span>
       </div>
@@ -290,7 +290,7 @@
     <section id="read" class="reveal">
       <p class="part-kick">Part 00</p>
       <h2>How to read this</h2>
-      <p>This is two documents fused into one. Parts 01–04 are an <strong>evaluation</strong> — of ClaudeContextGenerator (CCG) on its own terms, of the pipeline that keeps its output fresh, of the hardware you're building on, and of what that hardware does to the original “weak local model” thesis. Parts 05–11 are a <strong>build guide</strong> — installing the model server, a reference architecture, the C# stack, a measurement lab, a phased roadmap, and a startable kit. Read it top to bottom the first time; return to Parts 05–08 as working references.</p>
+      <p>This is two documents fused into one. Parts 01–04 are an <strong>evaluation</strong> — of GlassContext on its own terms, of the pipeline that keeps its output fresh, of the hardware you're building on, and of what that hardware does to the original “weak local model” thesis. Parts 05–11 are a <strong>build guide</strong> — installing the model server, a reference architecture, the C# stack, a measurement lab, a phased roadmap, and a startable kit. Read it top to bottom the first time; return to Parts 05–08 as working references.</p>
 
       <div class="call insight">
         <p class="lab">◆ What changed in this revision</p>
@@ -310,8 +310,8 @@
 
     <section id="ccg" class="reveal">
       <p class="part-kick">Part 01</p>
-      <h2>Evaluating ClaudeContextGenerator</h2>
-      <p>Judge each artifact CCG produces by one question: does it tell the agent something it <strong>couldn't cheaply get on its own</strong>, reliably, and fresh? Modern coding agents can <code>Read</code>, <code>Grep</code>, and <code>Glob</code> the source themselves, so the value of any generated file is roughly:</p>
+      <h2>Evaluating GlassContext</h2>
+      <p>Judge each artifact GlassContext produces by one question: does it tell the agent something it <strong>couldn't cheaply get on its own</strong>, reliably, and fresh? Modern coding agents can <code>Read</code>, <code>Grep</code>, and <code>Glob</code> the source themselves, so the value of any generated file is roughly:</p>
       <div class="formula">
         <div class="expr" style="font-size:clamp(.95rem,2.8vw,1.15rem)">
           <span class="term">value</span><span class="op">≈</span>
@@ -355,11 +355,11 @@
 
       <div class="call trap">
         <p class="lab">▲ Trap — staleness (now largely closed)</p>
-        <p>The biggest structural risk in CCG isn't a missing feature — it's <strong>drift</strong>. Generated context that no longer matches the source doesn't just lose value; it <em>actively misleads</em> the agent, which is worse than no context. The content-hash cache controls regeneration cost, not drift.</p>
-        <p>This revision downgrades the risk: <strong>TeamCity already triggers CCG on source change</strong>, so mechanical freshness is handled. That's a significant win — but it relocates the problem rather than eliminating it. <a href="#drift">Part 02</a> covers what the pipeline solves, what it doesn't, and the three failure modes automation introduces.</p>
+        <p>The biggest structural risk in GlassContext isn't a missing feature — it's <strong>drift</strong>. Generated context that no longer matches the source doesn't just lose value; it <em>actively misleads</em> the agent, which is worse than no context. The content-hash cache controls regeneration cost, not drift.</p>
+        <p>This revision downgrades the risk: <strong>TeamCity already triggers GlassContext on source change</strong>, so mechanical freshness is handled. That's a significant win — but it relocates the problem rather than eliminating it. <a href="#drift">Part 02</a> covers what the pipeline solves, what it doesn't, and the three failure modes automation introduces.</p>
       </div>
 
-      <p><strong>Net for CCG:</strong> compressed to what genuinely makes a project execute better, it's a sharp example-aware <code>CLAUDE.md</code> + a checkbox workplan + the history convention + <em>selective</em> intent enrichment, all regenerated by the pipeline. With freshness automated, the highest-ROI remaining investment is no longer a freshness mechanism — it's <strong>making the Context Test a build gate</strong>, so the pipeline proves the context still works instead of only proving it's current.</p>
+      <p><strong>Net for GlassContext:</strong> compressed to what genuinely makes a project execute better, it's a sharp example-aware <code>CLAUDE.md</code> + a checkbox workplan + the history convention + <em>selective</em> intent enrichment, all regenerated by the pipeline. With freshness automated, the highest-ROI remaining investment is no longer a freshness mechanism — it's <strong>making the Context Test a build gate</strong>, so the pipeline proves the context still works instead of only proving it's current.</p>
     </section>
 
     <hr class="rule">
@@ -367,7 +367,7 @@
     <section id="drift" class="reveal">
       <p class="part-kick">Part 02</p>
       <h2>Drift, solved by pipeline — and what that changes</h2>
-      <p>With TeamCity watching VCS changes and invoking CCG automatically, generated context stops being <em>a document somebody has to remember to refresh</em> and becomes something much better defined:</p>
+      <p>With TeamCity watching VCS changes and invoking GlassContext automatically, generated context stops being <em>a document somebody has to remember to refresh</em> and becomes something much better defined:</p>
 
       <div class="call insight">
         <p class="lab">◆ Insight — context is a build artifact</p>
@@ -382,7 +382,7 @@
           <caption>Design the build configuration around these</caption>
           <thead><tr><th>Concern</th><th>Why it bites</th><th>What the build config should do</th></tr></thead>
           <tbody>
-            <tr><td><strong>Trigger loop</strong></td><td>CCG's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros.</td><td>Add a trigger rule excluding the generated paths and the bot identity — e.g. <code>-:user=ccg-bot:**</code> plus <code>-:**/CLAUDE.md</code>, <code>-:docs/llms/**</code>. Verify by watching the build queue after a bot commit, not by reasoning about it.</td></tr>
+            <tr><td><strong>Trigger loop</strong></td><td>GlassContext's own commit is a VCS change, which retriggers the build, which commits again. The classic CI ouroboros.</td><td>Add a trigger rule excluding the generated paths and the bot identity — e.g. <code>-:user=ccg-bot:**</code> plus <code>-:**/CLAUDE.md</code>, <code>-:docs/llms/**</code>. Verify by watching the build queue after a bot commit, not by reasoning about it.</td></tr>
             <tr><td><strong>Cost per commit</strong></td><td>Whole-repo Path 2 intent enrichment on every push spends the most tokens on the files that change least. This is Part 01's “target it” verdict, now with a meter running.</td><td>Let the content-hash cache do its job: enrich only files whose hash changed <em>and</em> that are on the intent-carrying list. Log tokens per build so the cost is visible.</td></tr>
             <tr><td><strong>Diff churn</strong></td><td>LLM-generated prose differs run to run even when the source didn't change, producing noisy diffs that train everyone to ignore the file.</td><td>Pin the generator model and use temperature 0 for enrichment; never rewrite a file whose source hash is unchanged. Deterministic-in, deterministic-out.</td></tr>
             <tr><td><strong>Silent pipeline failure</strong></td><td>If the context build goes red and nobody notices, the repo looks fresh and is quietly frozen — the exact failure the automation was meant to prevent, now invisible.</td><td>Alert on failure, and stamp provenance <em>into</em> the generated file (source SHA + UTC timestamp + generator version) so staleness is legible from the artifact itself.</td></tr>
@@ -393,24 +393,24 @@
       <div class="call trap">
         <p class="lab">▲ Trap — fresh is not the same as correct</p>
         <p>The pipeline guarantees the context was <em>regenerated from current source</em>. It guarantees nothing about whether the result actually helps an agent execute. A confidently wrong intent summary regenerated on every commit is <strong>perfectly fresh and still harmful</strong> — and a weaker local model is precisely the one least likely to notice the contradiction.</p>
-        <p>This is why the <strong>Context Test belongs in the pipeline</strong>. It was flagged as “underrated” in Part 01 for a reason: it's the only artifact CCG produces that closes the loop empirically. As a build step it becomes a regression gate — run a fixed task suite against the regenerated context and fail (or warn) when pass rate drops. That converts your context from <em>maintained</em> to <em>verified</em>, and it's the single highest-value thing left to add.</p>
+        <p>This is why the <strong>Context Test belongs in the pipeline</strong>. It was flagged as “underrated” in Part 01 for a reason: it's the only artifact GlassContext produces that closes the loop empirically. As a build step it becomes a regression gate — run a fixed task suite against the regenerated context and fail (or warn) when pass rate drops. That converts your context from <em>maintained</em> to <em>verified</em>, and it's the single highest-value thing left to add.</p>
       </div>
 
       <h3>The integration surface</h3>
-      <p>One practical note, since CCG is a WPF application: a build agent can't drive a desktop UI. The pipeline needs a <strong>non-interactive entry point</strong> — a console host that runs the same services, takes a config path and a repo root, writes nothing outside the managed output allow-list, and returns a meaningful exit code.</p>
-      <p>The architecture already supports this cleanly: <code>ClaudeContextGenerator3.Core</code> is specified as a class library with <em>zero UI dependency</em>, so a console host is a thin shell over the services that already exist rather than a parallel implementation. The same discipline that made Core testable makes it automatable — which is the usual reward for keeping a UI-free core.</p>
+      <p>One practical note, since GlassContext is a WPF application: a build agent can't drive a desktop UI. The pipeline needs a <strong>non-interactive entry point</strong> — a console host that runs the same services, takes a config path and a repo root, writes nothing outside the managed output allow-list, and returns a meaningful exit code.</p>
+      <p>The architecture already supports this cleanly: <code>GlassContext.Core</code> is specified as a class library with <em>zero UI dependency</em>, so a console host is a thin shell over the services that already exist rather than a parallel implementation. The same discipline that made Core testable makes it automatable — which is the usual reward for keeping a UI-free core.</p>
 
       <div class="phase">
         <div class="ph-head"><span class="ph-n">Build config</span><span class="ph-t">Shape of the TeamCity job</span><span class="ph-tag">Reference</span></div>
         <dl>
           <dt>Trigger</dt><dd>VCS change on the default branch, with exclusion rules for generated paths and the bot author.</dd>
-          <dt>Steps</dt><dd><code>ccg.exe generate --repo . --config ccg.ccgproj</code> → <code>ccg.exe context-test --suite tests/context/</code> → commit + push if the working tree changed.</dd>
+          <dt>Steps</dt><dd><code>ccg.exe generate --repo . --config ccg.glassproj</code> → <code>ccg.exe context-test --suite tests/context/</code> → commit + push if the working tree changed.</dd>
           <dt>Artifacts</dt><dd>Token spend, files regenerated, Context Test pass rate — published per build so the trend is visible.</dd>
           <dt class="metric">Gate</dt><dd class="metric">Context Test pass rate must not regress. Warn first, enforce once the suite is stable.</dd>
         </dl>
       </div>
 
-      <p><strong>Net:</strong> automating regeneration is the right call and closes the risk Part 01 named. It moves CCG's remaining weak point from <em>currency</em> to <em>usefulness</em> — and usefulness is measurable, which is convenient, because measuring things is what the rest of this document is about.</p>
+      <p><strong>Net:</strong> automating regeneration is the right call and closes the risk Part 01 named. It moves GlassContext's remaining weak point from <em>currency</em> to <em>usefulness</em> — and usefulness is measurable, which is convenient, because measuring things is what the rest of this document is about.</p>
     </section>
 
     <hr class="rule">
@@ -599,7 +599,7 @@ KV bytes/token ≈ 2 × layers × kv_heads × head_dim × bytes_per_elem
         <p>What <em>has</em> changed is the currency. On a metered API, over-stuffing costs money; here it costs <strong>wall-clock</strong>, and in an agentic loop that penalty compounds — every one of dozens of sequential steps re-prefills a bloated prompt. The winning pattern is unchanged: a <strong>lean, always-loaded root <code>CLAUDE.md</code> + retrieval on demand</strong>, with intent enrichment reserved for the files that carry intent. Prefix caching (<a href="#install">Part 06</a>) softens the repeat cost, but nothing softens the attention dilution.</p>
       </div>
 
-      <p><strong>So CCG's role locally:</strong> a solid <em>context-provider module</em> — roughly one of six subsystems — best used lean, on-demand, and (thanks to the pipeline in Part 02) automatically fresh. Keep the A/B against no-context anyway: with a strong model, context earns less than intuition suggests, and the only way to know how much less on <em>your</em> repo is to measure it.</p>
+      <p><strong>So GlassContext's role locally:</strong> a solid <em>context-provider module</em> — roughly one of six subsystems — best used lean, on-demand, and (thanks to the pipeline in Part 02) automatically fresh. Keep the A/B against no-context anyway: with a strong model, context earns less than intuition suggests, and the only way to know how much less on <em>your</em> repo is to measure it.</p>
     </section>
 
     <hr class="rule">
@@ -858,10 +858,10 @@ docker run --gpus '"device=0,1"' --ipc=host -p 8001:8000 \
           <tbody>
             <tr><td><strong>Tools</strong></td><td>A typed registry: <code>read</code>, <code>grep</code>, <code>glob</code>, <code>edit</code>, <code>run_tests</code>, <code>bash</code>. Each has a schema and a real executor.</td><td>Capability is granted by tools, not prompts. Watch the model's reach expand as you add each one.</td></tr>
             <tr><td><strong>Loop / controller</strong></td><td>Parses the tool call, runs it, appends the observation, re-invokes the model; enforces step/token/time limits.</td><td>The “agency” is here, not in the model. This code <em>is</em> the agent.</td></tr>
-            <tr><td><strong>Context &amp; memory</strong></td><td>Assembles the window: system prompt + lean <code>CLAUDE.md</code> + retrieved-on-demand docs; compacts/summarizes when it fills.</td><td>Context engineering is a first-class discipline. This is where CCG plugs in — lean.</td></tr>
+            <tr><td><strong>Context &amp; memory</strong></td><td>Assembles the window: system prompt + lean <code>CLAUDE.md</code> + retrieved-on-demand docs; compacts/summarizes when it fills.</td><td>Context engineering is a first-class discipline. This is where GlassContext plugs in — lean.</td></tr>
             <tr><td><strong>Planning / decomposition</strong></td><td>A todo list the agent maintains; optional sub-agents for isolated sub-tasks.</td><td>Long tasks need externalized state. Watch coherence improve when the plan lives outside the model's head.</td></tr>
             <tr><td><strong>Verification</strong></td><td>Run the tests; self-critique the diff; optional second-pass reviewer that tries to refute.</td><td>Reliability comes from checking, not from a bigger model. The single biggest lever locally.</td></tr>
-            <tr><td><strong>Guardrails</strong></td><td>Permission prompts, a path allow-list, a sandbox for <code>bash</code>. (CCG's PathGuard is a reusable pattern.)</td><td>Safety is structural. An agent you don't trust to run unattended isn't finished.</td></tr>
+            <tr><td><strong>Guardrails</strong></td><td>Permission prompts, a path allow-list, a sandbox for <code>bash</code>. (GlassContext's PathGuard is a reusable pattern.)</td><td>Safety is structural. An agent you don't trust to run unattended isn't finished.</td></tr>
           </tbody>
         </table>
       </div>
@@ -916,12 +916,12 @@ docker run --gpus '"device=0,1"' --ipc=host -p 8001:8000 \
             <tr><td>Model client</td><td><code>Microsoft.Extensions.AI</code> (<code>IChatClient</code>) + <code>Microsoft.Extensions.AI.OpenAI</code></td><td>Points at any OpenAI-compatible endpoint, so your local vLLM server and the Claude API are the same interface. Swapping the two is a one-line change — which is exactly what an ablation needs.</td></tr>
             <tr><td>Tool schemas</td><td><code>AIFunctionFactory.Create(method)</code>; <code>JsonSchemaExporter</code> (.NET 9)</td><td>Schema generated <em>from the C# signature</em>. Hand-written JSON schemas drift from their implementations; generated ones can't.</td></tr>
             <tr><td>Constrained decoding</td><td>Request parameters — <code>strict</code>, <code>response_format</code>, <code>guided_json</code></td><td>Server-side (§5.3). Python libraries like Outlines and xgrammar run <em>inside vLLM</em>; you reach them through a JSON field. No capability lost.</td></tr>
-            <tr><td>Streaming</td><td><code>IAsyncEnumerable</code> + <code>await foreach</code></td><td>Native, cancellable, and already the pattern CCG uses for Claude streaming.</td></tr>
+            <tr><td>Streaming</td><td><code>IAsyncEnumerable</code> + <code>await foreach</code></td><td>Native, cancellable, and already the pattern GlassContext uses for Claude streaming.</td></tr>
             <tr><td>Concurrency / fan-out</td><td><code>Channels</code>, <code>Parallel.ForEachAsync</code>, TPL</td><td><strong>Where C# is outright better.</strong> Real threads and no GIL, on 256 of them — for running parallel agents alongside parallel test suites, this is a genuine advantage over the Python default.</td></tr>
-            <tr><td>Tool execution</td><td><code>Process</code> via CCG's existing <code>IProcessRunner</code> seam</td><td>Already built, already testable, already faked in unit tests.</td></tr>
+            <tr><td>Tool execution</td><td><code>Process</code> via GlassContext's existing <code>IProcessRunner</code> seam</td><td>Already built, already testable, already faked in unit tests.</td></tr>
             <tr><td>Sandboxing</td><td><code>Docker.DotNet</code>, containers, job objects</td><td>Give <code>bash</code> and <code>run_tests</code> a container each — you have the cores for it.</td></tr>
             <tr><td>Tool interop</td><td>Official <code>ModelContextProtocol</code> C# SDK (v1.0, Microsoft-maintained)</td><td>Expose your tools over MCP and Claude Code itself can use them. Your lab's tools become portable rather than captive.</td></tr>
-            <tr><td>Context provider</td><td><strong>CCG Core, referenced directly</strong></td><td>The decisive argument. It's already .NET 8 with zero UI dependency — an in-process project reference, not a subprocess with a text protocol between you and your own code.</td></tr>
+            <tr><td>Context provider</td><td><strong>GlassContext Core, referenced directly</strong></td><td>The decisive argument. It's already .NET 8 with zero UI dependency — an in-process project reference, not a subprocess with a text protocol between you and your own code.</td></tr>
             <tr><td>Observability</td><td><code>.UseOpenTelemetry()</code>, Serilog</td><td>The measurement lab (<a href="#measure">Part 10</a>) is mostly structured logging, and .NET's story here is excellent.</td></tr>
             <tr><td>Compiler feedback</td><td><code>Microsoft.CodeAnalysis</code> (Roslyn) in-process</td><td>Typed <code>Diagnostic</code> objects instead of parsed compiler text — see <a href="#compile">Part 09</a>. Only available because harness and target share a language.</td></tr>
           </tbody>
@@ -929,8 +929,8 @@ docker run --gpus '"device=0,1"' --ipc=host -p 8001:8000 \
       </div>
 
       <div class="call insight">
-        <p class="lab">◆ Insight — CCG is already the context subsystem</p>
-        <p>This is the part that tips the decision. In a Python harness, CCG is an external tool you shell out to and whose output you parse. In a C# harness it's <code>services.AddSingleton&lt;DocGenService&gt;()</code> — one of the six subsystems from Part 07, in-process, sharing types, debuggable in one step-through. <code>PathGuard</code> becomes the guardrail layer for your agent's file writes, verbatim; <code>SafeFileWriter</code> becomes the <code>edit_file</code> tool's write path. You aren't porting a context provider. You already wrote one, and it was built with exactly the immutability discipline an autonomous agent needs.</p>
+        <p class="lab">◆ Insight — GlassContext is already the context subsystem</p>
+        <p>This is the part that tips the decision. In a Python harness, GlassContext is an external tool you shell out to and whose output you parse. In a C# harness it's <code>services.AddSingleton&lt;DocGenService&gt;()</code> — one of the six subsystems from Part 07, in-process, sharing types, debuggable in one step-through. <code>PathGuard</code> becomes the guardrail layer for your agent's file writes, verbatim; <code>SafeFileWriter</code> becomes the <code>edit_file</code> tool's write path. You aren't porting a context provider. You already wrote one, and it was built with exactly the immutability discipline an autonomous agent needs.</p>
       </div>
 
       <h3>What C# genuinely costs you</h3>
@@ -951,7 +951,7 @@ docker run --gpus '"device=0,1"' --ipc=host -p 8001:8000 \
     string oldString,
     string newString)
 {
-    PathGuard.AssertWritable(path);          <span class="c">// CCG's guardrail, reused verbatim</span>
+    PathGuard.AssertWritable(path);          <span class="c">// GlassContext's guardrail, reused verbatim</span>
     <b>var</b> text = File.ReadAllText(path);
     <b>if</b> (Occurrences(text, oldString) != 1)
         <b>return</b> "ERROR: old_string must match exactly once.";   <span class="c">// errors are observations</span>
@@ -990,7 +990,7 @@ IChatClient model = <b>new</b> OpenAIClient(
 ├── Agent.Models      <span class="c">// IChatClient factories, one per served role (drafter/worker/critic)</span>
 ├── Agent.Lab         <span class="c">// ablation runner → JSONL; the measurement harness (Part 10)</span>
 ├── Agent.Host        <span class="c">// console entry point — also what TeamCity calls (Part 02)</span>
-└── ClaudeContextGenerator3.Core   <span class="c">// referenced, not reimplemented</span>
+└── GlassContext.Core   <span class="c">// referenced, not reimplemented</span>
 
 <span class="c">// The only Python you run:</span>
 docker run ... vllm/vllm-openai:latest ...</pre>
@@ -1025,7 +1025,7 @@ docker run ... vllm/vllm-openai:latest ...</pre>
       <div class="call insight">
         <p class="lab">◆ Insight — cheapest oracle first</p>
         <p>A loop that runs the full test suite after every edit spends most of its wall-clock discovering typos. Order the ladder by cost and <strong>fail fast</strong>: a syntax error should cost the agent one second and one observation, not a three-minute build-and-test cycle. On a weaker model — which makes more of these mistakes — the ordering matters more, not less.</p>
-        <p>This is also where CCG earns a specific keep: the “build and platform facts” section of a generated root <code>CLAUDE.md</code> is what tells the agent <em>how</em> to build this repo. It's a small artifact that unlocks the most valuable tool in the set.</p>
+        <p>This is also where GlassContext earns a specific keep: the “build and platform facts” section of a generated root <code>CLAUDE.md</code> is what tells the agent <em>how</em> to build this repo. It's a small artifact that unlocks the most valuable tool in the set.</p>
       </div>
 
       <h3>9.1 · The trap that eats your context window</h3>
@@ -1146,7 +1146,7 @@ cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B build   <span class="c"># → compil
           <thead><tr><th>Variable</th><th>Levels to sweep</th><th>What it isolates</th></tr></thead>
           <tbody>
             <tr><td>Model</td><td>7B · 80B-A3B · 480B · a second family</td><td>The raw <em>model</em> term — the ceiling everything else works within. Cross-family matters as much as size.</td></tr>
-            <tr><td>Context</td><td>none · lean CCG · full CCG</td><td>The asymmetric-compensation curve — and the point where dumping <em>hurts</em>.</td></tr>
+            <tr><td>Context</td><td>none · lean GlassContext · full GlassContext</td><td>The asymmetric-compensation curve — and the point where dumping <em>hurts</em>.</td></tr>
             <tr><td>Tools</td><td>read-only · +edit · +run-tests</td><td>How much capability is granted by tools vs the model.</td></tr>
             <tr><td>Verification</td><td>off · compile · +tests · +critique · 3-critic vote</td><td>How much reliability the harness claws back from checking. Note the compile-only rung — it's cheap and may capture most of the gain (Part 04, Part 09).</td></tr>
             <tr><td>Serving side</td><td>local 80B · local 480B · Claude API</td><td>The measured local-vs-hosted gap on <em>your</em> repo — the number Part 05's economics turn on.</td></tr>
@@ -1209,9 +1209,9 @@ cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B build   <span class="c"># → compil
       </div>
 
       <div class="phase">
-        <div class="ph-head"><span class="ph-n">Phase 3</span><span class="ph-t">Plug in CCG — lean</span><span class="ph-tag">2 GPUs · in-process</span></div>
+        <div class="ph-head"><span class="ph-n">Phase 3</span><span class="ph-t">Plug in GlassContext — lean</span><span class="ph-tag">2 GPUs · in-process</span></div>
         <dl>
-          <dt>Build</dt><dd>Reference <code>ClaudeContextGenerator3.Core</code> directly (Part 08). Feed a lean root <code>CLAUDE.md</code> + retrieval-on-demand; reserve intent enrichment for intent-heavy files. A/B against no-context.</dd>
+          <dt>Build</dt><dd>Reference <code>GlassContext.Core</code> directly (Part 08). Feed a lean root <code>CLAUDE.md</code> + retrieval-on-demand; reserve intent enrichment for intent-heavy files. A/B against no-context.</dd>
           <dt>Learn</dt><dd>The asymmetric-compensation curve, first-hand — including the task where full-dump context makes things <em>worse</em>, and the uncomfortable possibility that a strong model barely needs it.</dd>
           <dt class="metric">Watch</dt><dd class="metric">pass@1 and tokens-to-solve, context-on vs context-off, per task type.</dd>
         </dl>
@@ -1266,7 +1266,7 @@ cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B build   <span class="c"># → compil
 
       <div class="call insight">
         <p class="lab">◆ What success looks like</p>
-        <p>You'll be able to <strong>plot the capability surface</strong> — model × context × verification × agents against pass@1 and wall-clock — for your own hardware, your own models, and your own repositories. At that point you won't just have a local coding agent; you'll understand, with numbers, exactly which parts of “how Claude works” are the model, which are the harness, and which are the context. CCG earns its place as the lean, automatically-fresh context term in that product — no more, and no less.</p>
+        <p>You'll be able to <strong>plot the capability surface</strong> — model × context × verification × agents against pass@1 and wall-clock — for your own hardware, your own models, and your own repositories. At that point you won't just have a local coding agent; you'll understand, with numbers, exactly which parts of “how Claude works” are the model, which are the harness, and which are the context. GlassContext earns its place as the lean, automatically-fresh context term in that product — no more, and no less.</p>
         <p>And with 768 GB and a frontier-class open-weight model in the top row of the grid, one of those numbers is genuinely worth having: <strong>the real, measured distance between a local agent and a hosted one</strong> — on your code, not on a benchmark someone else designed.</p>
       </div>
 
@@ -1398,7 +1398,7 @@ cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -B build   <span class="c"># → compil
       </div>
 
       <div class="foot">
-        <p><strong>Structure:</strong> Parts 01–05 are the evaluation — CCG on its own terms, the pipeline that keeps it fresh, the hardware, what that hardware does to the weak-model thesis, and what the whole thing costs against the Claude API. Parts 06–09 are the platform — installing the model server, the harness architecture, the C# stack, and compile feedback. Parts 10–13 are the practice — measurement, roadmap, principles, and a startable kit.</p>
+        <p><strong>Structure:</strong> Parts 01–05 are the evaluation — GlassContext on its own terms, the pipeline that keeps it fresh, the hardware, what that hardware does to the weak-model thesis, and what the whole thing costs against the Claude API. Parts 06–09 are the platform — installing the model server, the harness architecture, the C# stack, and compile feedback. Parts 10–13 are the practice — measurement, roadmap, principles, and a startable kit.</p>
         <p><strong>Caveats.</strong> Hardware, pricing, and model figures are planning-grade: GPU specs and street prices, quantization sizes, API rates, and the open-weights shortlist all move quickly, and they reflect July 2026. The cost model in Part 05 is a structure to re-run with your own numbers, not a quote — the break-even is sensitive to acquisition cost, electricity rate, and how long a task actually takes on your repo. Framework flags and SDK surfaces drift between releases — treat code as shape, not copy-paste. Two claims are worth verifying before you architect around them: the PCIe-versus-NVLink throughput penalty on 8-way tensor parallel, and <code>sm_120</code> kernel support for whichever model family you pick.</p>
       </div>
     </section>
