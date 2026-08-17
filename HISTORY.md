@@ -9,6 +9,45 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-17 (afternoon) — A settings section nothing read was a settings section every save deleted
+
+Reported from use: the retrospective finished, and the button that writes the work order stayed
+greyed out. It was not about that run. **It has been greyed out since 2026-08-09 20:11, for every
+run**, and the evidence was sitting in the operator's own settings directory.
+
+`RetrospectiveWriter.CanWrite` is false when `GlassCoder:Retrospective:HarnessRepoPath` is empty,
+and the tooltip says so. The setting *was* there — `settings.json.bak-20260809b`, the backup taken
+before that evening's save, holds
+`"HarnessRepoPath": "C:\\Users\\AlexVinckier\\Dropbox (Personal)\\repos\\GlassCoder"`. The file
+written by that same save has no `Retrospective` section at all.
+
+**The cause is one missing line in `GlassCoderSettings`.** That class is the model the dialog reads
+and `UserSettingsStore.Save` serialises over the whole file, and its own doc comment promises that
+*"a new option shows up in the file and round-trips correctly the day it is added"*. It had no
+`Retrospective` property, so every save wrote a file without one — silently, since the section is
+only reachable by hand-editing and nothing in the UI showed it going. `FileReview` had the same
+hole from the other side: the property existed and `ReadFrom` never bound it, so a save wrote
+defaults over whatever was in the file. Both are now read; the Git section was fixed for this
+exact reason once already.
+
+**The guard is the point, not the two lines.** `Every_section_on_the_settings_model_is_read_back_from_configuration`
+walks `GlassCoderSettings` by reflection, writes a marker into each section's own `SectionName` key,
+and fails naming any section `ReadFrom` did not bind. Confirmed against the defect: removing the
+`Retrospective` line fails the guard and the round-trip case together. A section this method skips
+has no symptom until a feature stops working weeks later, which is exactly how long this took.
+
+**The operator's live file was repaired** — `HarnessRepoPath` set to `C:\repos\GlassCoder` (the old
+value pointed at the Dropbox copy, which has since moved), with `settings.json.bak-20260817` beside
+it. Nothing else in the file changed.
+
+**Still open.** `HarnessRepoPath` has no editor in the Settings window — it is set by hand or not at
+all, which is why nobody saw it disappear. The round-trip now holds either way, so an editor is a
+convenience rather than a fix. Worth noting too: with the path empty, the harness stage was also
+running without `--add-dir` onto GlassCoder's source (`RetrospectiveReviewer.cs:193-195`), so its
+reports were produced under a narrower grant than intended.
+
+---
+
 ## 2026-08-17 (later) — A retrospective is named for when it was taken, on the operator's clock
 
 Reported from use, and both halves are about who the name is for.

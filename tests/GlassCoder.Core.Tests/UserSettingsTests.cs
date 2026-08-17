@@ -1,5 +1,7 @@
+using System.Reflection;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Configuration;
+using GlassCoder.Core.Verification;
 using GlassCoder.Models.Configuration;
 using GlassCoder.TestSupport;
 using GlassCoder.Tools.Git;
@@ -266,6 +268,97 @@ public sealed class UserSettingsTests
         reloaded.PullRequestBaseBranch.ShouldBe("develop");
         reloaded.GitHubExecutable.ShouldBe(@"C:\tools\gh.exe");
     }
+
+    [Fact]
+    public void Retrospective_settings_round_trip_through_the_settings_file()
+    {
+        // Reported from use: the work-order button greyed out with "Set
+        // GlassCoder:Retrospective:HarnessRepoPath". The setting had been there - the backup this
+        // operator's own store took before the save on 2026-08-09 still holds it - and the save
+        // deleted it, because GlassCoderSettings had no Retrospective section and Save() writes
+        // the whole file from that model. Every save since has re-deleted it. The section is only
+        // reachable by hand-editing the file, which makes surviving a save the whole contract.
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        GlassCoderSettings saved = Settings();
+        saved.Retrospective.HarnessRepoPath = @"C:\repos\GlassCoder";
+        saved.Retrospective.MaxBudgetUsd = 8.0m;
+        store.Save(saved);
+
+        RetrospectiveOptions reloaded = GlassCoderSettings.ReadFrom(Configuration(store)).Retrospective;
+
+        reloaded.HarnessRepoPath.ShouldBe(@"C:\repos\GlassCoder");
+        reloaded.MaxBudgetUsd.ShouldBe(8.0m);
+
+        // And the second save is the one that used to do the damage: the dialog reads the
+        // effective configuration back and writes it out again every time it is opened.
+        store.Save(GlassCoderSettings.ReadFrom(Configuration(store)));
+        GlassCoderSettings.ReadFrom(Configuration(store)).Retrospective.HarnessRepoPath
+            .ShouldBe(@"C:\repos\GlassCoder");
+    }
+
+    [Fact]
+    public void File_review_settings_round_trip_through_the_settings_file()
+    {
+        // The same hole, one section over, found while fixing the first: the property was on
+        // GlassCoderSettings and ReadFrom never filled it, so a save wrote defaults over it.
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        GlassCoderSettings saved = Settings();
+        saved.FileReview.Model = "claude-fable-5";
+        store.Save(saved);
+
+        store.Save(GlassCoderSettings.ReadFrom(Configuration(store)));
+
+        GlassCoderSettings.ReadFrom(Configuration(store)).FileReview.Model.ShouldBe("claude-fable-5");
+    }
+
+    [Fact]
+    public void Every_section_on_the_settings_model_is_read_back_from_configuration()
+    {
+        // The guard, rather than two more fixes. A section ReadFrom skips is a section the file
+        // silently loses on the next save, and the only symptom is a feature that stops working
+        // weeks later - which is how GlassCoder:Retrospective went. Written by reflection so the
+        // next section added to the model is covered the day it is added, not the day it breaks.
+        List<string> unread = [];
+
+        foreach (PropertyInfo section in typeof(GlassCoderSettings).GetProperties()
+            .Where(p => p.PropertyType is { IsClass: true, IsAbstract: false } && p.PropertyType != typeof(string)))
+        {
+            if (section.PropertyType.GetField("SectionName", BindingFlags.Public | BindingFlags.Static)
+                    ?.GetValue(null) is not string sectionName ||
+                Scalar(section.PropertyType) is not { } scalar)
+            {
+                continue;
+            }
+
+            IConfiguration configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [$"{sectionName}:{scalar.Name}"] = Marker(scalar.PropertyType),
+                })
+                .Build();
+
+            object? read = scalar.GetValue(section.GetValue(GlassCoderSettings.ReadFrom(configuration)));
+            if (!string.Equals(read?.ToString(), Marker(scalar.PropertyType), StringComparison.Ordinal))
+            {
+                unread.Add($"{section.Name} ({sectionName}:{scalar.Name})");
+            }
+        }
+
+        unread.ShouldBeEmpty("every section of the model must be bound by ReadFrom, or a save drops it");
+    }
+
+    /// <summary>A settable scalar to prove a section was bound, or null when it has none.</summary>
+    private static PropertyInfo? Scalar(Type options) =>
+        options.GetProperties()
+            .FirstOrDefault(p => p.CanWrite && p.PropertyType == typeof(string))
+        ?? options.GetProperties()
+            .FirstOrDefault(p => p.CanWrite && p.PropertyType == typeof(int));
+
+    private static string Marker(Type type) => type == typeof(int) ? "4242" : "marker-value";
 
     [Fact]
     public void The_branch_lists_do_not_grow_on_every_visit_to_the_dialog()

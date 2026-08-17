@@ -72,6 +72,9 @@ public sealed class GlassCoderSettings
     /// <summary>On-demand review of one file (<c>GlassCoder:FileReview</c>).</summary>
     public FileReviewOptions FileReview { get; init; } = new();
 
+    /// <summary>The three-stage look back at a finished run (<c>GlassCoder:Retrospective</c>).</summary>
+    public RetrospectiveOptions Retrospective { get; init; } = new();
+
     /// <summary>Sub-agents (<c>GlassCoder:Orchestration</c>).</summary>
     public OrchestrationOptions Orchestration { get; init; } = new();
 
@@ -110,6 +113,16 @@ public sealed class GlassCoderSettings
             Git = Section<GitOptions>(configuration, GitOptions.SectionName),
             Retrieval = Section<RetrievalOptions>(configuration, RetrievalOptions.SectionName),
             Critique = Section<CritiqueOptions>(configuration, CritiqueOptions.SectionName),
+
+            // Both of these were missing, and a section this method does not read is a section
+            // Save() then writes back as defaults - the file loses it. GlassCoder:Retrospective
+            // held HarnessRepoPath on this operator's machine until a save from the dialog on
+            // 2026-08-09 dropped the whole section, and the work-order button has been greyed out
+            // with "set HarnessRepoPath" ever since. Every_section_on_the_settings_model_is_read_
+            // back_from_configuration now fails for the next one, rather than a person noticing
+            // months later that a feature quietly stopped working.
+            FileReview = Section<FileReviewOptions>(configuration, FileReviewOptions.SectionName),
+            Retrospective = Section<RetrospectiveOptions>(configuration, RetrospectiveOptions.SectionName),
             Orchestration = Section<OrchestrationOptions>(configuration, OrchestrationOptions.SectionName),
             Provenance = Section<ProvenanceOptions>(configuration, ProvenanceOptions.SectionName),
             Metrics = Section<MetricsOptions>(configuration, MetricsOptions.SectionName),
