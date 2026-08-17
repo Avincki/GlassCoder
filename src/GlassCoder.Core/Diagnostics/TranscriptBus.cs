@@ -17,6 +17,18 @@ public interface ITranscriptBus
     /// <summary>Reviews recorded so far this session, so a view built mid-session can replay them.</summary>
     IReadOnlyList<ReviewRecord> Reviews { get; }
 
+    /// <summary>
+    /// The runs that finished this session, oldest first.
+    /// <para>
+    /// The third of the three, and it was missing: <see cref="Steps"/> says what happened and
+    /// <see cref="Reviews"/> what was thought of it, but only a <see cref="RunRecord"/> says what a
+    /// run <em>was</em> - its goal, why it stopped, what it cost. Anything reading the session back
+    /// across more than one run had nothing to head each run with, so the retrospective's digest
+    /// silently covered the last one alone.
+    /// </para>
+    /// </summary>
+    IReadOnlyList<RunRecord> Runs { get; }
+
     /// <summary>Raised as each step is recorded.</summary>
     event EventHandler<StepRecord>? StepRecorded;
 
@@ -55,6 +67,7 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     private readonly Lock _gate = new();
     private readonly List<StepRecord> _steps = [];
     private readonly List<ReviewRecord> _reviews = [];
+    private readonly List<RunRecord> _runs = [];
 
     /// <summary>
     /// The highest step index ever seen for a run, and how many reviews it has had - kept apart
@@ -103,6 +116,18 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
             lock (_gate)
             {
                 return [.. _reviews];
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<RunRecord> Runs
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _runs];
             }
         }
     }
@@ -160,7 +185,18 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
     /// <inheritdoc />
     public void LogRun(RunRecord record)
     {
+        ArgumentNullException.ThrowIfNull(record);
+
         _inner.LogRun(record);
+
+        lock (_gate)
+        {
+            // Kept, not merely announced. A subscriber that was not there when the event went out -
+            // the retrospective, reading the session back after three runs - has no other way to
+            // learn what the first two were.
+            _runs.Add(record);
+        }
+
         RunRecorded?.Invoke(this, record);
     }
 
@@ -194,6 +230,7 @@ public sealed class TranscriptBus : IStepLogger, ITranscriptBus
         {
             _steps.Clear();
             _reviews.Clear();
+            _runs.Clear();
 
             // _numbering deliberately survives. Clear empties what the operator is looking at;
             // it does not delete the durable transcript, so a step numbered after this must

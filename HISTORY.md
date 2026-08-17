@@ -9,6 +9,49 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-16 — The retrospective looks at the session, not at the last run
+
+Reported from use: a session of several runs produced a `transcript.md` holding only the last one.
+The digest was selecting `request.RunId` out of the transcript bus and discarding everything before
+it, so a retrospective on three runs' work was written from the third.
+
+**Why that is worse than lossy.** An operator rarely gets there in one go — they run, read what came
+out, sharpen the goal, run again — and the shape of that loop *is* the process review's subject. A
+stage 2 that cannot see runs 1 and 2 cannot report that the session took three attempts, or that run
+3's goal was a repair of run 1's output, or what the operator had to supply between them. It answers
+"how did this go" with the most flattering slice of it, and reads as a clean short run.
+
+**`ITranscriptBus` gained `Runs`.** It kept `Steps` and `Reviews` and only *announced* runs, so
+anything reading the session back after the fact — which is exactly what the retrospective does — had
+nothing to head an earlier run with. Now kept for the life of the session and dropped by `Clear()`
+with the rest, which is what bounds a session.
+
+**The digest renders every run, oldest first**, each under its own header with its own goal, its own
+stop reason and its own plan, numbered `Run k of N`, with the run the retrospective was taken on
+marked — it names the reports and the work order, so it has to be findable among the others. Steps
+carrying the `no-run` placeholder (a commit or a rating between runs) get a section that says what
+they are rather than being dressed up as a run; they are not asked whether they planned.
+
+**The cap stayed where it was and became a session budget.** `MaxTranscriptCharacters` is unchanged
+at 40,000: per-run it would have been 120,000 for three runs, and stage 2's window would have gone
+on it. Each run's header is always written — a run reduced to its header still says it existed — and
+the remainder is split between the step blocks in proportion to their size, unspent budget flowing
+on. Every drop is still declared.
+
+**Stage 1 was widened with it, deliberately.** `DescribeChanges` filtered the change log by the same
+single run id. Left alone, stage 1 would have reviewed the last run's diffs while stage 2 read three
+runs of steps, and stage 2 is told to connect what the run did to what the code became — the mismatch
+would have manufactured findings. It is now scoped to the run ids this session actually saw, not to
+everything the change log holds, because that log outlives the session.
+
+**Still open.** A retrospective offered on a cold start still has no steps to digest: `RecallLastRun`
+reads the last `RunRecord` out of yesterday's JSONL, but the bus is empty, so the digest correctly
+says "no steps were recorded for this run in this session" and stage 2 works from the code review
+alone. `TranscriptReader` can already replay a log file into runs; wiring that in when the bus is
+empty is the fix, and it is untouched here.
+
+---
+
 ## 2026-08-15 (night) — Two test oracles, one job each
 
 The `able-to-see` and `distinct-tests` work orders, combined. The first was already fully

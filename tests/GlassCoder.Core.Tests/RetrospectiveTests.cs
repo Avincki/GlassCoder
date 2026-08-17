@@ -81,6 +81,46 @@ public sealed class RetrospectiveTests
         directive.ShouldContain("Step 1");
     }
 
+    /// <summary>
+    /// The digest is of the session, not of the run that happens to name the reports.
+    /// <para>
+    /// An operator rarely gets there in one go: they run, read what came out, sharpen the goal and
+    /// run again. The digest selected the retrospective's own run id out of the session and dropped
+    /// everything before it, so a review of three runs' work was written from the last of them - and
+    /// a process reviewer that cannot see the earlier runs cannot report that the session took three
+    /// attempts, which is the single most useful thing it had to say.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_process_stage_is_handed_every_run_of_the_session()
+    {
+        using TempWorkspace workspace = new();
+        FakeProcessRunner runner = Probed().Enqueue(0, Report()).Enqueue(0, Report()).Enqueue(0, Recommendations());
+
+        RecordingTranscript transcript = new(
+            [
+                Step(0, "dotnet_project", "scaffolded the wrong shape", runId: "run-0"),
+                Step(0, "edit_file", "put the arithmetic in the view model"),
+            ],
+            [Run("run-0", "Build a temperature converter."), Run("run-1")]);
+
+        Retrospective result = await Reviewer(runner, workspace, transcript: transcript).ReviewAsync(Request());
+
+        // The earlier run reaches the reviewer, headed by its own goal rather than by the last
+        // run's, and both runs are numbered so a claim can name which one it is about.
+        string directive = runner.Requests[2].StandardInput.ShouldNotBeNull();
+        directive.ShouldContain("scaffolded the wrong shape");
+        directive.ShouldContain("Build a temperature converter.");
+        directive.ShouldContain("Run 1 of 2");
+        directive.ShouldContain("Run 2 of 2");
+
+        // And the file beside the reports says the same, because that is what a person reads.
+        string digest = File.ReadAllText(Path.Combine(result.Directory.ShouldNotBeNull(), "transcript.md"));
+        digest.ShouldContain("Runs in this session: 2");
+        digest.ShouldContain("scaffolded the wrong shape");
+        digest.ShouldContain("put the arithmetic in the view model");
+    }
+
     [Fact]
     public async Task The_harness_stage_gets_the_source_tree_as_an_extra_root()
     {
@@ -412,9 +452,10 @@ public sealed class RetrospectiveTests
     /// <summary>A runner whose first scripted answer is the version probe.</summary>
     private static FakeProcessRunner Probed() => new FakeProcessRunner().Enqueue(0, Version);
 
-    private static StepRecord Step(int index, string tool, string summary, bool parsed = true) => new()
+    private static StepRecord Step(
+        int index, string tool, string summary, bool parsed = true, string runId = "run-1") => new()
     {
-        RunId = "run-1",
+        RunId = runId,
         TaskId = "desktop",
         StepIndex = index,
         Role = "worker",
@@ -424,6 +465,25 @@ public sealed class RetrospectiveTests
         ModelLatencyMs = 1,
         StepLatencyMs = 1,
         Outcome = "continued",
+    };
+
+    private static RunRecord Run(string runId, string? goal = null) => new()
+    {
+        RunId = runId,
+        TaskId = "desktop",
+        Role = "worker",
+        Goal = goal,
+        StartedAt = DateTimeOffset.UnixEpoch,
+        CompletedAt = DateTimeOffset.UnixEpoch.AddMinutes(5),
+        StopReason = "Completed",
+        Steps = 4,
+        InputTokens = 100,
+        OutputTokens = 20,
+        TotalTokens = 120,
+        EstimatedCostUsd = 0m,
+        ElapsedMs = 1000,
+        ToolCallsTotal = 4,
+        ToolCallsValid = 4,
     };
 
     /// <summary>The CLI's envelope carrying a prose report, as stages 1 and 2 answer.</summary>
@@ -456,14 +516,20 @@ public sealed class RetrospectiveTests
             "\"errors\":[\"Reached maximum budget ($2)\"]",
             StringComparison.Ordinal);
 
-    /// <summary>An <see cref="ITranscriptBus"/> holding a scripted run, and nothing else.</summary>
+    /// <summary>An <see cref="ITranscriptBus"/> holding a scripted session, and nothing else.</summary>
     private sealed class RecordingTranscript : ITranscriptBus
     {
-        public RecordingTranscript(IReadOnlyList<StepRecord> steps) => Steps = steps;
+        public RecordingTranscript(IReadOnlyList<StepRecord> steps, IReadOnlyList<RunRecord>? runs = null)
+        {
+            Steps = steps;
+            Runs = runs ?? [];
+        }
 
         public IReadOnlyList<StepRecord> Steps { get; }
 
         public IReadOnlyList<ReviewRecord> Reviews => [];
+
+        public IReadOnlyList<RunRecord> Runs { get; }
 
         public event EventHandler<StepRecord>? StepRecorded { add { } remove { } }
 

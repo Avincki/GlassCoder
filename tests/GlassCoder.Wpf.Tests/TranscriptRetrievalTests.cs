@@ -88,6 +88,8 @@ public sealed class TranscriptRetrievalTests
 
         public IReadOnlyList<ReviewRecord> Reviews => [];
 
+        public IReadOnlyList<RunRecord> Runs => [];
+
         public event EventHandler<StepRecord>? StepRecorded;
 
         public event EventHandler<ReviewRecord>? ReviewRecorded;

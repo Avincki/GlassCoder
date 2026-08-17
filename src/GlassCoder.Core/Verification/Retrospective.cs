@@ -244,12 +244,19 @@ public sealed record RetrospectiveActivity(
 }
 
 /// <summary>
-/// Renders a run's steps as the digest the process stage reads (workplan task 67).
+/// Renders a session's steps as the digest the process stage reads (workplan task 67).
 /// <para>
 /// Extracted rather than handed over raw, for the reason task 15 gives about compiler output: a
 /// forty-step run's JSONL is tens of thousands of tokens of prompt echo and tool results, and
 /// almost none of it is what "how did this run go" needs. What survives is the shape - what each
 /// step called, whether it worked, what verification said, and where the loop went round again.
+/// </para>
+/// <para>
+/// A <em>session</em>, not a run, and that distinction is the point. An operator rarely gets there
+/// in one go: they run, read, adjust the goal, run again. The digest selected the retrospective's
+/// own run id out of the session and dropped everything before it, so a review of three runs' work
+/// was written from the last one - and the earlier runs, which are where the decisions that shaped
+/// the last one were taken, were invisible to the one reviewer whose whole job is how the work went.
 /// </para>
 /// <para>
 /// It is also what keeps the CLI out of <c>%LocalAppData%</c>: the digest is written into the
@@ -258,68 +265,276 @@ public sealed record RetrospectiveActivity(
 /// </summary>
 public static class RetrospectiveTranscript
 {
-    /// <summary>Renders the digest for one run.</summary>
-    /// <param name="steps">Every step recorded, of which this run's are selected.</param>
-    /// <param name="request">What is known about the run itself.</param>
-    /// <param name="maxCharacters">Cap. The middle is dropped first, and the drop is declared.</param>
+    /// <summary>The run id a step carries when it happened outside any run.</summary>
+    private const string OutsideARun = "no-run";
+
+    /// <summary>Renders the digest for a whole session, run by run.</summary>
+    /// <param name="steps">Every step recorded this session, across every run in it.</param>
+    /// <param name="request">The run the retrospective was taken on, and what is known about it.</param>
+    /// <param name="maxCharacters">
+    /// Cap across the whole digest, not per run. Middles are dropped first, and every drop is
+    /// declared.
+    /// </param>
+    /// <param name="runs">
+    /// The session's finished runs, for the header of each run the <paramref name="request"/> does
+    /// not describe. Without them an earlier run still renders, headed by what its steps say.
+    /// </param>
     public static string Render(
         IReadOnlyList<StepRecord> steps,
         RetrospectiveRequest request,
-        int maxCharacters = 40000)
+        int maxCharacters = 40000,
+        IReadOnlyList<RunRecord>? runs = null)
     {
         ArgumentNullException.ThrowIfNull(steps);
         ArgumentNullException.ThrowIfNull(request);
 
-        List<StepRecord> mine =
-        [
-            .. steps
-                .Where(s => string.Equals(s.RunId, request.RunId, StringComparison.Ordinal))
-                .OrderBy(s => s.StepIndex)
-        ];
+        List<Section> sections = Split(steps, request, runs);
 
         StringBuilder text = new();
-        text.AppendLine(CultureInfo.InvariantCulture, $"# Run {Short(request.RunId)} - what happened, step by step");
-        text.AppendLine();
-        text.AppendLine(CultureInfo.InvariantCulture, $"- Run id: `{request.RunId}`");
-        text.AppendLine(CultureInfo.InvariantCulture, $"- Task: `{request.TaskId}`");
-        text.AppendLine(CultureInfo.InvariantCulture, $"- Stopped: {request.StopReason ?? "unknown"}");
-        text.AppendLine(CultureInfo.InvariantCulture, $"- Steps: {request.Steps}");
-        text.AppendLine(CultureInfo.InvariantCulture, $"- Tokens: {request.TotalTokens:N0}");
-        text.AppendLine();
+        AppendSessionHeader(text, sections, request);
 
-        if (!string.IsNullOrWhiteSpace(request.Goal))
+        // The cap is a budget over the session rather than per run: a nine-step run beside a
+        // forty-step one must not be cut in half to make room for a share it never needed. Each
+        // run's prologue is written whatever happens - a run reduced to its header still says it
+        // existed - and what remains is split between the step blocks in proportion to their size,
+        // with whatever a small run leaves unspent flowing on to the next.
+        int budget = Math.Max(0, maxCharacters - text.Length - sections.Sum(s => s.Prologue.Length));
+        int outstanding = sections.Sum(s => s.Weight);
+
+        foreach (Section section in sections)
         {
-            text.AppendLine("## The goal it was given");
-            text.AppendLine();
-            text.AppendLine("```");
-            text.AppendLine(request.Goal.Trim());
-            text.AppendLine("```");
-            text.AppendLine();
+            text.Append(section.Prologue);
+
+            int share = outstanding <= 0 ? budget : (int)((long)budget * section.Weight / outstanding);
+            int before = text.Length;
+            AppendCapped(text, section.Blocks, share);
+
+            budget = Math.Max(0, budget - (text.Length - before));
+            outstanding -= section.Weight;
         }
 
-        if (mine.Count == 0)
-        {
-            text.AppendLine("_No steps were recorded for this run in this session._");
-            return text.ToString();
-        }
-
-        AppendPlan(text, mine);
-
-        text.AppendLine("## Steps");
-        text.AppendLine();
-
-        // The plan carries from step to step so an update can be rendered as what it changed. A
-        // reader of one step wants the plan as it then stood; a reader of the run wants to see
-        // which step moved it.
-        List<string> rendered = [];
-        List<PlanItem>? plan = null;
-        foreach (StepRecord step in mine)
-        {
-            rendered.Add(RenderStep(step, ref plan));
-        }
-
-        AppendCapped(text, rendered, maxCharacters - text.Length);
         return text.ToString();
+    }
+
+    /// <summary>One run of the session, rendered but not yet fitted to the budget.</summary>
+    /// <param name="RunId">The run this section is of.</param>
+    /// <param name="Number">Its place in the session, 1-based. Zero for the steps outside any run.</param>
+    /// <param name="Subject">Whether this is the run the retrospective was taken on.</param>
+    /// <param name="Prologue">The header, the goal and the plan - everything before the steps.</param>
+    /// <param name="Blocks">One rendered block per step, in order.</param>
+    private sealed record Section(string RunId, int Number, bool Subject, string Prologue, List<string> Blocks)
+    {
+        /// <summary>What this run's steps would cost in full, which is its claim on the budget.</summary>
+        public int Weight { get; } = Blocks.Sum(b => b.Length);
+    }
+
+    /// <summary>
+    /// Splits the session into its runs, in the order they happened, and renders each.
+    /// <para>
+    /// Grouped by first appearance rather than by run record, because the two disagree in exactly
+    /// the cases that matter: a run that crashed or was cancelled never wrote a record, and it is
+    /// still part of what happened.
+    /// </para>
+    /// </summary>
+    private static List<Section> Split(
+        IReadOnlyList<StepRecord> steps,
+        RetrospectiveRequest request,
+        IReadOnlyList<RunRecord>? runs)
+    {
+        List<string> order = [];
+        Dictionary<string, List<StepRecord>> grouped = new(StringComparer.Ordinal);
+
+        foreach (StepRecord step in steps)
+        {
+            if (!grouped.TryGetValue(step.RunId, out List<StepRecord>? mine))
+            {
+                mine = [];
+                grouped[step.RunId] = mine;
+                order.Add(step.RunId);
+            }
+
+            mine.Add(step);
+        }
+
+        // The run the retrospective was taken on gets a section whether or not this session holds
+        // its steps. A cold start offers the last run out of yesterday's log, and "no steps were
+        // recorded" is the answer to that rather than a digest with nothing in it.
+        if (!grouped.ContainsKey(request.RunId))
+        {
+            grouped[request.RunId] = [];
+            order.Add(request.RunId);
+        }
+
+        Dictionary<string, RunRecord> records = new(StringComparer.Ordinal);
+        foreach (RunRecord run in runs ?? [])
+        {
+            records[run.RunId] = run;
+        }
+
+        int total = order.Count(id => !string.Equals(id, OutsideARun, StringComparison.Ordinal));
+        int numbered = 0;
+        List<Section> sections = [];
+
+        foreach (string runId in order)
+        {
+            List<StepRecord> mine = [.. grouped[runId].OrderBy(s => s.StepIndex)];
+            bool subject = string.Equals(runId, request.RunId, StringComparison.Ordinal);
+            bool outside = string.Equals(runId, OutsideARun, StringComparison.Ordinal);
+
+            StringBuilder head = new();
+            if (outside)
+            {
+                head.AppendLine("## Work outside any run");
+                head.AppendLine();
+                head.AppendLine(
+                    "Steps the operator took directly - a commit, a rating, a file review - which " +
+                    "belong to the session rather than to one of its runs.");
+                head.AppendLine();
+            }
+            else
+            {
+                numbered++;
+                AppendRunHeader(
+                    head,
+                    Describe(runId, mine, records.GetValueOrDefault(runId), subject ? request : null),
+                    numbered,
+                    total,
+                    subject);
+            }
+
+            if (mine.Count == 0)
+            {
+                head.AppendLine("_No steps were recorded for this run in this session._");
+                head.AppendLine();
+                sections.Add(new Section(runId, outside ? 0 : numbered, subject, head.ToString(), []));
+                continue;
+            }
+
+            if (!outside)
+            {
+                // Only a run plans. "No plan was recorded in this run" over a commit and a rating
+                // is an absence reported about something that was never asked to have one.
+                AppendPlan(head, mine);
+            }
+
+            head.AppendLine("### Steps");
+            head.AppendLine();
+
+            // The plan carries from step to step so an update can be rendered as what it changed. A
+            // reader of one step wants the plan as it then stood; a reader of the run wants to see
+            // which step moved it. It does not carry across runs: each run plans for itself.
+            List<string> rendered = [];
+            List<PlanItem>? plan = null;
+            foreach (StepRecord step in mine)
+            {
+                rendered.Add(RenderStep(step, ref plan));
+            }
+
+            sections.Add(new Section(runId, outside ? 0 : numbered, subject, head.ToString(), rendered));
+        }
+
+        return sections;
+    }
+
+    /// <summary>
+    /// What the session was, before any of it is read: how many runs, how many steps, and which run
+    /// the retrospective was taken on - because that run names the reports and the work order, and a
+    /// reader has to be able to find it among the others.
+    /// </summary>
+    private static void AppendSessionHeader(
+        StringBuilder text, IReadOnlyList<Section> sections, RetrospectiveRequest request)
+    {
+        int runs = sections.Count(s => s.Number > 0);
+        Section? subject = sections.FirstOrDefault(s => s.Subject);
+
+        text.AppendLine("# This session, run by run");
+        text.AppendLine();
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Runs in this session: {runs}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Steps across all of them: {sections.Sum(s => s.Blocks.Count)}");
+        string place = subject is { Number: > 0 } ? $", which is run {subject.Number} of {runs}." : ".";
+        text.AppendLine(CultureInfo.InvariantCulture,
+            $"- The retrospective was taken on run `{request.RunId}`{place}");
+        text.AppendLine();
+
+        if (runs > 1)
+        {
+            text.AppendLine(
+                "Every run of the session is below, oldest first, and they are one piece of work " +
+                "rather than several: a later run picks up what an earlier one left, and its goal " +
+                "is often a repair of what the earlier one did. Judge the whole session. Where a " +
+                "claim is about one run, say which.");
+            text.AppendLine();
+        }
+    }
+
+    /// <summary>What a digest can say about one run before reading its steps.</summary>
+    /// <param name="RunId">The run's identifier.</param>
+    /// <param name="TaskId">The task it was attempting.</param>
+    /// <param name="Stopped">Why the loop stopped, as far as anything here knows.</param>
+    /// <param name="Steps">Completed iterations.</param>
+    /// <param name="Tokens">Total tokens across the run.</param>
+    /// <param name="Goal">The goal it was given, when something recorded one.</param>
+    private sealed record RunHeader(
+        string RunId, string TaskId, string Stopped, int Steps, long Tokens, string? Goal);
+
+    /// <summary>
+    /// What is known about one run, from whichever record carries it: the request for the run the
+    /// retrospective was taken on, the run record for the rest, and the steps themselves for a run
+    /// that ended without writing one.
+    /// </summary>
+    private static RunHeader Describe(
+        string runId, IReadOnlyList<StepRecord> steps, RunRecord? record, RetrospectiveRequest? request)
+    {
+        if (request is not null)
+        {
+            return new RunHeader(
+                runId, request.TaskId, request.StopReason ?? "unknown", request.Steps, request.TotalTokens, request.Goal);
+        }
+
+        if (record is not null)
+        {
+            return new RunHeader(
+                runId, record.TaskId, record.StopReason, record.Steps, record.TotalTokens, record.Goal);
+        }
+
+        return new RunHeader(
+            runId,
+            steps.Count > 0 ? steps[0].TaskId : "unknown",
+
+            // No run record for it, which is a fact rather than a gap: the loop writes one at the
+            // end, so a run without one either is still going or died without saying how.
+            "no ending recorded - the run either is still going or ended without writing one",
+            steps.Count,
+            steps.Sum(s => s.TotalTokens ?? 0),
+            null);
+    }
+
+    private static void AppendRunHeader(StringBuilder text, RunHeader run, int number, int total, bool subject)
+    {
+        text.AppendLine(CultureInfo.InvariantCulture, $"## Run {number} of {total} - {Short(run.RunId)}");
+        text.AppendLine();
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Run id: `{run.RunId}`");
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Task: `{run.TaskId}`");
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Stopped: {run.Stopped}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Steps: {run.Steps}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"- Tokens: {run.Tokens:N0}");
+
+        if (subject)
+        {
+            text.AppendLine("- This is the run the retrospective was taken on.");
+        }
+
+        text.AppendLine();
+
+        if (!string.IsNullOrWhiteSpace(run.Goal))
+        {
+            text.AppendLine("### The goal it was given");
+            text.AppendLine();
+            text.AppendLine("```");
+            text.AppendLine(run.Goal.Trim());
+            text.AppendLine("```");
+            text.AppendLine();
+        }
     }
 
     /// <summary>
@@ -350,7 +565,7 @@ public static class RetrospectiveTranscript
         {
             // An absence worth one line: a run that never wrote a plan is a fact about the run, and
             // silence here reads as a digest that dropped it.
-            text.AppendLine("## The plan it made");
+            text.AppendLine("### The plan it made");
             text.AppendLine();
             text.AppendLine("_No plan was recorded in this run._");
             text.AppendLine();
@@ -362,7 +577,7 @@ public static class RetrospectiveTranscript
             return;
         }
 
-        text.AppendLine("## The plan it made");
+        text.AppendLine("### The plan it made");
         text.AppendLine();
         text.AppendLine(CultureInfo.InvariantCulture,
             $"Written at step {updates[0].Step}, last updated at step {updates[^1].Step} " +
@@ -588,7 +803,7 @@ public static class RetrospectiveTranscript
         }
 
         text.AppendLine(CultureInfo.InvariantCulture,
-            $"_[{tail - head} steps omitted here to fit the digest. The run had {blocks.Count} in total.]_");
+            $"_[{tail - head} steps omitted here to fit the digest. This run had {blocks.Count} in total.]_");
         text.AppendLine();
 
         for (int at = tail; at < blocks.Count; at++)
@@ -620,7 +835,7 @@ public static class RetrospectiveTranscript
     private static string RenderStep(StepRecord step, ref List<PlanItem>? plan)
     {
         StringBuilder text = new();
-        text.AppendLine(CultureInfo.InvariantCulture, $"### Step {step.StepIndex} · {step.Role} · {step.Outcome}");
+        text.AppendLine(CultureInfo.InvariantCulture, $"#### Step {step.StepIndex} · {step.Role} · {step.Outcome}");
 
         if (!string.IsNullOrWhiteSpace(step.ResponseText))
         {

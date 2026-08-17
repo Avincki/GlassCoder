@@ -639,7 +639,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     private string WriteTranscript(string directory, RetrospectiveRequest request)
     {
         string digest = RetrospectiveTranscript.Render(
-            _transcript?.Steps ?? [], request, _options.MaxTranscriptCharacters);
+            _transcript?.Steps ?? [], request, _options.MaxTranscriptCharacters, _transcript?.Runs);
 
         try
         {
@@ -660,22 +660,31 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     }
 
     /// <summary>
-    /// The run's own footprint, as the code stage is told about it: which files it touched, and
-    /// the diffs, capped. Reviewing the whole workspace instead would spend the budget on
-    /// scaffold nobody wrote.
+    /// The session's own footprint, as the code stage is told about it: which files its runs
+    /// touched, and the diffs, capped. Reviewing the whole workspace instead would spend the budget
+    /// on scaffold nobody wrote.
+    /// <para>
+    /// Every run of the session, not only the one the retrospective was taken on, and for the same
+    /// reason the digest carries them all: an operator who ran three times produced one body of
+    /// code, and a run that repaired what an earlier one wrote leaves the earlier file untouched in
+    /// the last run's footprint. Scoped to the runs this session actually saw rather than to
+    /// everything the change log holds, because that log outlives the session.
+    /// </para>
     /// </summary>
     private string DescribeChanges(string runId)
     {
+        HashSet<string> session = [.. (_transcript?.Steps ?? []).Select(s => s.RunId), runId];
+
         List<CodeChange> mine =
         [
             .. _changes.All()
-                .Where(c => string.Equals(c.RunId, runId, StringComparison.Ordinal))
+                .Where(c => session.Contains(c.RunId))
                 .Where(c => c.Status is ChangeStatus.Applied or ChangeStatus.Proposed)
         ];
 
         if (mine.Count == 0)
         {
-            return "_This run recorded no file changes._";
+            return "_This session recorded no file changes._";
         }
 
         StringBuilder text = new();
@@ -777,15 +786,17 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             : $"\n\nThe engineer asked specifically about this:\n{request.Instructions}\n";
 
         return $"""
-            Review the code produced by run `{request.RunId}` in this workspace.
+            Review the code this session produced in this workspace. It may have taken more than
+            one run to get here; the diffs below are every run's, and run `{request.RunId}` - the
+            last of them, and the one this review is named for - is where it ended up.
 
-            The goal it was given:
+            The goal that last run was given:
 
             ```
             {request.Goal ?? "(not recorded)"}
             ```
 
-            The files it changed, and the diffs:
+            The files the session changed, and the diffs:
 
             {DescribeChanges(request.RunId)}
             {extra}
@@ -813,22 +824,27 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             : $"(The code review did not complete: {code.Failure})";
 
         return $"""
-            Review how run `{request.RunId}` went - the process, not the product.
+            Review how this session went - the process, not the product.
 
-            It stopped as `{request.StopReason ?? "unknown"}` after {request.Steps} steps and
-            {request.TotalTokens:N0} tokens.
+            The retrospective was taken on run `{request.RunId}`, which stopped as
+            `{request.StopReason ?? "unknown"}` after {request.Steps} steps and
+            {request.TotalTokens:N0} tokens. That run names this report, but it may not be the whole
+            of the work: the session below holds every run the operator started before it as well,
+            and a session that took three runs to get somewhere is a fact about the process rather
+            than an accident. Read all of them.
 
             ## The code review of what it produced
 
             {codeReport}
 
-            ## The run, step by step
+            ## The session, run by run
 
             {transcript}
 
             ## What to answer
 
-            `report` is your review of the run, as Markdown. Ground every claim in a step number.
+            `report` is your review of the session, as Markdown. Ground every claim in a step
+            number, and where the session held more than one run, say which run the step is in.
             Cover, at least:
 
             - Where steps were spent without progress - repeated edits, thrash, retried failures,
@@ -836,8 +852,10 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             - Whether the verification it got was the verification it needed: did a green result
               mean what the agent took it to mean, and did a failure tell it enough to recover?
             - Where the defects in the code review above first became possible, and whether
-              anything in the run could have caught them.
-            - What the run did well, plainly. A process review that only finds fault is not
+              anything in the session could have caught them.
+            - Where one run repeated, undid or repaired what an earlier one did, and what the
+              operator had to supply between them for the next run to get further.
+            - What the session did well, plainly. A process review that only finds fault is not
               usable as evidence.
 
             Do not recommend changes to GlassCoder, and do not write a list of improvements for
