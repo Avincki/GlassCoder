@@ -398,7 +398,10 @@ public sealed class AgentLoop : IAgentLoop
                 // tools' job; reverting applied work is a human's.
                 messages.Add(new ChatMessage(ChatRole.User, verification.Message));
                 sentry.ObserveVerification(
-                    verification.Record.Passed, verification.Record.FailedRung, verification.Record.Noticed);
+                    verification.Record.Passed,
+                    verification.Record.FailedRung,
+                    verification.Record.Noticed,
+                    verification.Tests);
                 lastVerification = verification.Record;
             }
 
@@ -714,7 +717,12 @@ public sealed class AgentLoop : IAgentLoop
                 Unverified = report.Unverified,
                 Noticed = report.Noticed,
             },
-            message);
+            message,
+
+            // The rung that ran the tests, for the sentry. The record above carries the climb's
+            // verdict and its prose; what a repeated-failure counter needs is which suite this was
+            // and what its first line said, and neither survives the flattening into a summary.
+            report.TestRun);
     }
 
     /// <summary>
@@ -1209,8 +1217,12 @@ public sealed class AgentLoop : IAgentLoop
         }
     }
 
-    /// <summary>One climb's outcome: what to log, and what - if anything - to tell the model.</summary>
-    private sealed record StepVerification(StepVerificationRecord Record, string? Message);
+    /// <summary>One climb's outcome: what to log, what - if anything - to tell the model, and the
+    /// test rung itself when one ran, which the sentry counts and the record cannot carry.</summary>
+    private sealed record StepVerification(
+        StepVerificationRecord Record,
+        string? Message,
+        RungResult? Tests = null);
 
     /// <summary>Per-step scratch state, kept out of the loop body so it stays readable.</summary>
     private sealed record StepContext(

@@ -79,6 +79,19 @@ public sealed record RungResult(
     /// </para>
     /// </summary>
     public bool Noticed { get; init; }
+
+    /// <summary>
+    /// The resolved project or directory this rung ran tests over, when it ran any. Null on every
+    /// other rung, and on a test rung that answered from the sources without spending a process.
+    /// <para>
+    /// Carried because the caller cannot work it out. <see cref="VerificationLadder.VerifyAsync"/>
+    /// resolves the target itself - the request it was handed usually names no project at all -
+    /// so a climb's report was the only account of the tests that could not say which suite it
+    /// was an account of. The progress sentry keys a repeated failing suite on (target, first
+    /// line), exactly as it keys a repeated <c>run_tests</c> call, and this is that target.
+    /// </para>
+    /// </summary>
+    public string? TestTarget { get; init; }
 }
 
 /// <summary>The outcome of climbing the ladder.</summary>
@@ -108,6 +121,19 @@ public sealed record VerificationReport(
 
     /// <summary>True when a rung that passed still had something to say about what it verified.</summary>
     public bool Noticed => Results.Any(r => !r.Skipped && r.Noticed);
+
+    /// <summary>
+    /// The rung that actually ran tests, when one did - this climb's account of the suite, for a
+    /// caller that has to tell one red suite from the same red suite again.
+    /// <para>
+    /// A rung that verified nothing is deliberately not it. <see cref="RungResult.Unverified"/> is
+    /// the ladder's own word for "this rung ran no test", and no test is not a different outcome
+    /// from the last one - it is the absence of one, which must neither start a streak nor end
+    /// one. A skipped rung is excluded for the same reason.
+    /// </para>
+    /// </summary>
+    public RungResult? TestRun =>
+        Results.LastOrDefault(r => !r.Skipped && !r.Unverified && r.TestTarget is not null);
 }
 
 /// <summary>Everything the ladder needs to know about what it is verifying.</summary>
@@ -439,6 +465,10 @@ public sealed class VerificationLadder : IVerificationLadder
                 {
                     Unverified = tests.Ok && tests.Total == 0,
                     Noticed = tests.Ok && tests.Total > 0 && !string.IsNullOrWhiteSpace(tests.Notices),
+
+                    // Which suite this is an account of. Set on the branch that spent a process
+                    // and nowhere else: the two returns above are the rung saying it ran nothing.
+                    TestTarget = request.ProjectPath,
                 };
             }
 

@@ -9,6 +9,55 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-17 — The counter that watched the tool the model was told not to call
+
+Run `d92c189b`'s first High item, unimplemented until now, and run `4bf2eaeb` is what it cost to
+leave it. `RunProgressSentry.ObserveTestOutcomes` counted a repeated failing suite only when the
+result arrived on an invocation named `run_tests`. Since 2026-08-09 the system prompt tells the
+model not to call `run_tests` itself; since 2026-08-15 `update_todos` tells it not even to *plan*
+one. **The harness moved the fact to the other door and left the counter watching the first one.**
+
+Two runs on record, both spent on the same wall:
+
+- `d92c189b` steps 22, 23 and 26 — three byte-identical failing climbs, an `[STAThread]` guess and
+  a package guess between them, and the agent reached this nudge's own conclusion unaided at 26.
+- `4bf2eaeb` steps 27, 29, 40 and 48 — the same `3 of 8 tests failed` list four times. The run
+  called `run_tests` three times all told (19, 22, 56) and every one of them was green, so the
+  counter it fed never left zero while the counter that mattered had no input at all.
+
+**The climb now says which suite it is an account of.** `RungResult.TestTarget` carries the
+resolved project, because the ladder resolves that target itself — the request it is handed names
+no project — so a report was the only account of a test run that could not say which run it was
+about. `VerificationReport.TestRun` is the rung that actually spent a process, and `AgentLoop`
+hands it to `ObserveVerification` beside the flags it already passed. One counting seam,
+`RecordTestOutcome`, fed by both organs on identical terms: keyed on (target, first line), a green
+for the target ends the streak, a different failure starts a new one.
+
+**Decided: a rung that verified nothing is not an outcome.** `Unverified` is the ladder's own word
+for "this ran no test", and no test is not a different result from the last one — it is the absence
+of one, so it neither starts a streak nor ends one. The `run_tests` path would have read a clean
+0-test run as a green and cleared the count; the two now disagree deliberately, and the ladder's
+side is the honest one. `TestTarget` is set only on the branch that spent a process, so the two
+early returns cannot leak in through the report.
+
+**The nudge stopped naming the caller.** It opened `run_tests has returned the same failing
+result…`, which after this change would describe a call the model never made — the sentence has to
+be true whichever organ ran the tests, so it says *the tests have*. Result text, not schema; no
+budget moved.
+
+**Open, and the next question in the same family.** The streak still ends on any green for the
+target, and that is exactly how `4bf2eaeb` would evade it even with this landed: it deleted the
+failing file at step 36, took the green, re-created the same three failures at 40, deleted again at
+52. The count reaches 2 twice and never 3 — the same shape as the `dotnet_project` failure counter
+that reset four times on honest applied changes in that run. **Every counter that resets on
+progress needs to say which progress it is entitled to reset on**, and for this one the question is
+what a green earned by deleting the failing test is worth. `red-says-whether-it-moved` (the failing
+rung saying whether the failure set is the same one) is the cheap half and is still unticked.
+
+1,079 tests green.
+
+---
+
 ## 2026-08-16 — The retrospective looks at the session, not at the last run
 
 Reported from use: a session of several runs produced a `transcript.md` holding only the last one.

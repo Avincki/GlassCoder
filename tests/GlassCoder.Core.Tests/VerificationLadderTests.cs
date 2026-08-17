@@ -245,6 +245,49 @@ public sealed class VerificationLadderTests : IDisposable
     }
 
     /// <summary>
+    /// A climb says which suite its test result is about. The ladder resolves that target itself -
+    /// the request it is handed usually names no project - so without this the loop's
+    /// repeated-failure counter has a result it cannot key, which is why it watched
+    /// <c>run_tests</c> and went blind when the harness moved test results onto the ladder.
+    /// </summary>
+    [Fact]
+    public async Task A_test_rung_that_ran_says_which_suite_it_ran()
+    {
+        WriteTestProject();
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _executor.Enqueue(0, "");
+        _executor.Enqueue(1, "  Failed Demo.PagerTests.Last_is_count_minus_one [3 ms]\nFailed!  - Failed: 1, Passed: 2, Skipped: 0, Total: 3");
+
+        VerificationReport report = await Ladder().VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+
+        RungResult tests = report.TestRun.ShouldNotBeNull();
+        tests.Rung.ShouldBe(VerificationRung.UnitTests);
+        tests.TestTarget.ShouldBe("src");
+
+        // The target the rung reports is the one the runner was actually pointed at - the tool
+        // spends it as the working directory rather than as an argument.
+        _executor.Commands.Last(c => c.Arguments[0] == "test")
+            .WorkingDirectory.ShouldNotBeNull()
+            .ShouldEndWith("src");
+    }
+
+    [Fact]
+    public async Task A_rung_that_ran_nothing_is_not_an_account_of_any_suite()
+    {
+        // The rung that answers from the project files reached rung 4 and established nothing.
+        // "Nothing was verified" must not read downstream as a test result - not as a green that
+        // ends a streak of failures, and not as a failure of its own.
+        _workspace.WriteFile("src/Proj.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
+        _workspace.WriteFile("src/Pager.cs", "public class Pager { public int X => 1; }");
+        _executor.Enqueue(0, "");
+
+        VerificationReport report = await Ladder().VerifyAsync(new VerificationRequest(ProjectPath: "src"));
+
+        report.Unverified.ShouldBeTrue();
+        report.TestRun.ShouldBeNull();
+    }
+
+    /// <summary>
     /// The rung says which assertion failed and by how much (workplan task 69).
     /// <para>
     /// This is the path an inline <c>create_file</c> or <c>edit_file</c> verification reports

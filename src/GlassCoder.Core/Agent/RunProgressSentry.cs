@@ -1,3 +1,4 @@
+using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Registry;
 
 namespace GlassCoder.Core.Agent;
@@ -30,6 +31,15 @@ namespace GlassCoder.Core.Agent;
 /// identical failures (the refusal's own strike countdown, a wobbling diagnostics total):
 /// prose that synthesis writes must never be prose that detection keys on. Counts accumulate
 /// until a change is applied - the one event that honestly resets the argument.
+/// </para>
+/// <para>
+/// The test-outcome rule takes its input from both doors, because the harness spent a year moving
+/// test results from one to the other. The model's own <c>run_tests</c> call is one; the ladder's
+/// climb after an applied change is the other, and since the prompt told the model not to call
+/// <c>run_tests</c> itself it is the ordinary one. A counter keyed to the door rather than to the
+/// fact goes blind the moment the fact arrives by the other - run <c>d92c189b</c> produced three
+/// byte-identical failing climbs and run <c>4bf2eaeb</c> four, and this counter, whose nudge says
+/// precisely what both runs needed to hear, never left zero in either.
 /// </para>
 /// </summary>
 internal sealed class RunProgressSentry
@@ -193,8 +203,26 @@ internal sealed class RunProgressSentry
     }
 
     /// <summary>Feeds the outcome of a post-step verification climb.</summary>
-    public void ObserveVerification(bool passed, string? failedRung, bool noticed = false)
+    /// <param name="passed">Whether every gating rung that ran passed.</param>
+    /// <param name="failedRung">The rung that stopped the climb, when one did.</param>
+    /// <param name="noticed">Whether a passing rung had something to say about what it verified.</param>
+    /// <param name="tests">
+    /// The climb's test rung, when one actually ran tests - <see cref="VerificationReport.TestRun"/>.
+    /// </param>
+    public void ObserveVerification(bool passed, string? failedRung, bool noticed = false, RungResult? tests = null)
     {
+        // The climb's own test result, on the same counter and the same terms as a run_tests
+        // call. Since 2026-08-09 the system prompt tells the model not to call run_tests itself
+        // and since 2026-08-15 update_todos tells it not even to plan one, so this is now the
+        // ordinary door a failing suite arrives through: runs d92c189b (steps 22, 23, 26) and
+        // 4bf2eaeb (steps 27, 29, 40, 48) each produced byte-identical failing climbs, and the
+        // counter that exists for exactly that shape was watching the tool the harness had just
+        // finished talking the model out of using.
+        if (tests is { TestTarget: { } target })
+        {
+            RecordTestOutcome(target, tests.Summary, tests.Passed);
+        }
+
         _lastVerificationFailed = !passed;
         _lastFailedRung = failedRung;
         if (passed)
@@ -281,7 +309,7 @@ internal sealed class RunProgressSentry
             $"{open}. Spend the next step there instead.";
     }
 
-    /// <summary>Feeds the test outcomes of one step into the repeated-failure tracker.</summary>
+    /// <summary>Feeds the test outcomes of one step's own <c>run_tests</c> calls into the tracker.</summary>
     private void ObserveTestOutcomes(IReadOnlyList<ToolInvocation> invocations)
     {
         foreach (ToolInvocation invocation in invocations)
@@ -293,36 +321,54 @@ internal sealed class RunProgressSentry
                 continue;
             }
 
-            string key = PathOf(invocation) ?? "(default)";
-
-            // A green run ends the streak and re-arms the nudge for a later, different fight.
-            if (invocation.OutcomeOk)
-            {
-                _testOutcomes.Remove(key);
-                _nudgedTestOutcomes.Remove(key);
-                continue;
-            }
-
-            int end = summary.IndexOf('\n');
-            string line = (end < 0 ? summary : summary[..end]).TrimEnd('\r');
-
-            int count = _testOutcomes.TryGetValue(key, out (string Line, int Count) seen) &&
-                string.Equals(seen.Line, line, StringComparison.Ordinal)
-                ? seen.Count + 1
-                : 1;
-            _testOutcomes[key] = (line, count);
-
-            if (count == NudgeAfterRepeatedTestFailures && _nudgedTestOutcomes.Add(key))
-            {
-                _testFailureToNudge = line;
-            }
+            RecordTestOutcome(PathOf(invocation) ?? "(default)", summary, invocation.OutcomeOk);
         }
     }
 
-    /// <summary>The repeated failing-test nudge, exactly once per streak.</summary>
+    /// <summary>
+    /// One test result, from whichever organ ran it - the model's own <c>run_tests</c> call, or the
+    /// ladder's test rung after an applied change. Both are the same fact about the same suite, so
+    /// both are counted here and neither gets a counter of its own.
+    /// <para>
+    /// Keyed on the target and the <em>first line</em> of the summary, for the reason the failure
+    /// counter uses it: the lines under it legitimately vary between identical failures, and
+    /// prose that synthesis writes must never be prose that detection keys on. A green result for
+    /// the target ends the streak and re-arms the nudge for a later, different fight; a different
+    /// failure starts a new one.
+    /// </para>
+    /// </summary>
+    private void RecordTestOutcome(string target, string summary, bool ok)
+    {
+        if (ok)
+        {
+            _testOutcomes.Remove(target);
+            _nudgedTestOutcomes.Remove(target);
+            return;
+        }
+
+        int end = summary.IndexOf('\n');
+        string line = (end < 0 ? summary : summary[..end]).TrimEnd('\r');
+
+        int count = _testOutcomes.TryGetValue(target, out (string Line, int Count) seen) &&
+            string.Equals(seen.Line, line, StringComparison.Ordinal)
+            ? seen.Count + 1
+            : 1;
+        _testOutcomes[target] = (line, count);
+
+        if (count == NudgeAfterRepeatedTestFailures && _nudgedTestOutcomes.Add(target))
+        {
+            _testFailureToNudge = line;
+        }
+    }
+
+    /// <summary>
+    /// The repeated failing-test nudge, exactly once per streak. It names the suite rather than
+    /// the caller, because the result it is about now usually arrives from the ladder's own climb
+    /// and a sentence that said <c>run_tests</c> would be describing a call the model never made.
+    /// </summary>
     public string? TestFailureNudge() =>
         _testFailureToNudge is not null
-            ? $"run_tests has returned the same failing result {NudgeAfterRepeatedTestFailures} times in a " +
+            ? $"The tests have returned the same failing result {NudgeAfterRepeatedTestFailures} times in a " +
               $"row despite your edits in between: {_testFailureToNudge} Your changes are not reaching the " +
               "failure. Read the failing test and the code it exercises before editing again, rewrite the " +
               "file whole with create_file overwrite: true, or delete the failing approach and solve it " +

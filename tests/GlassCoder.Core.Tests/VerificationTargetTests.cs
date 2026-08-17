@@ -554,6 +554,185 @@ public sealed class RepeatedFailureTests
         }
     }
 
+    /// <summary>
+    /// The same streak, arriving by the door the harness spent a year moving it to.
+    /// <para>
+    /// Since 2026-08-09 the system prompt tells the model not to call <c>run_tests</c> itself, and
+    /// since 2026-08-15 <c>update_todos</c> tells it not even to plan one - so a failing suite
+    /// normally reaches the loop as the ladder's climb after an applied change, which the counter
+    /// above could not see. Run <c>d92c189b</c> produced three byte-identical failing climbs at
+    /// steps 22, 23 and 26 and reached this nudge's own conclusion unaided three steps later.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Identical_failing_climbs_earn_the_nudge_though_nothing_called_run_tests()
+    {
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+        ScriptedLadder ladder = new();
+        ladder.Enqueue(Red(), Red(), Red());
+
+        await LadderLoop(transcript, changes, ladder, applies: 3)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "make it green" });
+
+        List<string> nudges = Nudges(transcript);
+        nudges.Count.ShouldBe(1, "once per streak, however many climbs follow it");
+        nudges[0].ShouldContain("MainWindowTests.MultiplyButton_Click", Case.Sensitive);
+        nudges[0].ShouldNotContain("run_tests has", Case.Sensitive);
+    }
+
+    [Fact]
+    public async Task A_different_failure_after_the_nudge_does_not_rearm_it()
+    {
+        // A new failure set is a different fight, and the run has already been told once. Only a
+        // green - the streak's honest end - re-arms the nudge.
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+        ScriptedLadder ladder = new();
+        ladder.Enqueue(Red(), Red(), Red(), Red("2 of 9 tests failed: Demo.ParseTests.Handles_commas"));
+
+        await LadderLoop(transcript, changes, ladder, applies: 4)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "make it green" });
+
+        Nudges(transcript).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_green_climb_between_the_failures_ends_the_streak()
+    {
+        // The boundary, kept deliberately where the run_tests path already had it: a green result
+        // for the target supersedes the streak, because the suite it was about is no longer red.
+        // Run 4bf2eaeb is the case this does not catch - it deleted the failing file at step 36,
+        // took the green, and re-created the same three failures at step 40 - and that is a
+        // question about what a green means, not about which organ reported it.
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+        ScriptedLadder ladder = new();
+        ladder.Enqueue(Red(), Red(), Green(), Red());
+
+        await LadderLoop(transcript, changes, ladder, applies: 4)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "make it green" });
+
+        Nudges(transcript).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task A_climb_that_verified_nothing_neither_starts_nor_ends_a_streak()
+    {
+        // "Nothing was verified" is the ladder's word for a rung that ran no test, and no test is
+        // not a different outcome from the last one - it is the absence of one. A climb that
+        // established nothing must not launder two identical reds into a fresh start.
+        RecordingStepLogger transcript = new();
+        ChangeLog changes = new();
+        ScriptedLadder ladder = new();
+        ladder.Enqueue(Red(), Red(), NothingToRun(), Red());
+
+        await LadderLoop(transcript, changes, ladder, applies: 4)
+            .RunAsync(new AgentRunRequest { TaskId = "t", Goal = "make it green" });
+
+        Nudges(transcript).Count.ShouldBe(1);
+    }
+
+    private static List<string> Nudges(RecordingStepLogger transcript) =>
+    [
+        .. transcript.Steps
+            .SelectMany(s => s.Prompt)
+            .Select(m => m.Text ?? string.Empty)
+            .Where(t => t.Contains("same failing result", StringComparison.Ordinal))
+            .Distinct()
+    ];
+
+    /// <summary>A loop that applies one change per step and lets the scripted ladder judge it.</summary>
+    private static AgentLoop LadderLoop(
+        RecordingStepLogger transcript,
+        ChangeLog changes,
+        IVerificationLadder ladder,
+        int applies)
+    {
+        List<ChatResponse> script = [.. Enumerable.Repeat(FakeChatClient.ToolCall("apply"), applies)];
+        script.Add(FakeChatClient.Text("done"));
+
+        return new AgentLoop(
+            new FakeChatClientFactory(new FakeChatClient([.. script])),
+            new ToolRegistry([new ChangingTools(changes)]),
+            transcript,
+            TestContextAssembler.Create(),
+            new RecordingMetricsRecorder(),
+            Options.Create(new AgentOptions { MaxSteps = 30 }),
+            verifier: ladder,
+            changes: changes);
+    }
+
+    private const string RedFirstLine =
+        "3 of 8 tests failed: MultiplyAppTests.MainWindowTests.MultiplyButton_Click_WithValidInput";
+
+    /// <summary>A red climb. The detail under the first line wobbles on purpose - identity is the
+    /// first line, which is the rule the failure counter follows for the same reason.</summary>
+    private static VerificationReport Red(string firstLine = RedFirstLine) => new(
+        false,
+        VerificationRung.UnitTests,
+        VerificationRung.UnitTests,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(VerificationRung.UnitTests, false, $"{firstLine}\n  Expected 15, got 50 [7 ms]", 1)
+            {
+                TestTarget = "tests/MultiplyAppTests",
+            },
+        ],
+        2);
+
+    private static VerificationReport Green() => new(
+        true,
+        VerificationRung.UnitTests,
+        null,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(VerificationRung.UnitTests, true, "5 tests passed.", 1)
+            {
+                TestTarget = "tests/MultiplyAppTests",
+            },
+        ],
+        2);
+
+    /// <summary>The rung that answered from the sources. It carries a target here so that what
+    /// excludes it is <see cref="RungResult.Unverified"/> and nothing else.</summary>
+    private static VerificationReport NothingToRun() => new(
+        true,
+        VerificationRung.UnitTests,
+        null,
+        [
+            new RungResult(VerificationRung.Compile, true, "Build succeeded.", 1),
+            new RungResult(
+                VerificationRung.UnitTests,
+                true,
+                "No test is declared in the workspace yet, so there was nothing for this rung to run - " +
+                "nothing was verified.",
+                1)
+            {
+                Unverified = true,
+                TestTarget = "tests/MultiplyAppTests",
+            },
+        ],
+        2);
+
+    private sealed class ScriptedLadder : IVerificationLadder
+    {
+        private readonly Queue<VerificationReport> _scripted = new();
+
+        public void Enqueue(params VerificationReport[] reports)
+        {
+            foreach (VerificationReport report in reports)
+            {
+                _scripted.Enqueue(report);
+            }
+        }
+
+        public Task<VerificationReport> VerifyAsync(
+            VerificationRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_scripted.Count > 0 ? _scripted.Dequeue() : Green());
+    }
+
     private static AgentLoop Loop(RecordingStepLogger transcript, int maxIdentical, int maxSteps = 30) => new(
         new FakeChatClientFactory(new FakeChatClient(FakeChatClient.ToolCall("boom"))),
         new ToolRegistry([new FlakyTools()]),
