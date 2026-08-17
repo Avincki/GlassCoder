@@ -145,6 +145,7 @@ public sealed class EditFileTool : IToolSet
     private readonly IApprovalGate _approval;
     private readonly VerificationOptions _options;
     private readonly VerificationRefusalTracker _refusals;
+    private readonly AdvisoryNotices _notices;
     private readonly ILogger<EditFileTool> _logger;
 
     /// <summary>Creates the tool.</summary>
@@ -156,7 +157,8 @@ public sealed class EditFileTool : IToolSet
         IChangeLog? changes = null,
         IApprovalGate? approval = null,
         ILogger<EditFileTool>? logger = null,
-        VerificationRefusalTracker? refusals = null)
+        VerificationRefusalTracker? refusals = null,
+        AdvisoryNotices? notices = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -167,6 +169,7 @@ public sealed class EditFileTool : IToolSet
         _approval = approval ?? new AutoApprovalGate(Options.Create(new ApprovalOptions()));
         _options = options.Value;
         _refusals = refusals ?? new VerificationRefusalTracker();
+        _notices = notices ?? new AdvisoryNotices();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<EditFileTool>.Instance;
     }
 
@@ -230,6 +233,7 @@ public sealed class EditFileTool : IToolSet
     private string XamlNoticesFor(EditFileResult result)
     {
         string notices = string.Empty;
+        string? subject = null;
         foreach (FileEditResult file in result.Files)
         {
             // A code-behind counts: one of the notices reads the markup and its .xaml.cs as a pair,
@@ -250,13 +254,19 @@ public sealed class EditFileTool : IToolSet
 
             try
             {
-                notices += XamlNotices.Describe(verdict.FullPath, File.ReadAllText(verdict.FullPath));
+                string described = XamlNotices.Describe(verdict.FullPath, File.ReadAllText(verdict.FullPath));
+                notices += described;
+                subject ??= described.Length > 0 ? file.Path : null;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // A file that cannot be re-read earns no notice; the edit itself already landed.
             }
         }
+
+        // Counted on the same register as the plan notice, and cleared by the edit that fixes the
+        // layout: an edit of the same file with nothing to say is what "answered" means here.
+        _notices.Observe("the layout note", subject);
 
         return notices;
     }

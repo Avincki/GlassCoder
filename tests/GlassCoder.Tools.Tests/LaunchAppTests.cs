@@ -539,6 +539,65 @@ public sealed class LaunchAppTests : IDisposable
         second.Reused.ShouldBeFalse();
     }
 
+    /// <summary>
+    /// A window nobody typed into is a fact the completion panel needs and could not previously
+    /// see (run 31983adb, where a bare sweep was accepted 3/3 as proof the button worked).
+    /// </summary>
+    [Fact]
+    public async Task A_launch_that_only_swept_leaves_the_window_untouched()
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        RuntimeEvidence evidence = new();
+
+        LaunchAppTool tool = new(
+            runner, _workspace.Guard("src"), evidence, new StubWindows(true), new StubProbe("212"), new ChangeLog());
+
+        await tool.LaunchAsync("src/App/App.csproj");
+
+        evidence.WindowWentUntouched.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_probe_that_only_reads_leaves_the_window_untouched_too()
+    {
+        // The distinction the panel is about: a read left the window exactly as it found it, which
+        // is the same evidence about the product as never having asked.
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        RuntimeEvidence evidence = new();
+
+        LaunchAppTool tool = new(
+            runner, _workspace.Guard("src"), evidence, new StubWindows(true), new StubProbe("212"), new ChangeLog());
+
+        await tool.LaunchAsync("src/App/App.csproj", probe: "Fahrenheit?");
+
+        evidence.WindowWentUntouched.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("Celsius=100")]
+    [InlineData("Multiply!")]
+    public async Task A_probe_that_typed_or_pressed_counts_as_touching_it(string probe)
+    {
+        _workspace.WriteFile("src/App/bin/Debug/net10.0/App.exe", "not really an executable");
+
+        FakeProcessRunner runner = new();
+        runner.EnqueueReady();
+        RuntimeEvidence evidence = new();
+
+        LaunchAppTool tool = new(
+            runner, _workspace.Guard("src"), evidence, new StubWindows(true), new StubProbe("212"), new ChangeLog());
+
+        await tool.LaunchAsync("src/App/App.csproj", probe: probe);
+
+        evidence.WindowWentUntouched.ShouldBeFalse();
+    }
+
     private LaunchAppTool Tool(IProcessRunner runner, IWindowPresence? windows = null, IUiProbe? probe = null) =>
         new(runner, _workspace.Guard("src"), new RuntimeEvidence(), windows, probe);
 

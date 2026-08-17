@@ -56,6 +56,7 @@ public sealed class CreateFileTool : IToolSet
     private readonly IApprovalGate _approval;
     private readonly VerificationOptions _options;
     private readonly VerificationRefusalTracker _refusals;
+    private readonly AdvisoryNotices _notices;
     private readonly ILogger<CreateFileTool> _logger;
 
     /// <summary>Creates the tool.</summary>
@@ -67,7 +68,8 @@ public sealed class CreateFileTool : IToolSet
         IChangeLog? changes = null,
         IApprovalGate? approval = null,
         ILogger<CreateFileTool>? logger = null,
-        VerificationRefusalTracker? refusals = null)
+        VerificationRefusalTracker? refusals = null,
+        AdvisoryNotices? notices = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -78,6 +80,7 @@ public sealed class CreateFileTool : IToolSet
         _approval = approval ?? new AutoApprovalGate(Options.Create(new ApprovalOptions()));
         _options = options.Value;
         _refusals = refusals ?? new VerificationRefusalTracker();
+        _notices = notices ?? new AdvisoryNotices();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<CreateFileTool>.Instance;
     }
 
@@ -198,11 +201,18 @@ public sealed class CreateFileTool : IToolSet
             "{Verb} {Path}: {Lines} lines", exists ? "Replaced" : "Created", verdict.RelativePath, lines);
 
         CreateFileResult result = new(verdict.RelativePath!, lines, verified, diagnostics, change.Id);
+        string layout = XamlNotices.Describe(verdict.FullPath!, content);
+
+        // Counted, so a layout warning nobody acts on is not merely repeated. Keyed on the file,
+        // never on the sentence, and a rewrite of the same file with nothing to say clears it.
+        _notices.Observe(
+            "the layout note", layout.Length > 0 ? verdict.RelativePath : null);
+
         return Observation.Ok(
             ToolName,
             result,
             $"{(exists ? "Replaced" : "Created")} {verdict.RelativePath} ({lines} lines)." +
-            $"{OrphanNotice(verdict.FullPath)}{XamlNotices.Describe(verdict.FullPath!, content)}");
+            $"{OrphanNotice(verdict.FullPath)}{layout}");
     }
 
     /// <summary>

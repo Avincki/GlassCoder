@@ -319,10 +319,18 @@ public sealed class LaunchAppTool : IToolSet
 
         summary += ProbeReport(asked, script, readings, swept, showedWindow, watched);
 
+        // Whether anything was done *to* the window, as opposed to read off it. A Set or an Invoke
+        // that worked is the one reading that comes back Ok with nothing read back - the probe
+        // returns what it saw only for a Read - and the script is consulted too so this can only be
+        // true of a launch that asked to drive something in the first place.
+        bool inputSent =
+            script.Steps.Any(s => s.Action is UiProbeAction.Set or UiProbeAction.Invoke) &&
+            readings.Any(r => r.Ok && r.Saw is null);
+
         // Kept for the completion critique, which is the panel that asked for this in the first
         // place and cannot see a tool observation on its own - and keyed, so the next identical
         // call is answered rather than re-run.
-        _evidence.Record(summary, started, memo, payload);
+        _evidence.Record(summary, started, memo, payload, showedWindow, inputSent);
 
         _logger.LogInformation(
             "launch_app on {Path}: started={Started}, stayedUp={StayedUp}, window={ShowedWindow}, " +
@@ -482,6 +490,9 @@ public sealed class RuntimeEvidence
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Launch> _launches =
         new(StringComparer.Ordinal);
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Touched> _touched =
+        new(StringComparer.Ordinal);
+
     /// <summary>Records what the last launch in this run showed.</summary>
     /// <param name="summary">What the tool told the model.</param>
     /// <param name="started">Whether the application ran.</param>
@@ -491,9 +502,27 @@ public sealed class RuntimeEvidence
     /// one reusable. Null skips the memo entirely.
     /// </param>
     /// <param name="payload">The result to hand back should the same launch be asked for again.</param>
-    public void Record(string summary, bool started, string? key = null, LaunchAppResult? payload = null)
+    /// <param name="showedWindow">Whether this launch drew a window there was anything to type into.</param>
+    /// <param name="inputSent">
+    /// Whether this launch put text into a control or pressed one. A probe that only read left the
+    /// window exactly as it found it, which is the same evidence about the product as never having
+    /// asked - so a read does not count here, and <see cref="WindowWentUntouched"/> is the fact the
+    /// completion panel needs and could not previously see.
+    /// </param>
+    public void Record(
+        string summary,
+        bool started,
+        string? key = null,
+        LaunchAppResult? payload = null,
+        bool showedWindow = false,
+        bool inputSent = false)
     {
         ArgumentNullException.ThrowIfNull(summary);
+
+        _touched.AddOrUpdate(
+            RunContext.Current.RunId,
+            new Touched(showedWindow, inputSent),
+            (_, seen) => new Touched(seen.Window || showedWindow, seen.Input || inputSent));
 
         string line = $"Runtime: {(started ? "ok" : "FAILED")} - {summary}";
         List<string> seen = _seen.GetOrAdd(RunContext.Current.RunId, _ => []);
@@ -571,5 +600,28 @@ public sealed class RuntimeEvidence
         }
     }
 
+    /// <summary>
+    /// Whether this run drew a window and never typed into it or pressed anything in it.
+    /// <para>
+    /// The absence the completion panel could not state. Run <c>31983adb</c> launched at step 18
+    /// under a unanimous refutation; the summary said in plain text <em>"nothing was typed into it,
+    /// so this is what it shows at rest"</em>; step 19 read that back as "the application is
+    /// working correctly" and all three critics accepted, one of them reasoning explicitly from
+    /// "displays the required UI elements". The goal's verb was <em>press Multiply</em>, and the
+    /// button was never pressed by anyone. The critique rung's gate is effectively <em>did a launch
+    /// happen</em>, so once one existed the gate opened on a rest-state snapshot.
+    /// </para>
+    /// <para>
+    /// This is the same correction 2026-08-15 made one door over, where the panel had to infer a
+    /// missing launch from a line that was not there. A hedge inside a summary is not an absence
+    /// the panel can see; this is.
+    /// </para>
+    /// </summary>
+    public bool WindowWentUntouched =>
+        _touched.TryGetValue(RunContext.Current.RunId, out Touched seen) && seen is { Window: true, Input: false };
+
     private sealed record Launch(string Key, string Summary, LaunchAppResult Payload);
+
+    /// <summary>What this run's launches did to the window, as opposed to what they saw in it.</summary>
+    private readonly record struct Touched(bool Window, bool Input);
 }

@@ -25,7 +25,7 @@ public sealed class PlanningAndChangeTests : IDisposable
         tool.UpdateTodos([
             new TodoItem("find", "Find the bug", TodoStatus.Completed),
             new TodoItem("fix", "Fix it", TodoStatus.InProgress),
-            new TodoItem("verify", "Run the tests"),
+            new TodoItem("show", "Watch the pager renumber in the running window"),
         ]).Ok.ShouldBeTrue();
 
         list.Items.Count.ShouldBe(3);
@@ -68,9 +68,15 @@ public sealed class PlanningAndChangeTests : IDisposable
     }
 
     [Fact]
-    public void An_item_that_only_restates_the_ladder_is_named()
+    public void An_item_that_only_restates_the_ladder_is_struck_and_named()
     {
-        TodoTool tool = new(new TodoList());
+        // Naming it and leaving it in was the deliberate trade until run 31983adb tested it: the
+        // same sentence came back at steps 0, 3, 6, 10 and 14, the item was never edited, and at
+        // 15 and 16 the agent discharged it by re-running verification that had passed
+        // automatically since step 2. Striking is the third option - no refusal, so no step is
+        // spent on a rewrite, and the item cannot be discharged later because it is gone.
+        TodoList list = new();
+        TodoTool tool = new(list);
 
         ToolObservation<TodoResult> observation = tool.UpdateTodos([
             new TodoItem("a", "Write the converter"),
@@ -79,6 +85,30 @@ public sealed class PlanningAndChangeTests : IDisposable
 
         observation.Ok.ShouldBeTrue("refusing would spend a step on a rewrite, which is the waste this prevents");
         observation.Summary.ShouldNotBeNull().ShouldContain("'Build and run tests' restates");
+        observation.Summary.ShouldContain("struck from the plan");
+
+        list.Items.Count.ShouldBe(1);
+        list.Items[0].Title.ShouldBe("Write the converter");
+        observation.Data.ShouldNotBeNull().Items.Count.ShouldBe(1, "the plan the run carries and the one it is told about are the same plan");
+        observation.Summary.ShouldContain("0/1 complete");
+    }
+
+    [Fact]
+    public void An_item_re_added_after_being_struck_is_struck_again()
+    {
+        // The model is free to re-add it; this is a strike, not a memory. What changes is that
+        // carrying it costs nothing and finishing it is not available.
+        TodoList list = new();
+        TodoTool tool = new(list);
+
+        tool.UpdateTodos([new TodoItem("a", "Write the converter"), new TodoItem("b", "Run tests")]);
+        ToolObservation<TodoResult> again = tool.UpdateTodos([
+            new TodoItem("a", "Write the converter", TodoStatus.Completed),
+            new TodoItem("b", "Run tests"),
+        ]);
+
+        again.Summary.ShouldNotBeNull().ShouldContain("'Run tests' restates");
+        list.Items.ShouldHaveSingleItem().Title.ShouldBe("Write the converter");
     }
 
     [Fact]

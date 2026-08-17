@@ -597,6 +597,74 @@ public sealed class AgentLoopVerificationTests
         (result.Error ?? string.Empty).ShouldNotContain("Refused and never retried");
     }
 
+    // ── The other half of the same question: notices that rode on a success ──
+    //
+    // Run 31983adb told the agent six true, load-bearing things across twenty-one steps - the
+    // ladder-restating plan item five times over, the clipping warning, the change-log pointer, the
+    // plan-complete nudge, the at-rest launch caveat - all attached to [ok] results, and nothing
+    // counted any of them. Every consequence mechanism in the harness is keyed to failure.
+
+    [Fact]
+    public async Task A_notice_raised_on_every_call_and_never_answered_reaches_the_panel_and_the_record()
+    {
+        Harness harness = new(
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Notices = new AdvisoryNotices(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        harness.Critics!.Requests[^1].Evidence.ShouldContain("Raised on every call and never answered");
+        harness.Critics.Requests[^1].Evidence.ShouldContain("src/MainWindow.xaml");
+        result.Error.ShouldNotBeNull().ShouldContain("Raised on every call and never answered");
+    }
+
+    [Fact]
+    public async Task A_notice_the_run_acted_on_leaves_no_trace()
+    {
+        // Answered means the source stopped raising it - the same contract the suite notice uses,
+        // and what keeps this from reporting every advisory a run ever received.
+        Harness harness = new(
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("settle"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Notices = new AdvisoryNotices(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        harness.Critics!.Requests[^1].Evidence.ShouldNotContain("never answered");
+        (result.Error ?? string.Empty).ShouldNotContain("never answered");
+    }
+
+    [Fact]
+    public async Task A_notice_said_twice_is_not_yet_a_pattern()
+    {
+        // The first is information and the second is a coincidence. Reporting either would make
+        // this noise on runs that read the notice and were still working on it.
+        Harness harness = new(
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.ToolCall("nag"),
+            FakeChatClient.Text("done"))
+        {
+            Critics = new FakeCriticPanel(),
+            Notices = new AdvisoryNotices(),
+        };
+
+        AgentRunResult result = await harness.RunAsync();
+
+        (result.Error ?? string.Empty).ShouldNotContain("never answered");
+    }
+
     [Fact]
     public async Task Two_operations_of_one_tool_are_two_intents()
     {
@@ -1209,11 +1277,14 @@ public sealed class AgentLoopVerificationTests
         /// <summary>The ledger of what was refused and never achieved, when a test wants one.</summary>
         public AbandonedIntents? Intents { get; init; }
 
+        /// <summary>The ledger of what the harness kept saying and nothing acted on.</summary>
+        public AdvisoryNotices? Notices { get; init; }
+
         public Task<AgentRunResult> RunAsync(CancellationToken cancellationToken = default)
         {
             AgentLoop loop = new(
                 new FakeChatClientFactory(Client, new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
-                new ToolRegistry([new MutatingTools(Changes, Runtime)]),
+                new ToolRegistry([new MutatingTools(Changes, Runtime, Notices)]),
                 StepLogger,
                 TestContextAssembler.Create(),
                 Metrics,
@@ -1223,7 +1294,8 @@ public sealed class AgentLoopVerificationTests
                 verificationOptions: Options.Create(_options),
                 critics: CriticsOverride ?? Critics,
                 runtime: Runtime,
-                intents: Intents);
+                intents: Intents,
+                notices: Notices);
 
             return loop.RunAsync(
                 new AgentRunRequest { TaskId = "task-1", Goal = "Do the thing.", CriticRole = "critic-remote" },
@@ -1235,11 +1307,45 @@ public sealed class AgentLoopVerificationTests
     {
         private readonly IChangeLog _changes;
         private readonly RuntimeEvidence? _runtime;
+        private readonly AdvisoryNotices? _notices;
 
-        public MutatingTools(IChangeLog changes, RuntimeEvidence? runtime = null)
+        public MutatingTools(
+            IChangeLog changes, RuntimeEvidence? runtime = null, AdvisoryNotices? notices = null)
         {
             _changes = changes;
             _runtime = runtime;
+            _notices = notices;
+        }
+
+        /// <summary>
+        /// An applied change whose result carries a true, load-bearing notice about the same
+        /// subject every time - run 31983adb's clipping warning and its ladder-restating plan item,
+        /// both of which rode on an [ok] and neither of which any organ counted.
+        /// </summary>
+        [GlassCoderTool("nag", Order = 6)]
+        [Description("Applies a change and raises the same notice every time, for tests.")]
+        public ToolObservation<MutateData> Nag()
+        {
+            CodeChange change = _changes.Propose(
+                "src/MainWindow.xaml", "nag", string.Empty, $"<Window Height=\"300\">{_changes.All().Count}</Window>");
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            _notices?.Observe("the layout note", "src/MainWindow.xaml");
+
+            return Observation.Ok(
+                "nag", new MutateData(change.Id), "Edited src/MainWindow.xaml. Layout note: Height=300 can clip.");
+        }
+
+        /// <summary>The same source with nothing to say, which is what answers a notice.</summary>
+        [GlassCoderTool("settle", Order = 7)]
+        [Description("Applies a change and raises no notice, for tests.")]
+        public ToolObservation<MutateData> Settle()
+        {
+            CodeChange change = _changes.Propose(
+                "src/MainWindow.xaml", "settle", string.Empty, "<Window SizeToContent=\"Height\" />");
+            _changes.Update(change.Id, ChangeStatus.Applied);
+            _notices?.Observe("the layout note", null);
+
+            return Observation.Ok("settle", new MutateData(change.Id), "Edited src/MainWindow.xaml.");
         }
 
         [GlassCoderTool("mutate", Order = 1)]

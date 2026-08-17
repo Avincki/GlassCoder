@@ -202,6 +202,10 @@ public static class ToolsServiceCollectionExtensions
         // refusal tracker and the runtime evidence beside it.
         services.TryAddSingleton<AbandonedIntents>();
 
+        // And the same ledger for the other half: notices that rode on a successful result, said
+        // the same thing about the same subject over and over, and changed nothing.
+        services.TryAddSingleton<AdvisoryNotices>();
+
         // How many tests the last climb over each target ran, so a green can say what moved.
         services.TryAddSingleton<GlassCoder.Tools.Verification.TestCountMemo>();
         services.TryAddSingleton<IWindowPresence, WindowPresence>();

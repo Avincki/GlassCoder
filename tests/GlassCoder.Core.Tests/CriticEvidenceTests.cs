@@ -105,6 +105,40 @@ public sealed class CriticEvidenceTests
     }
 
     [Fact]
+    public async Task A_launch_that_typed_nothing_says_so_to_the_panel()
+    {
+        // Run 31983adb: refuted 3/3 for never launching, launched at step 18, and the summary said
+        // in plain text "nothing was typed into it, so this is what it shows at rest". Step 19 read
+        // that back as "the application is working correctly" and all three critics accepted - one
+        // reasoning from "displays the required UI elements" - over a goal whose verb was "press
+        // Multiply". The gate was effectively 'did a launch happen', and once one existed it opened.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup></Project>");
+
+        RecordingCritics critics = await RunWithWorkspace(workspace, launches: true, input: false);
+
+        string evidence = critics.Evidence.ShouldNotBeNull();
+        evidence.ShouldContain("nothing was ever typed into it");
+        evidence.ShouldNotContain("never launched", Case.Sensitive);
+    }
+
+    [Fact]
+    public async Task A_launch_that_drove_the_window_gets_no_absence_line()
+    {
+        // The other half, and the one that keeps this from being noise on every desktop run: a
+        // probe that typed or pressed leaves the window changed, which is the evidence the line is
+        // asking for. A probe that only read does not count - it left the window as it found it.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/App.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup></Project>");
+
+        RecordingCritics critics = await RunWithWorkspace(workspace, launches: true, input: true);
+
+        (critics.Evidence ?? string.Empty).ShouldNotContain("nothing was ever typed into it");
+    }
+
+    [Fact]
     public async Task An_empty_solution_left_at_the_root_is_named_to_the_panel_and_on_the_record()
     {
         // Run 29356042: a solution refused below the root at step 1, created at the root at step 2,
@@ -149,7 +183,11 @@ public sealed class CriticEvidenceTests
     }
 
     /// <summary>Runs the loop over a real workspace root, with or without a launch in it.</summary>
-    private static async Task<RecordingCritics> RunWithWorkspace(TempWorkspace workspace, bool launches)
+    /// <param name="workspace">The tree the panel is judging.</param>
+    /// <param name="launches">Whether the run launches what it built.</param>
+    /// <param name="input">Whether the launch drove the window, as opposed to only reading it.</param>
+    private static async Task<RecordingCritics> RunWithWorkspace(
+        TempWorkspace workspace, bool launches, bool input = true)
     {
         RuntimeEvidence runtime = new();
         RecordingCritics critics = new();
@@ -158,7 +196,7 @@ public sealed class CriticEvidenceTests
         AgentLoop loop = new(
             new FakeChatClientFactory(
                 new FakeChatClient(
-                    FakeChatClient.ToolCall(launches ? "touch" : "quiet_touch"),
+                    FakeChatClient.ToolCall(launches ? (input ? "touch" : "sweep_only") : "quiet_touch"),
                     FakeChatClient.Text("done")),
                 new ModelRoleOptions { Endpoint = "http://localhost/v1", ModelAlias = "worker" }),
             new ToolRegistry([new EvidenceTools(changes, runtime)]),
@@ -231,10 +269,33 @@ public sealed class CriticEvidenceTests
             CodeChange change = _changes.Propose("src/C.cs", "touch", string.Empty, "public class C { }");
             _changes.Update(change.Id, ChangeStatus.Applied);
 
-            _runtime.Record("<<runtime-sentinel>> Probe: Celsius=100; Fahrenheit? → \"212\".", started: true);
-            _runtime.Record("<<second-launch-sentinel>> Probe: Fahrenheit=212; Celsius? → \"100\".", started: true);
+            _runtime.Record(
+                "<<runtime-sentinel>> Probe: Celsius=100; Fahrenheit? → \"212\".",
+                started: true, showedWindow: true, inputSent: true);
+            _runtime.Record(
+                "<<second-launch-sentinel>> Probe: Fahrenheit=212; Celsius? → \"100\".",
+                started: true, showedWindow: true, inputSent: true);
 
             return Observation.Ok("touch", new Payload("applied"), "applied");
+        }
+
+        /// <summary>
+        /// A launch that drew a window and only swept it - run 31983adb's step 18, and the shape
+        /// the completion panel could not previously tell apart from a driven one.
+        /// </summary>
+        [GlassCoderTool("sweep_only", Order = 4)]
+        [Description("Applies a change and launches without typing anything, for tests.")]
+        public ToolObservation<Payload> SweepOnly()
+        {
+            CodeChange change = _changes.Propose("src/C.cs", "sweep_only", string.Empty, "public class C { }");
+            _changes.Update(change.Id, ChangeStatus.Applied);
+
+            _runtime.Record(
+                "'src/App/App.csproj' started and drew a window, then was stopped. It runs and " +
+                "renders; nothing was typed into it, so this is what it shows at rest.",
+                started: true, showedWindow: true, inputSent: false);
+
+            return Observation.Ok("sweep_only", new Payload("applied"), "applied");
         }
 
         [GlassCoderTool("refuse", Order = 2)]

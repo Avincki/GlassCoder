@@ -49,6 +49,7 @@ public sealed class AgentLoop : IAgentLoop
     private readonly ILimitExtensionGate? _limitGate;
     private readonly RuntimeEvidence? _runtime;
     private readonly AbandonedIntents? _intents;
+    private readonly AdvisoryNotices? _notices;
     private readonly WorkspaceOptions? _workspace;
     private readonly GlassCoder.Tools.Retrieval.IRetrievalPolicy? _retrieval;
 
@@ -71,6 +72,7 @@ public sealed class AgentLoop : IAgentLoop
         ILimitExtensionGate? limitGate = null,
         RuntimeEvidence? runtime = null,
         AbandonedIntents? intents = null,
+        AdvisoryNotices? notices = null,
         IOptions<WorkspaceOptions>? workspace = null,
         GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null)
     {
@@ -93,6 +95,7 @@ public sealed class AgentLoop : IAgentLoop
         _limitGate = limitGate;
         _runtime = runtime;
         _intents = intents;
+        _notices = notices;
         _workspace = workspace?.Value;
         _retrieval = retrieval;
     }
@@ -322,6 +325,11 @@ public sealed class AgentLoop : IAgentLoop
                 if (_intents?.Summary() is { } abandonedCaveat)
                 {
                     caveats.Add(abandonedCaveat);
+                }
+
+                if (_notices?.Summary() is { } unansweredCaveat)
+                {
+                    caveats.Add(unansweredCaveat);
                 }
 
                 if (EmptySolutions() is { } emptyCaveat)
@@ -795,6 +803,20 @@ public sealed class AgentLoop : IAgentLoop
         if (runtime is not null)
         {
             evidence = string.IsNullOrWhiteSpace(evidence) ? runtime : $"{evidence}\n{runtime}";
+
+            // The sibling absence. A launch happened, so the line below never fires - and the
+            // panel's gate is effectively "did a launch happen", which is how run 31983adb closed
+            // 3/3 on a window nobody had typed into, over a goal whose verb was "press Multiply".
+            // The fact was in the launch summary's own hedge and three critics and the worker all
+            // read past it; an absence has to be stated to be judged, which is the whole argument
+            // the line below was built on.
+            if (_runtime!.WindowWentUntouched)
+            {
+                const string untouched = "Runtime: a window was drawn, but nothing was ever typed into it and " +
+                                         "nothing in it was pressed - so this is the window at rest, not what it " +
+                                         "does when it is used.";
+                evidence = $"{evidence}\n{untouched}";
+            }
         }
         else if (BuiltSomethingRunnable())
         {
@@ -815,6 +837,14 @@ public sealed class AgentLoop : IAgentLoop
         if (_intents?.Summary() is { } abandoned)
         {
             evidence = string.IsNullOrWhiteSpace(evidence) ? abandoned : $"{evidence}\n{abandoned}";
+        }
+
+        // And what the harness kept saying that nothing acted on. The refusal ledger above is the
+        // failure half of the same question; run 31983adb spent a third of its steps carrying an
+        // item the harness disowned on all five touches, with no organ counting that it had.
+        if (_notices?.Summary() is { } unanswered)
+        {
+            evidence = string.IsNullOrWhiteSpace(evidence) ? unanswered : $"{evidence}\n{unanswered}";
         }
 
         if (EmptySolutions() is { } empty)

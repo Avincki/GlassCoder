@@ -9,6 +9,77 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-17 (evening) — The success side gets consequences
+
+Run `31983adb`'s retrospective, all three ticked items. That run is a clean instrument — 21 steps,
+no failures, no retries, no refused writes, every edit landing first try — which is what makes its
+finding readable: **a harness whose facts are all correct and whose consequences are all optional.**
+Six times in twenty-one steps it said something true and load-bearing, attached to an `[ok]`, and
+nothing happened. Every consequence mechanism this repository has built is keyed to failure. The
+generalisation from 2026-08-15 applies with the door named: *a mechanism keyed to the shape of the
+run that revealed it goes blind the moment the same fact arrives by a different door* — and here
+the door is **success**.
+
+**The panel can see that nobody typed anything.** Run `31983adb` was refuted 3/3 for never
+launching, launched at step 18, and the launch summary said in plain text *"nothing was typed into
+it, so this is what it shows at rest"*. Step 19 read that back as "the application is working
+correctly", step 20 escalated it to a verified feature list, and all three critics accepted — one
+reasoning explicitly from "displays the required UI elements" — over a goal whose verb was *press
+Multiply*. The button was never pressed by anyone, in the app or in a test, and the previous run's
+report records the same un-pressed-button refusal being outvoted 2-1. Occurrence three.
+
+The gate the critique rung enforced was *did a launch happen*, so once one existed it opened. This
+is the same correction made on 2026-08-15 one door over, where the panel had to infer a missing
+launch from a line that was not there: **a hedge inside a summary is not an absence the panel can
+see.** `RuntimeEvidence` now carries whether any launch drew a window and whether any of them put
+text in or pressed something, and the completion evidence says so. Deliberately **not** the
+auto-launch item, which stays open: a launch did happen here, and auto-launching would have produced
+the same at-rest snapshot eleven steps earlier and the same acceptance.
+
+A read does not count as touching it. `Set` and `Invoke` change the window; `Read` leaves it exactly
+as it was found, which is the same evidence about the product as never having asked. Derived from
+the readings rather than from the script alone: a successful `Set` or `Invoke` is the one reading
+that comes back `Ok` with nothing read back, because the probe returns what it saw only for a read.
+
+**`update_todos` strikes the ladder-restating item instead of naming it.** On 2026-08-15 (night)
+this was deliberately a naming and not a refusal, because *"a refusal spends a step on the rewrite
+this is preventing"*. Run `31983adb` is the first live test of that trade and it lost: the same
+sentence came back verbatim at steps 0, 3, 6, 10 and 14, the item was never edited, and at steps 15
+and 16 the agent discharged it literally by re-running verification that had passed automatically
+since step 2. Five bookkeeping steps plus two redundant verification steps — **a third of a 21-step
+run** — against the one rewrite step the naming was protecting.
+
+The third option was in neither half of that trade: accept the plan, drop the item, say which one
+was struck and why. No refusal, so no step goes on a rewrite; and the item cannot be discharged
+later because it is no longer there. Struck before anything counts, so the plan the run carries, the
+counts it reports and the transcript's rendering all agree. The model may re-add it and it is struck
+again — this is a strike, not a memory. **The schema was not touched**, so no prompt budget moved.
+
+**And notices that ride on a success are counted.** `AdvisoryNotices` is the refusal ledger's
+transpose: keyed on `(source, subject)` and never on the sentence, three consecutive emissions about
+an unchanged subject make it unanswered, and a source that speaks with nothing to say answers it —
+the same contract the suite notice uses. One line to the completion panel and one on the run record,
+in `AbandonedIntents`' shape. **A notice, never a gate**: this repository has paid twice for gates
+that would not concede, and a repeated advisory is weaker evidence than a red tree.
+
+Wired at the two sources that actually repeated: `update_todos` (both clauses) and the layout note
+on `create_file`/`edit_file`. Note the interaction with the item above — the ladder item is struck
+now, so that clause can only repeat if the model keeps re-adding it, which is a different and more
+interesting signal than the one this run produced.
+
+**Open, from the same report and deliberately not built.** The `double`-typed operand properties
+that put the string→number boundary inside WPF's converter are a design call with no harness signal,
+and inventing a detector for it is what §18a forbids. The four unticked items stand: the launch
+sweep settling the static clipping notice, harness-performed edits reporting their substance inline
+rather than pointing at the change log, "projects but no solution" stated the way an empty solution
+already is, and warnings saying what moved. The `PropertyChanged`-with-no-consumer notice is Optional
+by its own author's reasoning — one occurrence, and this run's bindings were built in code-behind
+where a XAML-only scan would not have seen them.
+
+1,098 tests green.
+
+---
+
 ## 2026-08-17 (afternoon) — A settings section nothing read was a settings section every save deleted
 
 Reported from use: the retrospective finished, and the button that writes the work order stayed

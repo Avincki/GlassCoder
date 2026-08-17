@@ -26,12 +26,14 @@ public sealed class TodoTool : IToolSet
     private const string ToolName = "update_todos";
 
     private readonly ITodoList _todos;
+    private readonly AdvisoryNotices _notices;
     private readonly ILogger<TodoTool> _logger;
 
     /// <summary>Creates the tool.</summary>
-    public TodoTool(ITodoList todos, ILogger<TodoTool>? logger = null)
+    public TodoTool(ITodoList todos, ILogger<TodoTool>? logger = null, AdvisoryNotices? notices = null)
     {
         _todos = todos;
+        _notices = notices ?? new AdvisoryNotices();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<TodoTool>.Instance;
     }
 
@@ -78,6 +80,14 @@ public sealed class TodoTool : IToolSet
             cleaned.Add(item);
         }
 
+        // Struck before anything counts them, so the plan the run carries, the counts it reports
+        // and the transcript's rendering all agree that the item is gone.
+        List<string> struck =
+        [
+            .. cleaned.Where(i => LadderTitles.Contains(i.Title.Trim())).Select(i => i.Title.Trim()),
+        ];
+        cleaned.RemoveAll(i => LadderTitles.Contains(i.Title.Trim()));
+
         int inProgress = cleaned.Count(i => i.Status == TodoStatus.InProgress);
         if (inProgress > 1)
         {
@@ -93,13 +103,22 @@ public sealed class TodoTool : IToolSet
         int completed = cleaned.Count(i => i.Status == TodoStatus.Completed);
         TodoResult result = new(cleaned, cleaned.Count - completed, completed);
 
+        // On the register, so a notice nobody acts on is countable rather than decorative. Keyed on
+        // the subject - the title struck, the plan being complete - never on the sentence. A call
+        // with nothing to say clears the entry, which is what "answered" means here: the model
+        // stopped re-adding the item, or stopped calling a finished plan finished.
+        _notices.Observe($"{ToolName} (ladder item)", struck.Count > 0 ? string.Join(", ", struck) : null);
+        _notices.Observe(
+            $"{ToolName} (plan complete)",
+            cleaned.Count > 0 && completed == cleaned.Count ? "the plan is complete, the goal is not proved" : null);
+
         _logger.LogInformation("Plan updated: {Completed}/{Total} complete", completed, cleaned.Count);
         return Observation.Ok(
             ToolName,
             result,
             $"Plan updated: {completed}/{cleaned.Count} complete." +
             FinishedPlanNotice(completed, cleaned.Count) +
-            LadderDuplicateNotice(cleaned));
+            LadderDuplicateNotice(struck));
     }
 
     /// <summary>
@@ -123,26 +142,28 @@ public sealed class TodoTool : IToolSet
             : string.Empty;
 
     /// <summary>
-    /// Names a plan item that only restates the ladder, once per call.
+    /// Says which items were struck for restating the ladder, once per call.
     /// <para>
-    /// The cheap half of the schema clause, for a model that writes the closer anyway - which is
-    /// what happened at step 0 of run <c>e426f418</c>, under a system prompt that already told it
-    /// not to make the call. Naming beats refusing: a refusal spends a step on a rewrite, which is
-    /// the waste this exists to prevent.
+    /// This used to name the item and leave it in the plan, on the argument that a refusal spends a
+    /// step on a rewrite. Run <c>31983adb</c> is the first live test of that trade and it lost: the
+    /// same sentence came back verbatim at steps 0, 3, 6, 10 and 14, the item was never edited, and
+    /// at steps 15 and 16 the agent discharged it literally by re-running verification that had
+    /// passed automatically since step 2. Five bookkeeping steps plus two redundant verification
+    /// steps - a third of a 21-step run - against the one rewrite step the naming was protecting.
+    /// </para>
+    /// <para>
+    /// Striking is the third option neither half of that trade had: no refusal, so no step is spent
+    /// on a rewrite, and the item cannot be discharged later because it is no longer there. The
+    /// plan is still the agent's own - this removes exactly the items whose whole title is the
+    /// ladder's job, and says so.
     /// </para>
     /// </summary>
-    private static string LadderDuplicateNotice(List<TodoItem> items)
-    {
-        List<string> duplicates =
-        [
-            .. items.Where(i => LadderTitles.Contains(i.Title.Trim())).Select(i => $"'{i.Title.Trim()}'"),
-        ];
-
-        return duplicates.Count == 0
+    private static string LadderDuplicateNotice(List<string> struck) =>
+        struck.Count == 0
             ? string.Empty
-            : $" {string.Join(", ", duplicates)} restates the automatic verification, which runs after " +
-              "every applied change - the plan does not need it.";
-    }
+            : $" {string.Join(", ", struck.Select(title => $"'{title}'"))} restates the automatic " +
+              "verification, which runs after every applied change, so it was struck from the plan " +
+              "rather than carried - there is nothing in it for you to do.";
 
     /// <summary>
     /// Titles that name the ladder's own job. Whole titles only, case-insensitively: an item called
