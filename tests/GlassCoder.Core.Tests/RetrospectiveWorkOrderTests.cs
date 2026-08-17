@@ -1,5 +1,6 @@
 using GlassCoder.Core.Verification;
 using GlassCoder.TestSupport;
+using Microsoft.Extensions.Time.Testing;
 
 namespace GlassCoder.Core.Tests;
 
@@ -68,15 +69,35 @@ public sealed class RetrospectiveWorkOrderTests
     }
 
     [Fact]
-    public void It_lands_in_the_harness_repository_under_a_run_named_file()
+    public void It_lands_in_the_harness_repository_under_a_file_named_for_when_it_was_taken()
     {
         using TempWorkspace harness = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 17, 8, 17, 34, TimeSpan.Zero));
 
-        string path = Writer(harness.Root).Write(Plan());
+        string path = Writer(harness.Root, time: time).Write(Plan());
 
         Path.GetDirectoryName(path).ShouldBe(Path.Combine(harness.Root, "docs", "retrospectives"));
-        Path.GetFileName(path).ShouldStartWith("retro-216360bf-");
+
+        // The run id used to lead the timestamp. It is still in the file three times over -
+        // twice in the front matter and once in the heading - and it was never something a
+        // reader of a directory listing could date, order or recognise.
+        Path.GetFileName(path).ShouldBe("retro-20260817-081734.md");
         File.ReadAllText(path).ShouldContain("Judge the screen");
+        File.ReadAllText(path).ShouldContain("216360bf");
+    }
+
+    [Fact]
+    public void The_file_is_named_by_the_local_clock_the_operator_took_it_by()
+    {
+        // The zone comes off the injected provider, never off the machine: this assertion has to
+        // mean the same thing on the build runner as on the operator's laptop.
+        using TempWorkspace harness = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 17, 8, 17, 34, TimeSpan.Zero));
+        time.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("test-plus-two", TimeSpan.FromHours(2), "+02", "+02"));
+
+        string path = Writer(harness.Root, time: time).Write(Plan());
+
+        Path.GetFileName(path).ShouldBe("retro-20260817-101734.md");
     }
 
     [Fact]
@@ -110,12 +131,17 @@ public sealed class RetrospectiveWorkOrderTests
             .Message.ShouldContain("outside the harness repository");
     }
 
-    private static RetrospectiveWriter Writer(string harnessRepoPath, string workOrderDirectory = "docs/retrospectives") =>
-        new(TempWorkspace.Wrap(new RetrospectiveOptions
-        {
-            HarnessRepoPath = harnessRepoPath,
-            WorkOrderDirectory = workOrderDirectory,
-        }));
+    private static RetrospectiveWriter Writer(
+        string harnessRepoPath,
+        string workOrderDirectory = "docs/retrospectives",
+        TimeProvider? time = null) =>
+        new(
+            TempWorkspace.Wrap(new RetrospectiveOptions
+            {
+                HarnessRepoPath = harnessRepoPath,
+                WorkOrderDirectory = workOrderDirectory,
+            }),
+            timeProvider: time);
 
     private static ReviewActionPlan Plan() =>
         new(

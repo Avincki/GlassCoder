@@ -487,7 +487,7 @@ public sealed class RetrospectiveSurfaceTests
         public string Write(ReviewActionPlan plan)
         {
             Written = plan;
-            return "C:/glasscoder/docs/retrospectives/retro-216360bf-19700101-000000.md";
+            return "C:/glasscoder/docs/retrospectives/retro-19700101-000000.md";
         }
     }
 }

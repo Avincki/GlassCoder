@@ -360,6 +360,30 @@ public sealed class RetrospectiveTests
     }
 
     [Fact]
+    public async Task The_reports_folder_is_named_by_the_local_clock()
+    {
+        // Same clock as the work order beside it, and the one the operator was looking at when
+        // they took the retrospective. The zone comes off the injected provider rather than the
+        // machine, so this says the same thing wherever it runs.
+        using TempWorkspace workspace = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 23, 30, 0, TimeSpan.Zero));
+        time.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("test-plus-two", TimeSpan.FromHours(2), "+02", "+02"));
+
+        await Reviewer(Probed().Enqueue(0, Report("A look.")), workspace, time: time).ReviewAsync(Request());
+
+        System.IO.Directory
+            .GetDirectories(Path.Combine(workspace.Root, ".glasscoder", "retrospectives"))
+            .Select(Path.GetFileName)
+            .ShouldBe(["20260812-013000"]);
+
+        // The front matter stays UTC: the name is for a person reading a listing, the field is
+        // for a machine reading an instant, and they are not the same job.
+        File.ReadAllText(Path.Combine(
+            workspace.Root, ".glasscoder", "retrospectives", "20260812-013000", "1-code.md"))
+            .ShouldContain("2026-08-11T23:30:00Z");
+    }
+
+    [Fact]
     public async Task A_retrospective_written_under_the_old_run_id_layout_still_loads()
     {
         // Four of these existed when the naming changed. A rehydration that only understands

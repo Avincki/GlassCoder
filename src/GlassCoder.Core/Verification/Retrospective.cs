@@ -1034,9 +1034,11 @@ public sealed class RetrospectiveWriter : IRetrospectiveWriter
         }
 
         Directory.CreateDirectory(directory);
+        // Local, and through the provider rather than DateTimeOffset.ToLocalTime(), so the clock
+        // and the zone are both the injected one and a test does not depend on where it runs.
         string path = Path.Combine(
             directory,
-            ReviewActionFile.SuggestRetrospectiveFileName(plan.RunId ?? plan.File, _time.GetUtcNow()));
+            ReviewActionFile.SuggestRetrospectiveFileName(_time.GetLocalNow()));
 
         File.WriteAllText(path, ReviewActionFile.Render(plan), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         _logger.LogInformation("Wrote a retrospective work order with {Count} item(s) to {Path}", plan.Items.Count, path);

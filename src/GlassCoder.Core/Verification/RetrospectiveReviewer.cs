@@ -446,10 +446,23 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     private string Directory(DateTimeOffset takenAt) =>
         Path.Combine(Root(), FolderName(takenAt));
 
-    /// <summary>UTC, like <c>ReviewActionFile.SuggestRetrospectiveFileName</c>, so a work order and
-    /// the reports it came out of carry the same timestamp.</summary>
-    private static string FolderName(DateTimeOffset takenAt) =>
-        takenAt.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// Local, like <c>ReviewActionFile.SuggestRetrospectiveFileName</c>, so a work order and the
+    /// reports it came out of carry the same timestamp - and so both match the clock the person
+    /// who took the retrospective was looking at. Through <c>TimeProvider.LocalTimeZone</c> rather
+    /// than <c>ToLocalTime()</c>, because the zone is part of what a test gets to control.
+    /// <para>
+    /// The cost of a local name is that text order stops being instant order across a
+    /// daylight-saving fall-back, and that folders written in UTC before this changed sort
+    /// against local ones as if they were the offset later. <c>Load</c> reads the run id out of
+    /// the front matter and only uses the name to prefer the newer of two matches, so the worst
+    /// either can do is offer the wrong one of two retrospectives of the same run taken within
+    /// the offset of each other.
+    /// </para>
+    /// </summary>
+    private string FolderName(DateTimeOffset takenAt) =>
+        TimeZoneInfo.ConvertTime(takenAt, _time.LocalTimeZone)
+            .ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The directory holding a run's most recent retrospective, or null when it has none.

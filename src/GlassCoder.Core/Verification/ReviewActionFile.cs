@@ -300,27 +300,24 @@ public static partial class ReviewActionFile
     }
 
     /// <summary>
-    /// The file name a retrospective's work order is offered under. The run id is shortened the
-    /// way the transcript and the log lines shorten it, so the same eight characters identify the
-    /// run everywhere a person reads it.
+    /// The file name a retrospective's work order is offered under: when it was taken, and
+    /// nothing else.
+    /// <para>
+    /// The run id used to lead the timestamp. It was eight characters of hexadecimal that no
+    /// reader could date, order or recognise, and the file says which run it is about three
+    /// times over - <c>runId</c> and <c>file</c> in its own front matter, and the heading on its
+    /// first line - so the name was carrying a fact the file already carries better.
+    /// </para>
+    /// <para>
+    /// <paramref name="when"/> is formatted in whatever offset it arrives in, so the caller
+    /// chooses the clock. The callers pass local time: this name is read by a person looking at
+    /// a directory listing beside the wall clock they took the retrospective by, and a UTC name
+    /// is an hour or two adrift of that for most of the world.
+    /// </para>
     /// </summary>
-    /// <param name="runId">The run the recommendations came out of.</param>
-    /// <param name="when">When the work order was written.</param>
-    public static string SuggestRetrospectiveFileName(string runId, DateTimeOffset when)
-    {
-        ArgumentNullException.ThrowIfNull(runId);
-
-        string trimmed = runId.Trim();
-        string name = trimmed.Length == 0 ? "run" : trimmed.Length <= 8 ? trimmed : trimmed[..8];
-        foreach (char invalid in Path.GetInvalidFileNameChars())
-        {
-            name = name.Replace(invalid, '-');
-        }
-
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"retro-{name}-{when.UtcDateTime:yyyyMMdd-HHmmss}.md");
-    }
+    /// <param name="when">When the work order was written, in the offset it should be named for.</param>
+    public static string SuggestRetrospectiveFileName(DateTimeOffset when) =>
+        string.Create(CultureInfo.InvariantCulture, $"retro-{when:yyyyMMdd-HHmmss}.md");
 
     private static ReviewActionPriority ParsePriority(string value) =>
         Enum.TryParse(value, ignoreCase: true, out ReviewActionPriority priority)

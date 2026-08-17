@@ -9,6 +9,40 @@ do, because those are what a later session cannot cheaply rediscover.
 
 ---
 
+## 2026-08-17 (later) — A retrospective is named for when it was taken, on the operator's clock
+
+Reported from use, and both halves are about who the name is for.
+
+**The run id is out of the work order's file name.** `retro-4bf2eaeb-20260817-083729.md` is now
+`retro-20260817-083729.md`. Those eight characters of hexadecimal were the one part of the name a
+reader could not date, order or recognise, and the file says which run it judged three times over —
+`runId:` and `file:` in its own front matter, and the heading on its first line. The reports folder
+had already dropped it for the same reason on 2026-08-11; the file beside it had not.
+
+**Both timestamps are local now.** The folder (`.glasscoder/retrospectives/20260817-101734`) and
+the work order agree, and both read as the wall clock the operator took the retrospective by rather
+than an hour or two adrift of it. Taken through `TimeProvider.GetLocalNow()` and
+`TimeProvider.LocalTimeZone`, never `DateTimeOffset.ToLocalTime()`: the zone is then part of what a
+test controls, so the two new cases assert a `+02:00` name from a UTC instant and mean the same
+thing on any machine. `FakeTimeProvider` defaults its zone to UTC, so every existing folder-naming
+test still asserts exactly what it did.
+
+**Decided: the front matter stays UTC.** `takenAt:` and `reviewedAt:` are instants a machine reads
+back; the name is a label a person reads in a listing. One change, one audience — mixing them would
+have made the file disagree with itself.
+
+**The cost, written down rather than discovered later.** A local name stops sorting as instant order
+across a daylight-saving fall-back, and folders written in UTC before today sort against local ones
+as if they were the offset later. `Load` keys on the run id in the front matter and only uses the
+name to prefer the newer of two matches, so the worst either can do is offer the wrong one of two
+retrospectives of the same run taken within two hours of each other.
+
+Existing files are left as they are — history is what those names record. `ReviewActionFile.SuggestFileName`,
+which names a *file review's* output in the workspace, still stamps UTC; it was not in the report and
+is untouched.
+
+---
+
 ## 2026-08-17 — The counter that watched the tool the model was told not to call
 
 Run `d92c189b`'s first High item, unimplemented until now, and run `4bf2eaeb` is what it cost to
