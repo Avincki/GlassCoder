@@ -1055,6 +1055,24 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>Enumerates one directory into sorted nodes, skipping what the deny globs hide.</summary>
+    /// <summary>
+    /// Makes one node, open or closed as its path deserves.
+    /// <para>
+    /// Directories open by default, which is what makes the pane show which file a run touched
+    /// rather than one row per top-level folder. The retrospectives directory is the exception:
+    /// it holds one folder per retrospective ever taken and grows by one every time somebody
+    /// presses the button, so left open it is a wall of timestamps between the operator and the
+    /// source they came here to watch. It is also the one folder whose children are reached by
+    /// double-clicking rather than by reading, so opening it shows nothing that expanding it
+    /// would not.
+    /// </para>
+    /// </summary>
+    private FileNodeViewModel Node(string name, string path, bool isDirectory) =>
+        new(name, path, isDirectory)
+        {
+            IsExpanded = isDirectory && !string.Equals(path, _retrospectives, StringComparison.OrdinalIgnoreCase),
+        };
+
     private List<FileNodeViewModel> BuildChildren(
         DirectoryInfo directory, string relative, Dictionary<string, FileNodeViewModel> index)
     {
@@ -1083,7 +1101,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
                     continue;
                 }
 
-                FileNodeViewModel node = new(entry.Name, path, isDirectory: true);
+                FileNodeViewModel node = Node(entry.Name, path, isDirectory: true);
                 foreach (FileNodeViewModel grandChild in BuildChildren(child, path, index))
                 {
                     node.Children.Add(grandChild);
@@ -1094,7 +1112,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
             }
             else if (_denied is null || !_denied.Match(path).HasMatches)
             {
-                FileNodeViewModel node = new(entry.Name, path, isDirectory: false);
+                FileNodeViewModel node = Node(entry.Name, path, isDirectory: false);
                 index[path] = node;
                 files.Add(node);
             }
@@ -1366,7 +1384,7 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
 
             if (!_nodesByPath.TryGetValue(relative, out node))
             {
-                node = new FileNodeViewModel(segments[i], relative, isDirectory: !last || !isFile);
+                node = Node(segments[i], relative, isDirectory: !last || !isFile);
                 _nodesByPath[relative] = node;
                 Insert(siblings, node);
             }

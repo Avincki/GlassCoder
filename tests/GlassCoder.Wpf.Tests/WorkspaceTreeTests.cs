@@ -37,6 +37,27 @@ public sealed class WorkspaceTreeTests
         file.ShouldBeFalse();
     }
 
+    [Fact]
+    public void The_retrospectives_folder_starts_closed()
+    {
+        // The one folder that grows by a subfolder every time a button is pressed. Left open it is
+        // a wall of timestamps above the source the pane exists to show - and its children are
+        // reached by double-clicking one, so opening it offers nothing expanding it would not.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/Program.cs", "class P { }");
+        workspace.WriteFile(".glasscoder/retrospectives/20260817-091459/1-code.md", "# The code");
+        workspace.WriteFile(".glasscoder/retrospectives/20260819-101500/1-code.md", "# The code");
+
+        (bool Retrospectives, bool Parent, bool One) open = Over(workspace, (_, tree) => (
+            Node(tree, ".glasscoder/retrospectives").ShouldNotBeNull().IsExpanded,
+            Node(tree, ".glasscoder").ShouldNotBeNull().IsExpanded,
+            Node(tree, ".glasscoder/retrospectives/20260817-091459").ShouldNotBeNull().IsExpanded));
+
+        open.Retrospectives.ShouldBeFalse();
+        open.Parent.ShouldBeTrue("its parent still opens, so the closed folder is visible to click");
+        open.One.ShouldBeTrue("only the folder holding them is closed, not each retrospective");
+    }
+
     /// <summary>
     /// The case that prompted this: <c>dotnet new</c> writes three files and the change log
     /// records one, so the other two existed on disk and nowhere on screen.
