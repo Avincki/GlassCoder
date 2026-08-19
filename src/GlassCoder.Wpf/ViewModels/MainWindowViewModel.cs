@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Verification;
+using GlassCoder.Models;
+using GlassCoder.Models.Configuration;
 using GlassCoder.Tools.Registry;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
@@ -25,13 +28,25 @@ namespace GlassCoder.Wpf.ViewModels;
 /// </remarks>
 public sealed class MainWindowViewModel : ViewModelBase, IDisposable
 {
+    /// <summary>
+    /// Ceiling on one header lookup, whatever the role's own timeout is. Four seconds because
+    /// this runs while somebody is waiting for a window: a closed port answers instantly, and
+    /// anything slower than this is a server that will not be ready for the run either.
+    /// </summary>
+    private static readonly TimeSpan ModelQueryTimeout = TimeSpan.FromSeconds(4);
+
     private readonly IAgentLoop _loop;
     private readonly ISettingsDialog _settings;
     private readonly IAboutDialog _about;
     private readonly ICriticPanel _critics;
     private readonly IRunReviewer _reviewer;
     private readonly CritiqueOptions _critique;
+    private readonly IServedModelDirectory _directory;
+    private readonly ModelsOptions _models;
+    private readonly AgentOptions _agent;
     private readonly IUiStateStore? _uiState;
+    private bool _describingModels;
+    private string _modelsCheckedAt = string.Empty;
     private object? _currentView;
     private string _selectedSurface = "Transcript";
     private string _goal = string.Empty;
@@ -60,10 +75,15 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         ICriticPanel critics,
         IRunReviewer reviewer,
         IOptions<CritiqueOptions> critique,
+        IServedModelDirectory directory,
+        IOptions<ModelsOptions> models,
+        IOptions<AgentOptions> agent,
         IUiStateStore? uiState = null,
         LimitExtensionGate? limitGate = null)
     {
         ArgumentNullException.ThrowIfNull(critique);
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(agent);
 
         _loop = loop;
         _settings = settings;
@@ -71,6 +91,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         _critics = critics;
         _reviewer = reviewer;
         _critique = critique.Value;
+        _directory = directory;
+        _models = models.Value;
+        _agent = agent.Value;
         _uiState = uiState;
         _dispatcher = Dispatcher.CurrentDispatcher;
 
@@ -102,6 +125,9 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         DismissReviewCommand = new RelayCommand(() => Review = null, () => Review is not null);
         ExtendLimitCommand = new RelayCommand(() => ResolveLimit(true), () => HasLimitPrompt);
         StopAtLimitCommand = new RelayCommand(() => ResolveLimit(false), () => HasLimitPrompt);
+        RecheckModelsCommand = new RelayCommand(
+            async () => await DescribeModelsAsync().ConfigureAwait(true),
+            () => !_describingModels);
 
         // Status opens at "Ready." and nothing more. It used to open with the whole tool list,
         // which wrapped to two lines of a one-line surface and was gone the moment anything
@@ -248,8 +274,44 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     public bool UseRemoteCritic
     {
         get => _useRemoteCritic;
-        set => SetProperty(ref _useRemoteCritic, value);
+        set
+        {
+            if (SetProperty(ref _useRemoteCritic, value))
+            {
+                // Ticking the box changes which models the run will address, so it changes what
+                // the header band is describing. This is also the only moment a hosted critic is
+                // asked anything: querying it at startup would send the key to a vendor on every
+                // launch, whether or not the second opinion was ever wanted.
+                _ = DescribeModelsAsync();
+            }
+        }
     }
+
+    /// <summary>
+    /// What this run will actually talk to: one row per role in the roster, with whatever the
+    /// server said is behind each alias (workplan task 77).
+    /// <para>
+    /// The roster is the roles the run will address, not every role in the configuration - the
+    /// agent's, and the critic's when critique is on. A settings mirror would be a second, lossier
+    /// copy of a dialog that already exists; this answers the narrower question the header is the
+    /// right place for, which is what happens when Run is pressed.
+    /// </para>
+    /// </summary>
+    public ObservableCollection<ModelIdentityViewModel> Models { get; } = [];
+
+    /// <summary>
+    /// When the band was last filled in. Shown rather than implied, because the answer is a
+    /// snapshot: a server restarted onto different weights leaves the band asserting the old ones
+    /// until it is asked again.
+    /// </summary>
+    public string ModelsCheckedAt
+    {
+        get => _modelsCheckedAt;
+        private set => SetProperty(ref _modelsCheckedAt, value);
+    }
+
+    /// <summary>Asks the roster again. The answer is a snapshot, so refreshing it is a button.</summary>
+    public RelayCommand RecheckModelsCommand { get; }
 
     /// <summary>Whether the second-opinion critic can be offered at all.</summary>
     public bool RemoteCriticAvailable =>
@@ -437,6 +499,60 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Fills the header band in: one directory lookup per role in the roster, in parallel.
+    /// <para>
+    /// Deliberately not <see cref="IModelConnectionProbe"/>. That check ends in a real completion,
+    /// which is right for a button somebody pressed and wrong for anything that runs unasked - it
+    /// would write a prompt into the server's logs and metrics on every launch, and on a cold
+    /// server it would take most of a minute to do it.
+    /// </para>
+    /// </summary>
+    /// <remarks>
+    /// Nothing in here may throw. A model server that is not running is the ordinary state at
+    /// startup, and a band that says "not available" is this working rather than failing.
+    /// </remarks>
+    public async Task DescribeModelsAsync(CancellationToken cancellationToken = default)
+    {
+        if (_describingModels)
+        {
+            return;
+        }
+
+        _describingModels = true;
+
+        try
+        {
+            List<(ModelIdentityViewModel Row, ModelRoleOptions Settings)> rows = [];
+
+            // Rebuilt rather than patched: the roster itself changes when the second opinion is
+            // ticked, so the rows are a function of it and not a list to keep in sync with it.
+            Models.Clear();
+            ModelsCheckedAt = string.Empty;
+
+            foreach ((string role, ModelRoleOptions settings) in Roster())
+            {
+                ModelIdentityViewModel row = new(role, settings.ModelAlias);
+                Models.Add(row);
+                rows.Add((row, settings));
+            }
+
+            await Task.WhenAll(rows.Select(entry => DescribeRoleAsync(entry.Row, entry.Settings, cancellationToken)))
+                .ConfigureAwait(true);
+
+            ModelsCheckedAt = $"checked {DateTimeOffset.Now.ToString("HH:mm", CultureInfo.CurrentCulture)}";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The band is a readout, not a gate. Whatever went wrong here, the window opens.
+            ModelsCheckedAt = "could not be checked";
+        }
+        finally
+        {
+            _describingModels = false;
+        }
+    }
+
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()
     {
@@ -459,6 +575,65 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         {
             Status = "Settings saved. Restart GlassCoder for them to take effect.";
         }
+    }
+
+    /// <summary>
+    /// The roles this run will address, in the order they act: the agent's, the critic's when
+    /// critique is on, and the second opinion's only once it has been asked for.
+    /// <para>
+    /// Roles the configuration does not define are skipped rather than reported. The harness
+    /// already refuses to start on an agent or critique role that is missing
+    /// (<c>GlassCoderSettings.Validate</c>), so a gap here would be a row that can only ever say
+    /// the same thing startup already said louder.
+    /// </para>
+    /// </summary>
+    private List<(string Role, ModelRoleOptions Settings)> Roster()
+    {
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        List<(string, ModelRoleOptions)> roster = [];
+
+        void Add(string? role)
+        {
+            if (!string.IsNullOrWhiteSpace(role) &&
+                seen.Add(role) &&
+                _models.Roles.TryGetValue(role, out ModelRoleOptions? settings))
+            {
+                roster.Add((role, settings));
+            }
+        }
+
+        Add(_agent.Role);
+
+        if (_critique.Enabled)
+        {
+            Add(_critique.Role);
+        }
+
+        if (UseRemoteCritic)
+        {
+            Add(_critique.RemoteRole);
+        }
+
+        return roster;
+    }
+
+    /// <summary>Asks one role's endpoint what it serves, and hands the row the answer.</summary>
+    private async Task DescribeRoleAsync(
+        ModelIdentityViewModel row,
+        ModelRoleOptions settings,
+        CancellationToken cancellationToken)
+    {
+        // A role that declares it needs a key and has none would fail on the wire in a way that
+        // reads as "the server is down". Said plainly instead, without the call.
+        if (!settings.IsUsable)
+        {
+            row.Unusable();
+            return;
+        }
+
+        row.Describe(
+            settings,
+            await _directory.ListAsync(settings, ModelQueryTimeout, cancellationToken).ConfigureAwait(true));
     }
 
     /// <summary>

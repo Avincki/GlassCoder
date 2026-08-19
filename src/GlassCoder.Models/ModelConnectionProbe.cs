@@ -1,9 +1,6 @@
 using System.ClientModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.Net;
-using System.Net.Http.Headers;
-using System.Text.Json;
 using Anthropic;
 using Anthropic.Exceptions;
 using GlassCoder.Models.Configuration;
@@ -34,8 +31,27 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
     /// </summary>
     private const int MaxProbeSeconds = 30;
 
-    private readonly HttpClient _http = new();
+    private readonly IServedModelDirectory _directory;
+    private readonly bool _ownsDirectory;
     private bool _disposed;
+
+    /// <summary>Creates a probe that owns its own directory. What a test or a console tool wants.</summary>
+    public ModelConnectionProbe()
+        : this(new ServedModelDirectory(), ownsDirectory: true)
+    {
+    }
+
+    /// <summary>Creates a probe over the container's directory, so both share one parser and one socket pool.</summary>
+    public ModelConnectionProbe(IServedModelDirectory directory)
+        : this(directory, ownsDirectory: false)
+    {
+    }
+
+    private ModelConnectionProbe(IServedModelDirectory directory, bool ownsDirectory)
+    {
+        _directory = directory;
+        _ownsDirectory = ownsDirectory;
+    }
 
     /// <inheritdoc />
     public async Task<ConnectionCheckResult> CheckAsync(
@@ -62,11 +78,14 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         TimeSpan timeout = TimeSpan.FromSeconds(Math.Min(Math.Max(settings.TimeoutSeconds, 1), MaxProbeSeconds));
         string? apiKey = settings.ResolveApiKey();
 
-        steps.Add(await ListModelsAsync(settings, apiKey, served, timeout, cancellationToken).ConfigureAwait(false));
+        long listing = Stopwatch.GetTimestamp();
+        ServedModelList list = await _directory.ListAsync(settings, timeout, cancellationToken).ConfigureAwait(false);
+        served.AddRange(list.Models.Select(model => model.Alias));
+        steps.Add(DescribeList(list, apiKey, timeout, listing));
 
         if (steps[^1].Outcome != ConnectionCheckOutcome.Failed && served.Count > 0)
         {
-            steps.Add(CheckAlias(settings, served));
+            steps.Add(CheckAlias(settings, list));
         }
 
         if (steps[^1].Outcome != ConnectionCheckOutcome.Failed)
@@ -86,7 +105,13 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         }
 
         _disposed = true;
-        _http.Dispose();
+
+        // Only what this instance created. Disposing the container's singleton because a
+        // transient probe went out of scope would take the next caller's sockets with it.
+        if (_ownsDirectory && _directory is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 
     /// <summary>
@@ -110,106 +135,71 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
                 0);
     }
 
-    private async Task<ConnectionCheckStep> ListModelsAsync(
-        ModelRoleOptions settings,
-        string? apiKey,
-        List<string> served,
-        TimeSpan timeout,
-        CancellationToken cancellationToken)
-    {
-        long started = Stopwatch.GetTimestamp();
-
-        // The two transports keep their model lists in different places: /models next to an
-        // OpenAI endpoint that already ends in /v1, /v1/models under an Anthropic host root.
-        Uri url = new(settings.Endpoint.TrimEnd('/') +
-            (settings.Transport == ModelTransport.Anthropic ? "/v1/models" : "/models"));
-
-        using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(timeout);
-
-        try
+    /// <summary>Turns what the directory found into the step the dialog shows.</summary>
+    private static ConnectionCheckStep DescribeList(ServedModelList list, string? apiKey, TimeSpan timeout, long started) =>
+        list.Outcome switch
         {
-            using HttpRequestMessage request = new(HttpMethod.Get, url);
-            if (settings.Transport == ModelTransport.Anthropic)
-            {
-                // Anthropic-style auth is a header pair, not a bearer token.
-                request.Headers.Add("anthropic-version", "2023-06-01");
-                if (!string.IsNullOrEmpty(apiKey))
-                {
-                    request.Headers.Add("x-api-key", apiKey);
-                }
-            }
-            else if (!string.IsNullOrEmpty(apiKey))
-            {
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-            }
+            ServedModelListOutcome.Unauthorized => Step(
+                "Server",
+                ConnectionCheckOutcome.Failed,
+                $"The server answered {list.StatusCode}: it rejected the API key. " +
+                (string.IsNullOrEmpty(apiKey) ? "No key is configured for this role." : "Check the key for this role."),
+                started),
 
-            using HttpResponseMessage response = await _http
-                .SendAsync(request, HttpCompletionOption.ResponseContentRead, limit.Token)
-                .ConfigureAwait(false);
+            // Plenty of local servers implement chat completions and nothing else. That is not a
+            // failure - the completion step below is the one that decides.
+            ServedModelListOutcome.Refused => Step(
+                "Server",
+                ConnectionCheckOutcome.Warning,
+                $"The server answered {list.StatusCode} for {list.Url}, so its served aliases could not be listed.",
+                started),
 
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            {
-                return Step(
-                    "Server",
-                    ConnectionCheckOutcome.Failed,
-                    $"The server answered {(int)response.StatusCode} {response.StatusCode}: it rejected the API key. " +
-                    (string.IsNullOrEmpty(apiKey) ? "No key is configured for this role." : "Check the key for this role."),
-                    started);
-            }
+            ServedModelListOutcome.Unreachable => Step(
+                "Server",
+                ConnectionCheckOutcome.Failed,
+                $"Could not reach {list.Url}: {list.Error} " +
+                "Check that the model server is running and serving this endpoint.",
+                started),
 
-            if (!response.IsSuccessStatusCode)
-            {
-                // Plenty of local servers implement chat completions and nothing else. That is
-                // not a failure - the completion step below is the one that decides.
-                return Step(
-                    "Server",
-                    ConnectionCheckOutcome.Warning,
-                    $"The server answered {(int)response.StatusCode} {response.StatusCode} for /models, " +
-                    "so its served aliases could not be listed.",
-                    started);
-            }
-
-            served.AddRange(ParseModelIds(await response.Content.ReadAsStringAsync(limit.Token).ConfigureAwait(false)));
-
-            return Step(
+            _ => Step(
                 "Server",
                 ConnectionCheckOutcome.Ok,
-                served.Count > 0
-                    ? $"Reachable, serving {served.Count} alias(es): {string.Join(", ", served)}."
+                list.Models.Count > 0
+                    ? $"Reachable, serving {list.Models.Count} alias(es): " +
+                      $"{string.Join(", ", list.Models.Select(model => model.Alias))}."
                     : "Reachable, but it listed no served aliases.",
-                started);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return Step(
-                "Server",
-                ConnectionCheckOutcome.Failed,
-                $"No answer from {url} within {timeout.TotalSeconds:F0} seconds.",
-                started);
-        }
-        catch (HttpRequestException ex)
-        {
-            return Step(
-                "Server",
-                ConnectionCheckOutcome.Failed,
-                $"Could not reach {url}: {ex.Message} Check that the model server is running and serving this endpoint.",
-                started);
-        }
-    }
+                started),
+        };
 
-    private static ConnectionCheckStep CheckAlias(ModelRoleOptions settings, List<string> served)
+    /// <summary>
+    /// Whether the alias this role addresses is one the server actually serves - and, when the
+    /// server volunteered it, what is behind that alias. The checkpoint is reported and nothing
+    /// more: it tells the operator which weights answered, and the harness still addresses only
+    /// the alias (CLAUDE.md §19).
+    /// </summary>
+    private static ConnectionCheckStep CheckAlias(ModelRoleOptions settings, ServedModelList list)
     {
-        bool present = served.Contains(settings.ModelAlias, StringComparer.OrdinalIgnoreCase);
+        if (list.Find(settings.ModelAlias) is not { } served)
+        {
+            return new ConnectionCheckStep(
+                "Alias",
+                ConnectionCheckOutcome.Warning,
+                $"'{settings.ModelAlias}' is not in the served list " +
+                $"({string.Join(", ", list.Models.Select(model => model.Alias))}). " +
+                "Address a served alias - serving topology lives below the seam.",
+                0);
+        }
 
-        return new ConnectionCheckStep(
-            "Alias",
-            present ? ConnectionCheckOutcome.Ok : ConnectionCheckOutcome.Warning,
-            present
-                ? $"'{settings.ModelAlias}' is served."
-                : $"'{settings.ModelAlias}' is not in the served list ({string.Join(", ", served)}). " +
-                  "Address a served alias - serving topology lives below the seam.",
-            0);
+        string detail = served.Identity is { } identity
+            ? $"'{settings.ModelAlias}' is served by {identity}."
+            : $"'{settings.ModelAlias}' is served; the server did not report a checkpoint.";
+
+        if (served.MaxContextTokens is { } context)
+        {
+            detail += string.Create(CultureInfo.InvariantCulture, $" Context {context:N0} tokens.");
+        }
+
+        return new ConnectionCheckStep("Alias", ConnectionCheckOutcome.Ok, detail, 0);
     }
 
     private static async Task<ConnectionCheckStep> CompleteAsync(
@@ -312,39 +302,6 @@ public sealed class ModelConnectionProbe : IModelConnectionProbe, IDisposable
         return new OpenAIClient(new ApiKeyCredential(apiKey ?? "local-no-auth"), clientOptions)
             .GetChatClient(settings.ModelAlias)
             .AsIChatClient();
-    }
-
-    /// <summary>Reads the <c>data[].id</c> aliases out of an OpenAI-shaped model list.</summary>
-    private static List<string> ParseModelIds(string json)
-    {
-        List<string> ids = [];
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(json);
-            if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                !document.RootElement.TryGetProperty("data", out JsonElement data) ||
-                data.ValueKind != JsonValueKind.Array)
-            {
-                return ids;
-            }
-
-            foreach (JsonElement entry in data.EnumerateArray())
-            {
-                if (entry.ValueKind == JsonValueKind.Object &&
-                    entry.TryGetProperty("id", out JsonElement id) &&
-                    id.ValueKind == JsonValueKind.String)
-                {
-                    ids.Add(id.GetString()!);
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // Something answered but it was not a model list. The completion step decides.
-        }
-
-        return ids;
     }
 
     private static ConnectionCheckResult Report(

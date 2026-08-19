@@ -14,5 +14,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+
+        // The header band asks the model servers what they are serving. Here rather than in the
+        // constructor or in OnStartup because it must not delay the window by a single frame: the
+        // usual answer is "not available", and waiting on a closed port to say so would make a
+        // model server that is not running into a slow launch. What is asked stays in the view
+        // model - this only says when (CLAUDE.md §14).
+        Loaded += (_, _) => _ = viewModel.DescribeModelsAsync();
     }
 }

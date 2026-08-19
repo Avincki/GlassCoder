@@ -68,6 +68,38 @@ public sealed class ConnectionOutcomeToBrushConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+/// <summary>
+/// The same three-way outcome, coloured for the shell's dark header rather than the dialog's
+/// light background.
+/// <para>
+/// A second converter rather than a parameter on the first, because the two palettes share no
+/// colours: <see cref="ConnectionOutcomeToBrushConverter"/>'s greens and reds are chosen to be
+/// legible on white and are close to invisible on <c>#1F2933</c>. What is shared is the meaning -
+/// amber is a warning in both windows - and that is the part worth keeping consistent.
+/// </para>
+/// </summary>
+public sealed class ChromeOutcomeToBrushConverter : IValueConverter
+{
+    private static readonly SolidColorBrush Ok = new(Color.FromRgb(0xCF, 0xD8, 0xDC));
+    private static readonly SolidColorBrush Warning = new(Color.FromRgb(0xFF, 0xB7, 0x4D));
+    private static readonly SolidColorBrush Failed = new(Color.FromRgb(0xEF, 0x9A, 0x9A));
+    private static readonly SolidColorBrush Unknown = new(Color.FromRgb(0x78, 0x90, 0x9C));
+
+    /// <inheritdoc />
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value switch
+        {
+            ConnectionCheckOutcome.Ok => Ok,
+            ConnectionCheckOutcome.Warning => Warning,
+            ConnectionCheckOutcome.Failed => Failed,
+            _ => Unknown,
+        };
+
+    /// <inheritdoc />
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 /// <summary>Shows an element only when a bound flag is false - the other half of a toggle.</summary>
 public sealed class InverseBooleanToVisibilityConverter : IValueConverter
 {

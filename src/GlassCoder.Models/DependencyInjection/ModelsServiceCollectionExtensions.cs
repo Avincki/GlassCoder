@@ -24,6 +24,10 @@ public static class ModelsServiceCollectionExtensions
 
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ModelsOptions>, ModelsOptionsValidator>());
         services.TryAddSingleton<IChatClientFactory, ChatClientFactory>();
+
+        // Singleton, and registered before the probe: both ask the same endpoints, and the probe
+        // takes this one rather than building a second parser and a second socket pool.
+        services.TryAddSingleton<IServedModelDirectory, ServedModelDirectory>();
         services.TryAddSingleton<IModelConnectionProbe, ModelConnectionProbe>();
 
         return services;

@@ -52,6 +52,17 @@ public sealed class FakeOpenAiServer : IDisposable
     /// <summary>Aliases <c>GET /v1/models</c> reports as served.</summary>
     public List<string> ServedModels { get; } = ["worker"];
 
+    /// <summary>
+    /// What <c>GET /v1/models</c> reports as <c>data[].root</c> for every alias - the checkpoint
+    /// the alias was served from. Null omits the field entirely, which is the shape of a server
+    /// that does not volunteer it, and the case worth testing separately from a server that is
+    /// simply down.
+    /// </summary>
+    public string? ServedCheckpoint { get; set; }
+
+    /// <summary>What <c>GET /v1/models</c> reports as <c>data[].max_model_len</c>. Null omits it.</summary>
+    public int? ServedContextTokens { get; set; }
+
     /// <summary>Status <c>GET /v1/models</c> answers with. Set it to 401 to fake a rejected key.</summary>
     public int ModelsStatusCode { get; set; } = 200;
 
@@ -232,7 +243,27 @@ public sealed class FakeOpenAiServer : IDisposable
         {
             foreach (string id in ServedModels)
             {
-                data.Add(new { id, @object = "model", created = 1, owned_by = "glasscoder-tests" });
+                // Built as a dictionary rather than an anonymous type so the optional fields can
+                // be genuinely absent. Serialising them as null would be a different response.
+                Dictionary<string, object> card = new(StringComparer.Ordinal)
+                {
+                    ["id"] = id,
+                    ["object"] = "model",
+                    ["created"] = 1,
+                    ["owned_by"] = "glasscoder-tests",
+                };
+
+                if (ServedCheckpoint is { } checkpoint)
+                {
+                    card["root"] = checkpoint;
+                }
+
+                if (ServedContextTokens is { } context)
+                {
+                    card["max_model_len"] = context;
+                }
+
+                data.Add(card);
             }
         }
 

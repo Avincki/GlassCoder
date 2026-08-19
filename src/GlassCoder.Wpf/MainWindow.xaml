@@ -9,6 +9,7 @@
   <Window.Resources>
     <conv:BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     <conv:PromptSummaryConverter x:Key="PromptSummary" />
+    <conv:ChromeOutcomeToBrushConverter x:Key="ChromeOutcome" />
     <!-- Navigation is data-templated: selecting a surface swaps the view model, and WPF picks
          the view. No code-behind, no navigation service to keep in sync (CLAUDE.md §14). -->
     <DataTemplate DataType="{x:Type vm:TranscriptViewModel}">
@@ -38,6 +39,44 @@
            equivalent Grid ([Auto][*][Auto]) let the star column consume the buttons' width and
            push them off the right edge. -->
       <DockPanel LastChildFill="True">
+        <!-- What this run will actually talk to. Docked to the bottom of the header and declared
+             first, so it reserves a strip the full width of the window before the brand and the
+             button column take their sides - a left column wide enough for a checkpoint path
+             would starve the goal box exactly as the buttons once were.
+
+             On the header rather than behind a hover because it is the fact that changes how
+             every number on the Metrics surface reads: capability is model x harness x context,
+             and until this band the window could only ever name the harness. -->
+        <Border DockPanel.Dock="Bottom" BorderBrush="#37474F" BorderThickness="0,1,0,0"
+                Margin="0,10,0,0" Padding="0,8,0,0">
+          <DockPanel LastChildFill="True">
+            <TextBlock DockPanel.Dock="Right" Text="{Binding ModelsCheckedAt}" FontSize="11"
+                       Foreground="#78909C" VerticalAlignment="Center" Margin="10,0,0,0" />
+            <Button DockPanel.Dock="Right" Content="Recheck" Command="{Binding RecheckModelsCommand}"
+                    Padding="8,1" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"
+                    ToolTip="Ask the servers again. What is behind an alias can change under a running window." />
+            <ItemsControl ItemsSource="{Binding Models}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <!-- Wraps rather than trims: a role that does not fit moves to its own line,
+                       because a truncated checkpoint is worse than no checkpoint. -->
+                  <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,28,0">
+                    <TextBlock Text="{Binding Role}" FontSize="11" FontWeight="SemiBold" Foreground="White" />
+                    <TextBlock Text=" · " FontSize="11" Foreground="#546E7A" />
+                    <TextBlock Text="{Binding Description}" FontSize="11"
+                               Foreground="{Binding Outcome, Converter={StaticResource ChromeOutcome}}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </DockPanel>
+        </Border>
+
         <!-- Top-aligned: the header is now as tall as five lines of goal, so a vertically
              centred brand would float in the middle of it. -->
         <TextBlock DockPanel.Dock="Left" Text="GlassCoder" Foreground="White"

@@ -1125,3 +1125,23 @@ Making registration asynchronous is a real redesign - the registry is built duri
 Acceptance: with a configured, unreachable MCP server, the application reaches an interactive window in the time it takes without one. Depends on task 57.
 
 885 tests green, +2.
+
+## 77. The window says which model is behind the glass
+
+- [x] **Estimated time:** 1d
+
+`capability ≈ model × harness × context` is the frame every number on the Metrics surface is read through, and the window could only ever name the harness. Every run, on every checkpoint, reported the alias `worker` - which is true of every run ever done here, and therefore says nothing. A transcript from the 7B and a transcript from the Qwen3-Coder-Next are indistinguishable after the fact.
+
+The alias hides the checkpoint on purpose (§19), and that stays: swapping a model must remain a container restart, not an edit. What was missing is not configuration, it is a readout - the server already knows the answer and nothing ever asked it.
+
+- [x] **`IServedModelDirectory` split out of `IModelConnectionProbe`.** The probe's last step is a real completion, which is right for a button somebody pressed and wrong for anything that runs unasked: it writes a prompt into the server's logs and metrics on every launch, and on a cold server takes most of a minute to do it. The directory is the middle step alone - one `GET /models`, sub-second, no side effects. The probe now consumes it, so there is one parser rather than two, and the settings dialog's "Alias" step gained the checkpoint without gaining a step.
+- [x] **`data[].root` is read, and treated as volunteered rather than owed.** It is not part of the OpenAI shape - vLLM and SGLang send it, llama.cpp's server does not, and Ollama has no alias to hide so the name is already in `id`. A parser that insisted on it would report every other server as broken. `max_model_len` and Anthropic's `display_name` come from the same call.
+- [x] **The band is the run's roster, not a settings mirror.** The agent's role, and the critic's when critique is on. The second opinion joins it when the box is ticked and not before - querying a hosted role at startup would send the key to a vendor on every launch, whether or not that critic was ever wanted.
+- [x] **Five states, not two, and all of them on the header.** "The server is down" and "the server would not say" leave the same blank and have different fixes, so they get different sentences; an alias nothing serves names what is served instead. The endpoint appears exactly when it is the thing needed to fix it. Nothing is behind a hover - the fact that changes how every other number reads should not have to be discovered.
+- [x] **Display only.** Never persisted to `settings.json`, never branched on. The harness still addresses the alias and only the alias, so serving topology stays below the seam. The answer is a snapshot, so the band says when it was taken and carries the button to take it again.
+- [x] Startup cost is nil: the lookup is fired from `Loaded`, off the window's critical path, with a 4-second ceiling rather than the role's 600. A model server that is not running is the ordinary case, and it costs a line of amber rather than a slow launch.
+- [x] Tests: thirteen - the four directory outcomes against a real socket, an alias that is its own checkpoint, a display name preferred to a path, the checkpoint reaching the settings dialog, and the band's five states including a roster that drops the critic when critique is off.
+
+Acceptance: with both servers up the header reads `worker · RedHatAI/Qwen3-Coder-Next-NVFP4 · 131,072-token context` beside `critic · microsoft/phi-4 · 8,192-token context`; with them down it reads `not available` and names the port. Depends on task 37.
+
+1112 tests green, +13.
