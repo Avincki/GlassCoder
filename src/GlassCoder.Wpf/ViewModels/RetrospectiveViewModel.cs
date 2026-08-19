@@ -185,9 +185,26 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
     public string? RunId => _run?.RunId;
 
     /// <summary>The run's id, shortened the way the transcript shortens it.</summary>
-    public string RunLabel => _run is null
-        ? "No run yet"
-        : $"Run {(_run.RunId.Length <= 8 ? _run.RunId : _run.RunId[..8])} · {_run.StopReason} · {_run.Steps} steps";
+    public string RunLabel
+    {
+        get
+        {
+            if (_run is null)
+            {
+                return "No run yet";
+            }
+
+            string id = _run.RunId.Length <= 8 ? _run.RunId : _run.RunId[..8];
+
+            // A retrospective reopened from a folder written before the run's own facts were kept
+            // in it knows which run it judged and nothing else about it. "·  · 0 steps" would say
+            // that run stopped for no reason having done nothing, which is a claim, where not
+            // knowing is the truth.
+            return string.IsNullOrWhiteSpace(_run.StopReason) && _run.Steps == 0
+                ? $"Run {id}"
+                : $"Run {id} · {_run.StopReason} · {_run.Steps} steps";
+        }
+    }
 
     /// <summary>The goal that run was given, for the header.</summary>
     public string RunGoal => _run?.Goal ?? string.Empty;
@@ -349,6 +366,72 @@ public sealed class RetrospectiveViewModel : ViewModelBase, IDisposable
         {
             Status = "Ready to look back at this run.";
         }
+    }
+
+    /// <summary>
+    /// Shows a retrospective that is already on disk, read out of its own folder, as though it had
+    /// just been taken.
+    /// <para>
+    /// The operator pointed at this one, which is what separates it from the rehydration in
+    /// <see cref="OfferRun"/>. That fills the surface quietly for whichever run just ended and
+    /// deliberately opens no window, because nobody asked it anything. Here somebody double-clicked
+    /// a folder, so the proposals window opens exactly as it does when a retrospective finishes -
+    /// the question "which of these do you want" is live again, and the answer is what the button
+    /// beside it writes.
+    /// </para>
+    /// <para>
+    /// The ticks start where a fresh checklist starts, high priority marked and the rest clear.
+    /// Which items were accepted last time is not in the reports and never was: it is in the work
+    /// order that was written from them, which is a document about a decision rather than about
+    /// the run. Presenting the ticks as though they had been restored would be inventing them.
+    /// </para>
+    /// </summary>
+    /// <param name="directory">The retrospective's own folder, absolute.</param>
+    public void ShowSaved(string directory)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+
+        if (IsRunning)
+        {
+            // Replacing the surface under a retrospective in flight would leave its stages
+            // arriving into somebody else's reports.
+            Status = "A retrospective is running here. Let it finish before opening an earlier one.";
+            return;
+        }
+
+        SavedRetrospective? saved;
+        try
+        {
+            saved = _reviewer.LoadFrom(directory);
+        }
+        catch (Exception ex)
+        {
+            Status = $"Could not read that retrospective: {ex.Message}";
+            return;
+        }
+
+        if (saved is null)
+        {
+            // Nothing is cleared on the way out: a folder that holds no retrospective is not a
+            // reason to take away the one already being read.
+            Status = $"'{Path.GetFileName(Path.TrimEndingDirectorySeparator(directory))}' holds no retrospective to show.";
+            return;
+        }
+
+        // The header follows the reports. The surface is now looking back at the run this folder
+        // judged rather than at whichever one finished last, so "Take it again" re-takes this
+        // one - which is why the folder carries the run's own facts and not just its id.
+        _run = saved.Run;
+        OnPropertyChanged(nameof(RunId));
+        OnPropertyChanged(nameof(RunLabel));
+        OnPropertyChanged(nameof(RunGoal));
+        OnPropertyChanged(nameof(HasRun));
+        OnPropertyChanged(nameof(CanRun));
+        OnPropertyChanged(nameof(Tooltip));
+
+        Clear();
+        Apply(saved.Result, announce: true);
+        Status = $"Reopened the retrospective taken on {saved.Result.TakenAt.LocalDateTime:g}.";
     }
 
     private void OnRunRecorded(object? sender, RunRecord record) =>

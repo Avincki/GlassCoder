@@ -333,6 +333,54 @@ public sealed class WorkspaceTreeTests
     }
 
     /// <summary>The node at a repo-relative path, or null when the tree does not hold one.</summary>
+    // ── Opening what the tree holds ──
+
+    [Fact]
+    public void Double_clicking_a_retrospective_folder_asks_for_it_by_name()
+    {
+        // The one directory in the tree with something to open. The pane cannot reach the surface
+        // that renders it, so what it does here is say which folder was clicked and stop.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile(".glasscoder/retrospectives/20260817-091459/1-code.md", "# The code");
+
+        (bool CanOpen, string? Asked) opened = Over(workspace, (_, tree) =>
+        {
+            FileNodeViewModel folder = Node(tree, ".glasscoder/retrospectives/20260817-091459")
+                .ShouldNotBeNull();
+
+            string? asked = null;
+            tree.Workspace.RetrospectiveOpened += (_, directory) => asked = directory;
+
+            bool can = tree.Workspace.OpenFileCommand.CanExecute(folder);
+            tree.Workspace.OpenFileCommand.Execute(folder);
+            return (can, asked);
+        });
+
+        opened.CanOpen.ShouldBeTrue();
+        opened.Asked.ShouldNotBeNull().ShouldEndWith("20260817-091459");
+    }
+
+    [Fact]
+    public void Every_other_folder_still_just_expands()
+    {
+        // A command that cannot execute leaves the double-click unhandled, which is what hands it
+        // back to the TreeView's own expand. Widening this to all directories would have taken
+        // expand-on-double-click away from the whole tree.
+        using TempWorkspace workspace = new();
+        workspace.WriteFile("src/App/Program.cs", "class P { }");
+        workspace.WriteFile(".glasscoder/retrospectives/20260817-091459/1-code.md", "# The code");
+
+        (bool Ordinary, bool Root, bool Inside) can = Over(workspace, (_, tree) => (
+            tree.Workspace.OpenFileCommand.CanExecute(Node(tree, "src/App")),
+            tree.Workspace.OpenFileCommand.CanExecute(Node(tree, ".glasscoder/retrospectives")),
+            tree.Workspace.OpenFileCommand.CanExecute(
+                Node(tree, ".glasscoder/retrospectives/20260817-091459/1-code.md"))));
+
+        can.Ordinary.ShouldBeFalse("an ordinary folder opens nothing");
+        can.Root.ShouldBeFalse("the folder holding retrospectives is not one of them");
+        can.Inside.ShouldBeTrue("a report inside one is still a file, and files open in the viewer");
+    }
+
     private static FileNodeViewModel? Node(Tree tree, string path)
     {
         IReadOnlyList<FileNodeViewModel> level = tree.Workspace.RootNodes;

@@ -13,6 +13,7 @@ using GlassCoder.Core.Configuration;
 using GlassCoder.Tools.Changes;
 using GlassCoder.Tools.Execution;
 using GlassCoder.Core.Diagnostics;
+using GlassCoder.Core.Verification;
 using GlassCoder.Tools.Guardrails;
 using GlassCoder.Wpf.Mvvm;
 using GlassCoder.Wpf.Services;
@@ -172,6 +173,14 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     private readonly IReadOnlyList<string> _writableRootFiles;
     private readonly DropboxIgnoreMarker? _dropboxMarker;
     private readonly string _rootPrefix;
+
+    /// <summary>
+    /// Where retrospectives land, workspace-relative and in the tree's own slash convention, so a
+    /// node's path can be tested against it without touching the disk. Taken from the same options
+    /// the reviewer writes by, because a hardcoded copy here would be a second answer to a
+    /// configured question.
+    /// </summary>
+    private readonly string _retrospectives;
     private bool _isAgentRunning;
     private readonly Lock _pendingGate = new();
     private readonly HashSet<string> _pending = new(StringComparer.OrdinalIgnoreCase);
@@ -205,7 +214,8 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         Dispatcher? dispatcher = null,
         DropboxIgnoreMarker? dropboxMarker = null,
         IStepLogger? steps = null,
-        ITranscriptBus? transcript = null)
+        ITranscriptBus? transcript = null,
+        IOptions<RetrospectiveOptions>? retrospective = null)
     {
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(workspace);
@@ -218,6 +228,9 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         _dropboxMarker = dropboxMarker;
         _steps = steps;
         _transcript = transcript;
+        _retrospectives = (retrospective?.Value.OutputDirectory ?? new RetrospectiveOptions().OutputDirectory)
+            .Replace('\\', '/')
+            .Trim('/');
 
         RootPath = guard.RepoRoot;
         _rootPrefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(RootPath)) + Path.DirectorySeparatorChar;
@@ -348,6 +361,18 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     public RelayCommand OpenFileCommand { get; }
 
     /// <summary>
+    /// Raised when a retrospective's folder is double-clicked, carrying its absolute path.
+    /// <para>
+    /// An event rather than a call, because this pane cannot reach that surface and should not
+    /// learn how. It is bound beside the surfaces rather than inside one, and the only outward
+    /// seam it has is <see cref="IDesktopShell"/> - which is the operating system, and choosing
+    /// which surface is on screen is not the operating system's business. The shell view model
+    /// holds both halves and is where they meet (CLAUDE.md §14).
+    /// </para>
+    /// </summary>
+    public event EventHandler<string>? RetrospectiveOpened;
+
+    /// <summary>
     /// Whether a run is in flight. Set by the shell, exactly like the Changes surface's flag:
     /// emptying the folders an agent is mid-way through writing would hand it a workspace that
     /// stopped matching every observation it has made, so Clean stands down for the duration.
@@ -388,20 +413,50 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Only files, never directories.
+    /// Files, and the one kind of directory that has something to open: a retrospective's own
+    /// folder.
     /// <para>
     /// This is what keeps folders behaving like folders. The command is bound to a double-click
     /// on the tree item, and an <see cref="System.Windows.Input.InputBinding"/> whose command
     /// cannot execute leaves the event unhandled - so a double-click on a directory falls
-    /// through to the TreeView and expands it, as it did before there was a viewer.
+    /// through to the TreeView and expands it, as it did before there was a viewer. A
+    /// retrospective folder is the exception, and pays for it: double-clicking one shows the
+    /// retrospective instead of expanding it, and the chevron still does the expanding.
     /// </para>
     /// </summary>
-    private static bool CanOpenFile(object? parameter) =>
-        parameter is FileNodeViewModel { IsDirectory: false };
+    private bool CanOpenFile(object? parameter) =>
+        parameter is FileNodeViewModel node && (!node.IsDirectory || IsRetrospective(node));
+
+    /// <summary>
+    /// Whether this node is one retrospective's own folder - a directory sitting directly inside
+    /// the configured retrospectives directory.
+    /// <para>
+    /// A test on the path's shape rather than on its contents, because this decides whether the
+    /// double-click is worth trying and runs every time WPF re-queries the command. Whether the
+    /// folder really holds a retrospective is answered by reading it, once, on the way in.
+    /// </para>
+    /// </summary>
+    private bool IsRetrospective(FileNodeViewModel node)
+    {
+        if (!node.IsDirectory || _retrospectives.Length == 0)
+        {
+            return false;
+        }
+
+        string relative = node.RelativePath;
+
+        return relative.Length > _retrospectives.Length + 1 &&
+            relative.StartsWith(_retrospectives, StringComparison.OrdinalIgnoreCase) &&
+            relative[_retrospectives.Length] == '/' &&
+
+            // One level down, and no further: the retrospectives directory holds a folder per
+            // retrospective, and anything deeper is inside one rather than being one.
+            !relative.AsSpan(_retrospectives.Length + 1).Contains('/');
+    }
 
     private void OpenFile(object? parameter)
     {
-        if (parameter is not FileNodeViewModel node || node.IsDirectory)
+        if (parameter is not FileNodeViewModel node || (node.IsDirectory && !IsRetrospective(node)))
         {
             return;
         }
@@ -415,6 +470,12 @@ public sealed class WorkspaceViewModel : ViewModelBase, IDisposable
         if (!IsInsideRoot(full))
         {
             Status = $"'{node.RelativePath}' is outside the workspace.";
+            return;
+        }
+
+        if (node.IsDirectory)
+        {
+            RetrospectiveOpened?.Invoke(this, full);
             return;
         }
 

@@ -410,6 +410,120 @@ public sealed class RetrospectiveTests
     }
 
     [Fact]
+    public async Task A_folder_reads_back_as_the_run_it_judged_and_what_the_stages_cost()
+    {
+        // What the surface's header shows has to survive the trip to disk, or a reopened
+        // retrospective is three reports over a bare hexadecimal id.
+        using TempWorkspace workspace = new();
+        FakeProcessRunner runner = Probed()
+            .Enqueue(0, Report("The code is sound.", cost: 0.75m))
+            .Enqueue(0, Report("The run was efficient.", cost: 1.25m))
+            .Enqueue(0, Recommendations("Judge the screen.", cost: 2m));
+
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+        ClaudeCodeRetrospectiveReviewer reviewer = Reviewer(runner, workspace, time: time);
+        await reviewer.ReviewAsync(Request());
+
+        string directory = Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "20260811-110600");
+        SavedRetrospective? saved = reviewer.LoadFrom(directory);
+
+        saved.ShouldNotBeNull();
+        saved.Run.RunId.ShouldBe("run-1");
+        saved.Run.Goal.ShouldBe("Build a desktop app that multiplies two numbers.");
+        saved.Run.StopReason.ShouldBe("Completed");
+        saved.Run.Steps.ShouldBe(44);
+
+        saved.Result.Stages.Count.ShouldBe(3);
+        saved.Result.Stages[0].Report.ShouldContain("The code is sound.");
+        saved.Result.Stages[0].Model.ShouldBe("claude-opus-5");
+        saved.Result.TotalCostUsd.ShouldBe(4m);
+        saved.Result.TakenAt.ShouldBe(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+        saved.Result.Recommendations.Select(r => r.Id).ShouldBe(["screen-oracle"]);
+    }
+
+    [Fact]
+    public async Task An_older_retrospective_is_reachable_beside_the_newer_one()
+    {
+        // The point of reading a folder rather than a run: Load answers with the newest, so every
+        // retrospective after the first of a run could only be reached by naming its folder.
+        using TempWorkspace workspace = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+
+        await Reviewer(Probed().Enqueue(0, Report("First look.")), workspace, time: time).ReviewAsync(Request());
+        time.Advance(TimeSpan.FromHours(2));
+
+        ClaudeCodeRetrospectiveReviewer second = Reviewer(
+            Probed().Enqueue(0, Report("Second look.")), workspace, time: time);
+        await second.ReviewAsync(Request());
+
+        string root = Path.Combine(workspace.Root, ".glasscoder", "retrospectives");
+
+        second.Load("run-1").ShouldNotBeNull().Stages[0].Report.ShouldContain("Second look.");
+        second.LoadFrom(Path.Combine(root, "20260811-110600"))
+            .ShouldNotBeNull().Result.Stages[0].Report.ShouldContain("First look.");
+    }
+
+    [Fact]
+    public async Task A_folder_written_before_the_run_facts_were_kept_loads_without_inventing_them()
+    {
+        // Every folder taken before this shipped. Unknown has to read as unknown: a stop reason of
+        // "" and 44 steps would be a claim about a run nobody recorded.
+        using TempWorkspace workspace = new();
+        string legacy = Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "20260809-191609");
+        System.IO.Directory.CreateDirectory(legacy);
+        await File.WriteAllTextAsync(
+            Path.Combine(legacy, "1-code.md"),
+            "---\nglasscoder: retrospective\nrunId: run-1\nstage: Code\nmodel: claude-opus-5\n" +
+            "costUsd: 0.7859\ntakenAt: 2026-08-09T19:16:09Z\n---\n\n# The code\n\nWritten before the fields.");
+
+        SavedRetrospective? saved = Reviewer(new FakeProcessRunner(), workspace).LoadFrom(legacy);
+
+        saved.ShouldNotBeNull();
+        saved.Run.RunId.ShouldBe("run-1");
+        saved.Run.Goal.ShouldBeNull();
+        saved.Run.StopReason.ShouldBeNull();
+        saved.Run.Steps.ShouldBe(0);
+        saved.Result.Stages[0].CostUsd.ShouldBe(0.7859m);
+        saved.Result.Stages[0].Report.ShouldContain("Written before the fields.");
+    }
+
+    [Fact]
+    public async Task A_folder_that_is_not_a_retrospective_is_not_read_as_one()
+    {
+        // The marker is what makes it ours, not the file name. Recognising a retrospective folder
+        // and reading one are the same act, so there is no second rule to keep in step.
+        using TempWorkspace workspace = new();
+        string impostor = Path.Combine(workspace.Root, "notes");
+        System.IO.Directory.CreateDirectory(impostor);
+        await File.WriteAllTextAsync(Path.Combine(impostor, "1-code.md"), "# Notes\n\nMine, not the reviewer's.");
+
+        ClaudeCodeRetrospectiveReviewer reviewer = Reviewer(new FakeProcessRunner(), workspace);
+
+        reviewer.LoadFrom(impostor).ShouldBeNull();
+        reviewer.LoadFrom(Path.Combine(workspace.Root, "nowhere")).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_goal_written_over_several_lines_does_not_end_the_front_matter_early()
+    {
+        // The block is key: value lines. A goal is free text the operator typed, and one newline
+        // in it would close the block and take every field under it - including the run id.
+        using TempWorkspace workspace = new();
+        FakeTimeProvider time = new(new DateTimeOffset(2026, 8, 11, 11, 6, 0, TimeSpan.Zero));
+        ClaudeCodeRetrospectiveReviewer reviewer = Reviewer(
+            Probed().Enqueue(0, Report("A look.")), workspace, time: time);
+
+        await reviewer.ReviewAsync(Request() with { Goal = "Multiply two numbers.\nAdd unit tests.\n" });
+
+        SavedRetrospective? saved = reviewer.LoadFrom(
+            Path.Combine(workspace.Root, ".glasscoder", "retrospectives", "20260811-110600"));
+
+        saved.ShouldNotBeNull();
+        saved.Run.Goal.ShouldBe("Multiply two numbers. Add unit tests.");
+        saved.Run.Steps.ShouldBe(44);
+    }
+
+    [Fact]
     public async Task Switching_the_feature_off_launches_nothing()
     {
         using TempWorkspace workspace = new();

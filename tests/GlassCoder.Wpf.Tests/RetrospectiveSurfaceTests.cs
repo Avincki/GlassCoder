@@ -123,6 +123,82 @@ public sealed class RetrospectiveSurfaceTests
     }
 
     [Fact]
+    public void A_folder_the_operator_double_clicked_is_shown_as_though_it_had_just_finished()
+    {
+        // The other half of the rule above. Rehydration opens no window because nobody asked;
+        // here somebody pointed at a folder, so the checklist arrives the way it does when a
+        // retrospective completes - and the ticks start where a fresh checklist starts.
+        (int Opened, int Stages, int Ticked, string Label, string Status, string? Read) after =
+            UiThread.Run(dispatcher =>
+            {
+                StubReviewer reviewer = new() { Saved = new SavedRetrospective(Run(), Result()) };
+                RecordingDialog dialog = new();
+                RetrospectiveViewModel model = Model(dispatcher, reviewer, dialog);
+                Settle(dispatcher, model);
+
+                model.ShowSaved(@"C:\work\.glasscoder\retrospectives\20260817-091459");
+
+                return (
+                    dialog.Opened,
+                    model.Stages.Count,
+                    model.Recommendations.Count(r => r.IsAccepted),
+                    model.RunLabel,
+                    model.Status,
+                    reviewer.LoadedFrom);
+            });
+
+        after.Opened.ShouldBe(1);
+        after.Stages.ShouldBe(3);
+        after.Ticked.ShouldBe(1, "high priority is pre-ticked, and nothing else is");
+        // The header follows the reports to the run they judged, rather than staying on whichever
+        // run finished last.
+        after.Label.ShouldContain("Completed");
+        after.Status.ShouldContain("Reopened");
+        after.Read.ShouldNotBeNull().ShouldEndWith("20260817-091459");
+    }
+
+    [Fact]
+    public void A_folder_holding_no_retrospective_leaves_the_one_on_screen_alone()
+    {
+        // Saying so and taking away what was being read are different things, and only the first
+        // is an answer.
+        (int Stages, string Status) after = UiThread.Run(dispatcher =>
+        {
+            StubReviewer reviewer = new() { OnDisk = Result(), Saved = null };
+            RetrospectiveViewModel model = Model(dispatcher, reviewer);
+            model.OfferRun(Run());
+            Settle(dispatcher, model);
+
+            model.ShowSaved(@"C:\work\.glasscoder\retrospectives\20260101-000000");
+
+            return (model.Stages.Count, model.Status);
+        });
+
+        after.Stages.ShouldBe(3);
+        after.Status.ShouldContain("no retrospective");
+    }
+
+    [Fact]
+    public void A_reopened_folder_that_never_recorded_the_run_says_so_rather_than_zero()
+    {
+        // Folders written before the run's own facts were kept in them know the id and no more.
+        string label = UiThread.Run(dispatcher =>
+        {
+            StubReviewer reviewer = new()
+            {
+                Saved = new SavedRetrospective(new RetrospectiveRequest("216360bf"), Result()),
+            };
+
+            RetrospectiveViewModel model = Model(dispatcher, reviewer);
+            Settle(dispatcher, model);
+            model.ShowSaved(@"C:\work\.glasscoder\retrospectives\20260809-191609");
+            return model.RunLabel;
+        });
+
+        label.ShouldBe("Run 216360bf");
+    }
+
+    [Fact]
     public void The_live_feed_fills_from_the_stage_that_is_running()
     {
         IReadOnlyList<string> feed = UiThread.Run(dispatcher =>
@@ -465,6 +541,18 @@ public sealed class RetrospectiveSurfaceTests
         }
 
         public Retrospective? Load(string runId) => OnDisk;
+
+        /// <summary>The folder this stub was asked to read, so tests can assert it was the one clicked.</summary>
+        public string? LoadedFrom { get; private set; }
+
+        /// <summary>What a folder read answers with. Null is a folder that holds no retrospective.</summary>
+        public SavedRetrospective? Saved { get; init; }
+
+        public SavedRetrospective? LoadFrom(string directory)
+        {
+            LoadedFrom = directory;
+            return Saved;
+        }
     }
 
     /// <summary>Counts how often the proposals window was asked for.</summary>

@@ -111,6 +111,10 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
         Workspace = workspace;
         _currentView = transcript;
 
+        // The tree can see the retrospectives it wrote; the surface can read one. Only the shell
+        // holds both, so this is where a double-click in one becomes a report in the other.
+        Workspace.RetrospectiveOpened += OnRetrospectiveOpened;
+
         // The goals of recent runs, newest first, for the picker - and the newest of them in the
         // box, so a repeated test run is a press of Run rather than a paste. Still just a
         // pre-fill: the box is editable and empty on a first-ever start.
@@ -556,12 +560,29 @@ public sealed class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>Cancels and releases the run in flight, if any.</summary>
     public void Dispose()
     {
+        Workspace.RetrospectiveOpened -= OnRetrospectiveOpened;
+
         // The retrospective watches the transcript bus for finished runs, which outlives it.
         Retrospective.Dispose();
 
         _cancellation?.Cancel();
         _cancellation?.Dispose();
         _cancellation = null;
+    }
+
+    /// <summary>
+    /// Shows a retrospective the operator double-clicked in the tree.
+    /// <para>
+    /// The surface is brought forward either way, including when the folder turns out to hold
+    /// nothing readable. A double-click is a question, and the answer - reports, or a line saying
+    /// there are none - is on that surface; leaving the operator where they were would answer it
+    /// somewhere they are not looking.
+    /// </para>
+    /// </summary>
+    private void OnRetrospectiveOpened(object? sender, string directory)
+    {
+        Retrospective.ShowSaved(directory);
+        SelectedSurface = "Retrospective";
     }
 
     /// <summary>

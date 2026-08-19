@@ -220,6 +220,20 @@ public sealed record RetrospectiveRequest(string RunId)
     public string? Instructions { get; init; }
 }
 
+/// <summary>
+/// A retrospective read back out of its own folder: what it concluded, and the run it judged.
+/// <para>
+/// Two halves because the folder is both. <see cref="Retrospective"/> is what the stages said;
+/// <see cref="RetrospectiveRequest"/> is what the header says about the run they said it about,
+/// and the folder can only answer that because the stage front matter carries it. Handing back
+/// one without the other is what made a reopened retrospective three reports over a bare
+/// hexadecimal id.
+/// </para>
+/// </summary>
+/// <param name="Run">The run the stages judged, as much of it as the front matter recorded.</param>
+/// <param name="Result">The stages, their proposals, and their totals.</param>
+public sealed record SavedRetrospective(RetrospectiveRequest Run, Retrospective Result);
+
 /// <summary>One thing a stage did, as it did it.</summary>
 /// <param name="Stage">Which stage is speaking.</param>
 /// <param name="Kind">What kind of thing it was.</param>

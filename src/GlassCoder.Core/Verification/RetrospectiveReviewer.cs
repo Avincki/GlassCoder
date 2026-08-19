@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -42,6 +43,19 @@ public interface IRetrospectiveReviewer
     /// <summary>Reads a retrospective already on disk for this run, if there is one.</summary>
     /// <param name="runId">The run to look for.</param>
     Retrospective? Load(string runId);
+
+    /// <summary>
+    /// Reads one retrospective's own folder, whichever run it turns out to have judged.
+    /// <para>
+    /// <see cref="Load"/>'s sibling, and the one that answers "show me <em>this</em> one". Load is
+    /// given a run and finds its newest folder, so it can never reach the older ones sitting
+    /// beside it - and every retrospective after the first of a run is one of those. Null when the
+    /// directory holds no retrospective, so recognising one is answered by reading it rather than
+    /// by a second rule kept in step with this one.
+    /// </para>
+    /// </summary>
+    /// <param name="directory">The folder to read, absolute.</param>
+    SavedRetrospective? LoadFrom(string directory);
 }
 
 /// <summary>
@@ -76,11 +90,21 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
     /// <summary>
     /// How far into a stage report the front matter can possibly reach. Bounds the scan that
-    /// looks for a run id, so listing the folder never reads a report body.
+    /// reads a stage's header, so listing the folder never reads a report body. Comfortably above
+    /// the block's own length, because the cost of the slack is a few lines that are not there and
+    /// the cost of being one short is a field that silently stops being read.
     /// </summary>
-    private const int FrontMatterLines = 16;
+    private const int FrontMatterLines = 24;
 
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
+
+    /// <summary>The three stages, in the order they run, read and persist.</summary>
+    private static readonly RetrospectiveStageKind[] Kinds =
+    [
+        RetrospectiveStageKind.Code,
+        RetrospectiveStageKind.Process,
+        RetrospectiveStageKind.Harness,
+    ];
 
     private readonly ClaudeCliSession _cli;
     private readonly IPathGuard _guard;
@@ -174,7 +198,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Announce(progress, Persist(directory, request.RunId, code)));
+            stages.Add(Announce(progress, Persist(directory, request, code)));
 
             RetrospectiveStage process = await RunStageAsync(
                 RetrospectiveStageKind.Process,
@@ -185,7 +209,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 [],
                 progress,
                 cancellationToken).ConfigureAwait(false);
-            stages.Add(Announce(progress, Persist(directory, request.RunId, process)));
+            stages.Add(Announce(progress, Persist(directory, request, process)));
 
             // The only stage that reads outside the workspace, and only if it was told where
             // GlassCoder's own source is. Without that it still runs, on the two reports alone,
@@ -210,7 +234,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             // is what this session showed - a proposal dropped here for having no title must not
             // reappear tomorrow.
             stages.Add(Announce(
-                progress, Persist(directory, request.RunId, harness with { Recommendations = recommendations })));
+                progress, Persist(directory, request, harness with { Recommendations = recommendations })));
         }
         catch (OperationCanceledException)
         {
@@ -247,16 +271,20 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     {
         ArgumentNullException.ThrowIfNull(runId);
 
-        if (FindDirectory(runId) is not { } directory)
-        {
-            return null;
-        }
+        return FindDirectory(runId) is { } directory ? LoadFrom(directory)?.Result : null;
+    }
+
+    /// <inheritdoc />
+    public SavedRetrospective? LoadFrom(string directory)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
 
         List<RetrospectiveStage> stages = [];
         IReadOnlyList<ReviewAction> recommendations = [];
+        StageFrontMatter? first = null;
+        string? firstPath = null;
 
-        foreach (RetrospectiveStageKind kind in (RetrospectiveStageKind[])[
-            RetrospectiveStageKind.Code, RetrospectiveStageKind.Process, RetrospectiveStageKind.Harness])
+        foreach (RetrospectiveStageKind kind in Kinds)
         {
             string path = Path.Combine(directory, FileName(kind));
             if (!File.Exists(path))
@@ -266,13 +294,32 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
             try
             {
+                StageFrontMatter matter = ReadFrontMatter(path);
+
+                // The marker, not the file name, is what makes this a retrospective. A folder that
+                // happens to hold a `1-code.md` is somebody else's folder.
+                if (!matter.IsRetrospective)
+                {
+                    continue;
+                }
+
                 string text = File.ReadAllText(path);
+                first ??= matter;
+                firstPath ??= path;
+
                 stages.Add(new RetrospectiveStage
                 {
                     Kind = kind,
                     Reviewed = true,
                     Report = StripFrontMatter(text),
-                    Model = _options.Model,
+
+                    // Read back rather than assumed. The stage was answered by whichever model was
+                    // configured the day it ran, which is not necessarily the one configured now -
+                    // and a report attributed to the wrong model is worse than one attributed to
+                    // none. The options model stays the answer for files written before it was kept.
+                    Model = matter.Model ?? _options.Model,
+                    CostUsd = matter.CostUsd,
+                    DurationMs = matter.DurationMs,
                     Path = path,
                 });
 
@@ -289,19 +336,32 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             }
         }
 
-        if (stages.Count == 0)
+        if (stages.Count == 0 || first is null || firstPath is null)
         {
             return null;
         }
 
-        return new Retrospective
-        {
-            RunId = runId,
-            TakenAt = File.GetLastWriteTimeUtc(Path.Combine(directory, FileName(stages[0].Kind))),
-            Stages = stages,
-            Recommendations = recommendations,
-            Directory = directory,
-        };
+        // Folders written before the name became a timestamp were named for the run itself, and
+        // their front matter predates the `runId` field - so the name is the answer for exactly
+        // the files that have no other one.
+        string runId = first.RunId ?? Path.GetFileName(Path.TrimEndingDirectorySeparator(directory));
+
+        return new SavedRetrospective(
+            new RetrospectiveRequest(runId)
+            {
+                Goal = first.Goal,
+                StopReason = first.StopReason,
+                Steps = first.Steps,
+            },
+            new Retrospective
+            {
+                RunId = runId,
+                Goal = first.Goal,
+                TakenAt = first.TakenAt ?? File.GetLastWriteTimeUtc(firstPath),
+                Stages = stages,
+                Recommendations = recommendations,
+                Directory = directory,
+            });
     }
 
     private async Task<RetrospectiveStage> RunStageAsync(
@@ -501,8 +561,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     /// <summary>Whether any stage in this directory says it judged <paramref name="runId"/>.</summary>
     private static bool DeclaresRun(string directory, string runId)
     {
-        foreach (RetrospectiveStageKind kind in (RetrospectiveStageKind[])[
-            RetrospectiveStageKind.Code, RetrospectiveStageKind.Process, RetrospectiveStageKind.Harness])
+        foreach (RetrospectiveStageKind kind in Kinds)
         {
             string path = Path.Combine(directory, FileName(kind));
             if (!File.Exists(path))
@@ -512,15 +571,9 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
             try
             {
-                // The front matter is the first few lines; the report below it can be long, and
-                // reading all of it to find one field would make listing the folder expensive.
-                foreach (string line in File.ReadLines(path).Take(FrontMatterLines))
+                if (string.Equals(ReadFrontMatter(path).RunId, runId, StringComparison.Ordinal))
                 {
-                    if (line.StartsWith("runId:", StringComparison.Ordinal) &&
-                        string.Equals(line["runId:".Length..].Trim(), runId, StringComparison.Ordinal))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -533,6 +586,103 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         return false;
     }
 
+    /// <summary>
+    /// A stage file's header, as far as it was written and can be read.
+    /// <para>
+    /// Every field is optional on purpose. The block has gained fields twice, and a folder written
+    /// before a field existed is still a retrospective somebody kept - so what is missing reads as
+    /// unknown, and never as zero.
+    /// </para>
+    /// </summary>
+    private sealed record StageFrontMatter
+    {
+        /// <summary>Whether the marker line is there, which is what makes the file one of ours.</summary>
+        public bool IsRetrospective { get; init; }
+
+        /// <summary>The run the stage judged. Absent in folders named for the run itself.</summary>
+        public string? RunId { get; init; }
+
+        /// <summary>The goal that run was given, flattened to one line.</summary>
+        public string? Goal { get; init; }
+
+        /// <summary>Why that run's loop stopped.</summary>
+        public string? StopReason { get; init; }
+
+        /// <summary>How many steps it took.</summary>
+        public int Steps { get; init; }
+
+        /// <summary>The model that answered this stage.</summary>
+        public string? Model { get; init; }
+
+        /// <summary>What the stage cost.</summary>
+        public decimal CostUsd { get; init; }
+
+        /// <summary>How long it took.</summary>
+        public double DurationMs { get; init; }
+
+        /// <summary>When the retrospective was taken, as the writer recorded it.</summary>
+        public DateTimeOffset? TakenAt { get; init; }
+    }
+
+    /// <summary>
+    /// Reads one stage file's front matter without reading the report under it.
+    /// <para>
+    /// The report can be tens of thousands of characters and this is called once per stage per
+    /// folder while looking for one; the block itself is a dozen lines at the top.
+    /// </para>
+    /// </summary>
+    private static StageFrontMatter ReadFrontMatter(string path)
+    {
+        Dictionary<string, string> fields = new(StringComparer.Ordinal);
+
+        foreach (string line in File.ReadLines(path).Take(FrontMatterLines))
+        {
+            // The fence closes the block. Opening and closing are the same three characters, so
+            // the one that ends it is the one found after at least one field.
+            if (line.Trim() == "---" && fields.Count > 0)
+            {
+                break;
+            }
+
+            int colon = line.IndexOf(':', StringComparison.Ordinal);
+            if (colon > 0)
+            {
+                fields[line[..colon].Trim()] = line[(colon + 1)..].Trim();
+            }
+        }
+
+        return new StageFrontMatter
+        {
+            IsRetrospective =
+                fields.TryGetValue("glasscoder", out string? marker) &&
+                string.Equals(marker, "retrospective", StringComparison.Ordinal),
+            RunId = Text(fields, "runId"),
+            Goal = Text(fields, "goal"),
+            StopReason = Text(fields, "stopReason"),
+            Steps = Number<int>(fields, "steps"),
+            Model = Text(fields, "model"),
+            CostUsd = Number<decimal>(fields, "costUsd"),
+            DurationMs = Number<double>(fields, "durationMs"),
+            TakenAt = fields.TryGetValue("takenAt", out string? taken) &&
+                DateTimeOffset.TryParse(
+                    taken, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out DateTimeOffset at)
+                    ? at
+                    : null,
+        };
+
+        static string? Text(Dictionary<string, string> fields, string key) =>
+            fields.TryGetValue(key, out string? value) && value.Length > 0 ? value : null;
+
+        // Generic math rather than three near-identical lookups: a field that is absent, empty or
+        // unparseable is the same answer in all three cases, and that answer is "unknown".
+        static T Number<T>(Dictionary<string, string> fields, string key)
+            where T : struct, INumberBase<T> =>
+            fields.TryGetValue(key, out string? value) &&
+            T.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out T parsed)
+                ? parsed
+                : default;
+    }
+
     private static string Sanitise(string runId)
     {
         string name = runId.Trim();
@@ -542,6 +692,22 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         }
 
         return name.Length == 0 ? "run" : name;
+    }
+
+    /// <summary>
+    /// One line, or nothing. A goal is free text the operator typed and can run to paragraphs; the
+    /// front matter is a block of <c>key: value</c> lines, so a value with a newline in it would
+    /// end the block early and take every field under it with it.
+    /// </summary>
+    private static string? Flatten(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return string.Join(' ', value.Split((char[])['\r', '\n'], StringSplitOptions.RemoveEmptyEntries |
+            StringSplitOptions.TrimEntries));
     }
 
     private static string FileName(RetrospectiveStageKind kind) => kind switch
@@ -579,7 +745,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     /// Writes a finished stage beside its siblings, so a crash in stage three does not cost the
     /// two that already answered and the surface can rehydrate after a restart.
     /// </summary>
-    private RetrospectiveStage Persist(string directory, string runId, RetrospectiveStage stage)
+    private RetrospectiveStage Persist(string directory, RetrospectiveRequest request, RetrospectiveStage stage)
     {
         if (!stage.Reviewed)
         {
@@ -597,11 +763,29 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
             // The one field the folder name no longer carries. Rehydration reads it back, and a
             // person who opens the file learns which run it judged without going up a level.
-            text.AppendLine(CultureInfo.InvariantCulture, $"runId: {runId}");
+            text.AppendLine(CultureInfo.InvariantCulture, $"runId: {request.RunId}");
+
+            // What the surface's header says about the run, written down so a folder reopened
+            // later can say it too. Everything above this line describes the report; these three
+            // describe the run it is about, and without them a retrospective read back off disk
+            // knew the run's id and nothing else about it.
+            if (Flatten(request.Goal) is { } goal)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"goal: {goal}");
+            }
+
+            if (Flatten(request.StopReason) is { } stopReason)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"stopReason: {stopReason}");
+            }
+
+            text.AppendLine(CultureInfo.InvariantCulture, $"steps: {request.Steps}");
             text.AppendLine(CultureInfo.InvariantCulture, $"stage: {stage.Kind}");
             text.AppendLine(CultureInfo.InvariantCulture, $"model: {stage.Model}");
             text.AppendLine(CultureInfo.InvariantCulture,
                 $"costUsd: {stage.CostUsd.ToString("0.0000", CultureInfo.InvariantCulture)}");
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"durationMs: {stage.DurationMs.ToString("F0", CultureInfo.InvariantCulture)}");
             text.AppendLine(CultureInfo.InvariantCulture,
                 $"takenAt: {_time.GetUtcNow().UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}");
             text.AppendLine("---");
