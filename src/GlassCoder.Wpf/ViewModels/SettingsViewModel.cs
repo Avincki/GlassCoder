@@ -122,6 +122,18 @@ public sealed class SettingsViewModel : ViewModelBase
     public IReadOnlyList<RetrievalMode> RetrievalModes { get; } =
         [RetrievalMode.Replay, RetrievalMode.Record, RetrievalMode.Live];
 
+    /// <summary>
+    /// Permission modes a retrospective stage may run under.
+    /// <para>
+    /// <c>plan</c> is the non-writing one, and the reason running a real coding agent on this
+    /// machine is defensible at all. <c>default</c> is offered rather than hidden because a mode
+    /// the dialog cannot express is a mode somebody reaches by hand-editing the JSON, where
+    /// nothing warns them - but the stages are given read-only tools either way, so this is the
+    /// second lock and not the first.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> PermissionModes { get; } = ["plan", "default"];
+
     /// <summary>Serilog levels, lowest first.</summary>
     public IReadOnlyList<string> LogLevels { get; } =
         ["Verbose", "Debug", "Information", "Warning", "Error", "Fatal"];
@@ -276,6 +288,38 @@ public sealed class SettingsViewModel : ViewModelBase
         set
         {
             Settings.Git.PullRequestBaseBranch = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// The tools a retrospective stage may use, one per line.
+    /// <para>
+    /// Editable here for the first time, which is why <see cref="GlassCoderSettings.Validate"/>
+    /// now refuses a writing tool in this list. The containment argument for running Claude Code
+    /// on the host is that the subprocess can read and search the workspace and can do nothing
+    /// else to it; before this box existed that argument was protected only by nobody thinking
+    /// to edit the file.
+    /// </para>
+    /// </summary>
+    public string RetrospectiveAllowedTools
+    {
+        get => Join(Settings.Retrospective.AllowedTools);
+        set { Replace(Settings.Retrospective.AllowedTools, value); OnPropertyChanged(); }
+    }
+
+    /// <summary>
+    /// Environment variable holding the key the stages authenticate with. Empty means the CLI
+    /// uses the credentials it already holds, which the options object spells as null - a text
+    /// box cannot, so the two are translated here, as they are for the pull-request base branch.
+    /// </summary>
+    public string RetrospectiveApiKeyVariable
+    {
+        get => Settings.Retrospective.ApiKeyEnvironmentVariable ?? string.Empty;
+        set
+        {
+            Settings.Retrospective.ApiKeyEnvironmentVariable =
+                string.IsNullOrWhiteSpace(value) ? null : value.Trim();
             OnPropertyChanged();
         }
     }

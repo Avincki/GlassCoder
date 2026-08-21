@@ -142,7 +142,7 @@ public sealed class SettingsEndpointTests
             ("worker", "http://localhost:8002/v1"),
             ("critic", "http://localhost:8003/v1")));
 
-        (int Offered, string Text, bool CanForget) picker = UiThread.Run(_ =>
+        (int Offered, string Text, bool CanForget) picker = UiThread.RunOnApplicationThread(_ =>
         {
             TestApplication.Ensure();
             SettingsWindow window = new(fixture.ViewModel);

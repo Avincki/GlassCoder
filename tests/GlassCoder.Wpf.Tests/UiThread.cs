@@ -26,7 +26,94 @@ internal static class UiThread
     /// </summary>
     public static readonly TimeSpan Budget = TimeSpan.FromSeconds(30);
 
-    /// <summary>Runs <paramref name="work"/> on an STA thread and returns what it produced.</summary>
+    private static readonly Lock ApplicationGate = new();
+    private static Dispatcher? _applicationDispatcher;
+
+    /// <summary>
+    /// Starts the one thread allowed to own the <see cref="System.Windows.Application"/>, if it is
+    /// not already running, and returns its dispatcher.
+    /// <para>
+    /// Unlike <see cref="Run{T}"/> this thread is long-lived and pumps a real dispatcher loop,
+    /// because the application and every window shown against it have to stay on one thread for
+    /// the lifetime of the host. See <see cref="TestApplication"/> for why.
+    /// </para>
+    /// </summary>
+    public static Dispatcher EnsureApplicationThread()
+    {
+        lock (ApplicationGate)
+        {
+            if (_applicationDispatcher is { } running)
+            {
+                return running;
+            }
+
+            TaskCompletionSource<Dispatcher> ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            Thread thread = new(() =>
+            {
+                try
+                {
+                    TestApplication.CreateOnThisThread();
+                    ready.TrySetResult(Dispatcher.CurrentDispatcher);
+                }
+                catch (Exception ex)
+                {
+                    ready.TrySetException(ex);
+                    return;
+                }
+
+                // A loop rather than a bare dispatcher: work handed over between calls has to run
+                // without anybody pumping by hand. Inside a delegate nothing changes - a nested
+                // post still waits for Pump, exactly as it did on a throwaway thread.
+                Dispatcher.Run();
+            })
+            {
+                IsBackground = true,
+                Name = "glasscoder-ui-application",
+            };
+
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+
+            if (!ready.Task.Wait(Budget))
+            {
+                throw new TimeoutException(
+                    $"The application thread did not start within {Budget.TotalSeconds:F0} seconds.");
+            }
+
+            _applicationDispatcher = ready.Task.GetAwaiter().GetResult();
+            return _applicationDispatcher;
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> on the thread that owns the application, and returns what it
+    /// produced. Use this instead of <see cref="Run{T}"/> for anything that shows a window: a
+    /// window resolves the brushes in <c>App.xaml</c>, and those belong to that thread alone.
+    /// </summary>
+    /// <param name="work">The work, handed the dispatcher belonging to the application thread.</param>
+    /// <exception cref="TimeoutException">The work did not finish inside <see cref="Budget"/>.</exception>
+    public static T RunOnApplicationThread<T>(Func<Dispatcher, T> work)
+    {
+        Dispatcher dispatcher = EnsureApplicationThread();
+
+        if (dispatcher.CheckAccess())
+        {
+            return work(dispatcher);
+        }
+
+        DispatcherOperation<T> operation = dispatcher.InvokeAsync(() => work(dispatcher));
+
+        if (!operation.Task.Wait(Budget))
+        {
+            throw new TimeoutException(
+                $"Nothing came back from the application thread within {Budget.TotalSeconds:F0} seconds.");
+        }
+
+        return operation.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>Runs <paramref name="work"/> on a fresh STA thread and returns what it produced.</summary>
     /// <param name="work">The work, handed the dispatcher belonging to its own thread.</param>
     /// <exception cref="TimeoutException">The work did not finish inside <see cref="Budget"/>.</exception>
     public static T Run<T>(Func<Dispatcher, T> work)

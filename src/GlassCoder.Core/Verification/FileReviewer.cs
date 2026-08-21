@@ -124,17 +124,33 @@ public sealed class FileReviewOptions
     /// </summary>
     public string PermissionMode { get; set; } = "plan";
 
+    /// <summary>The read-only working set, used when nothing configures a list.</summary>
+    /// <remarks>
+    /// Held separately because the property below has to default to <em>empty</em>. The
+    /// configuration binder appends to whatever a collection property already holds - it does
+    /// this for <c>IList&lt;string&gt;</c> and for <c>string[]</c> alike, and a setter does not
+    /// change it. A property that defaulted to these three could therefore only ever be added
+    /// to: configuring ["Read"] bound to ["Read","Grep","Glob","Read"], so "restrict the
+    /// reviewer to Read" silently left Grep and Glob switched on, and every save round-tripped
+    /// a longer list than the one before it. Defaulting to empty leaves nothing to append to,
+    /// and the fallback happens here instead.
+    /// </remarks>
+    public static IReadOnlyList<string> DefaultAllowedTools { get; } = ["Read", "Grep", "Glob"];
+
     /// <summary>
     /// The tools the reviewer is allowed to use. Read-only by construction: no Bash, no Write,
     /// no Edit. This is what makes running the CLI on the host defensible - the subprocess can
     /// read and search the workspace and can do nothing else to it.
+    /// <para>
+    /// Empty means <see cref="DefaultAllowedTools"/> - read <see cref="EffectiveAllowedTools"/>
+    /// rather than this to find out what the reviewer is actually handed.
+    /// </para>
     /// </summary>
-    /// <remarks>
-    /// Settable rather than get-only, so a configured list <em>replaces</em> these rather than
-    /// appending to them. With a get-only collection the binder can only add, and "restrict the
-    /// reviewer to Read" would silently leave Grep and Glob switched on.
-    /// </remarks>
-    public IList<string> AllowedTools { get; set; } = new List<string> { "Read", "Grep", "Glob" };
+    public IList<string> AllowedTools { get; set; } = [];
+
+    /// <summary>What the reviewer is actually given: the configured list, or the default when none is.</summary>
+    public IReadOnlyList<string> EffectiveAllowedTools =>
+        AllowedTools.Count > 0 ? [.. AllowedTools] : DefaultAllowedTools;
 
     /// <summary>
     /// Spend ceiling for one review. The CLI stops itself rather than being killed mid-thought,
@@ -272,7 +288,7 @@ public sealed class ClaudeCodeFileReviewer : IFileReviewer
                 _options.CliPath,
                 _options.Model,
                 _options.PermissionMode,
-                [.. _options.AllowedTools],
+                [.. _options.EffectiveAllowedTools],
                 _options.Bare,
                 _options.ApiKeyEnvironmentVariable),
             _logger);

@@ -662,6 +662,124 @@
         </ScrollViewer>
       </TabItem>
 
+      <!-- ========================== Retrospective ========================== -->
+      <TabItem Header="Retrospective">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="12">
+
+            <GroupBox Header="The three stages">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Enable" />
+                  <CheckBox Content="Offer the look back at a finished run"
+                            IsChecked="{Binding Settings.Retrospective.Enabled}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Three headless Claude Code sessions, run in order: the code the run produced, how the run got there, and what GlassCoder itself should learn from both. Each is its own session with its own ceilings, so a stage that stops early costs the ones before it nothing - and the third stage reads the first two, which is why it is always the expensive one." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Model" />
+                  <TextBox Text="{Binding Settings.Retrospective.Model}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="CLI path" />
+                  <TextBox Text="{Binding Settings.Retrospective.CliPath}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Empty means whatever &quot;claude&quot; resolves to on PATH." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Bare session" />
+                  <CheckBox Content="Run without hooks, plugins or skills"
+                            IsChecked="{Binding Settings.Retrospective.Bare}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Off, and worth leaving off unless a key arrives through the environment variable below. --bare also skips the user configuration the subscription login lives in, so a bare session answers &quot;Not logged in - please run /login&quot; and all three stages fail together." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Ceilings">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Budget per stage (USD)" />
+                  <TextBox x:Name="RetrospectiveBudget" Text="{Binding Settings.Retrospective.MaxBudgetUsd}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Per stage, so three stages cost at most three of these. The number that matters: stage three reads WORKPLAN.md, HISTORY.md and whatever harness source its recommendations touch, and was measured at about $5 against stages one and two at $0.68 and $0.48. Set it below that and the only stage that can ever be cut off is the one you wanted. A stopped stage is lost rather than truncated - it never reaches the point of writing its answer - so it reads as a failed stage, not a partial one. Zero removes the ceiling entirely." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Timeout per stage (s)" />
+                  <TextBox Text="{Binding Settings.Retrospective.TimeoutSeconds}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Longer than a file review's, because a stage reads a whole run's worth of material rather than one file." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Recommendations kept" />
+                  <TextBox Text="{Binding Settings.Retrospective.MaxRecommendations}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Diff characters" />
+                  <TextBox Text="{Binding Settings.Retrospective.MaxChangeCharacters}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Transcript characters" />
+                  <TextBox Text="{Binding Settings.Retrospective.MaxTranscriptCharacters}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Caps on what reaches the model, in the spirit of never handing it raw output. Raising these raises what a stage costs, which is the dial above approached from the other end." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Containment">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Permission mode" />
+                  <ComboBox ItemsSource="{Binding PermissionModes}"
+                            SelectedItem="{Binding Settings.Retrospective.PermissionMode}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Allowed tools" />
+                  <TextBox Style="{StaticResource Multiline}" Text="{Binding RetrospectiveAllowedTools}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="One per line. A stage runs on this machine rather than in the sandbox every other command goes through, and read-only tools are the whole reason that is defensible - so Bash, Edit and Write are refused here, and the save says so rather than quietly accepting them. Read, Grep and Glob are the working set." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="API key variable" />
+                  <TextBox Text="{Binding RetrospectiveApiKeyVariable}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="A variable name, never the key: the key itself never enters a settings file. Empty is the right default - the CLI then uses the credentials it already holds, and injecting a key over an existing subscription login silently moves where the spend lands." />
+              </StackPanel>
+            </GroupBox>
+
+            <GroupBox Header="Where things land">
+              <StackPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Reports folder" />
+                  <TextBox Text="{Binding Settings.Retrospective.OutputDirectory}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Relative to the workspace root, and inside it on purpose: the stage reports show up in the tree, open in this application's own viewer, and can be read by the agent's own read_file." />
+
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="GlassCoder source" />
+                  <TextBox Text="{Binding Settings.Retrospective.HarnessRepoPath}" />
+                </DockPanel>
+                <DockPanel Style="{StaticResource Field}">
+                  <TextBlock Style="{StaticResource Label}" Text="Work order folder" />
+                  <TextBox Text="{Binding Settings.Retrospective.WorkOrderDirectory}" />
+                </DockPanel>
+                <TextBlock Style="{StaticResource Hint}"
+                           Text="Where the harness's own source lives, and where work orders land under it. Configured rather than derived, because a running application knows its build directory and not its source. Empty greys out the work-order button: a recommendation about GlassCoder written into the workspace would be invisible to the agent meant to implement it, and the workspace pane's own Clean button would delete it." />
+              </StackPanel>
+            </GroupBox>
+
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
       <!-- ======================== Sandbox and approval ======================== -->
       <TabItem Header="Sandbox">
         <ScrollViewer VerticalScrollBarVisibility="Auto">

@@ -141,7 +141,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 _options.CliPath,
                 _options.Model,
                 _options.PermissionMode,
-                [.. _options.AllowedTools],
+                [.. _options.EffectiveAllowedTools],
                 _options.Bare,
                 _options.ApiKeyEnvironmentVariable),
             _logger);

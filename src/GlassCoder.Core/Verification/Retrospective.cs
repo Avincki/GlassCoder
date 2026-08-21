@@ -38,16 +38,32 @@ public sealed class RetrospectiveOptions
     /// <summary>Permission mode for each stage. <c>plan</c> is the non-writing one.</summary>
     public string PermissionMode { get; set; } = "plan";
 
+    /// <summary>The read-only working set, used when nothing configures a list.</summary>
+    /// <remarks>
+    /// Held separately because the property below has to default to <em>empty</em>. The
+    /// configuration binder appends to whatever a collection property already holds - it does
+    /// this for <c>IList&lt;string&gt;</c> and for <c>string[]</c> alike, and a setter does not
+    /// change it. A property that defaulted to these three could therefore only ever be added
+    /// to: configuring ["Read"] bound to ["Read","Grep","Glob","Read"], so "restrict the
+    /// reviewer to Read" silently left Grep and Glob switched on, and every save round-tripped
+    /// a longer list than the one before it. Defaulting to empty leaves nothing to append to,
+    /// and the fallback happens here instead.
+    /// </remarks>
+    public static IReadOnlyList<string> DefaultAllowedTools { get; } = ["Read", "Grep", "Glob"];
+
     /// <summary>
     /// The tools each stage may use. Read-only by construction, exactly as the file review's
     /// are: this is what makes running a coding agent on the host defensible.
+    /// <para>
+    /// Empty means <see cref="DefaultAllowedTools"/> - read <see cref="EffectiveAllowedTools"/>
+    /// rather than this to find out what a stage is actually handed.
+    /// </para>
     /// </summary>
-    /// <remarks>
-    /// Settable rather than get-only so a configured list <em>replaces</em> these rather than
-    /// appending to them - with a get-only collection the binder can only add, and "restrict it
-    /// to Read" would silently leave Grep and Glob switched on.
-    /// </remarks>
-    public IList<string> AllowedTools { get; set; } = new List<string> { "Read", "Grep", "Glob" };
+    public IList<string> AllowedTools { get; set; } = [];
+
+    /// <summary>What a stage is actually given: the configured list, or the default when none is.</summary>
+    public IReadOnlyList<string> EffectiveAllowedTools =>
+        AllowedTools.Count > 0 ? [.. AllowedTools] : DefaultAllowedTools;
 
     /// <summary>
     /// Spend ceiling for one stage, so three stages cost at most three of these.

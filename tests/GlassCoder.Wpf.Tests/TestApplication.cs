@@ -15,23 +15,37 @@ namespace GlassCoder.Wpf.Tests;
 /// in parallel, each on its own STA thread, and both can see null and both construct. That is
 /// exactly what happened once a second class needed an application.
 /// </para>
+/// <para>
+/// <em>Which</em> thread constructs it matters as much as how many do. The brushes in
+/// <c>App.xaml</c> are Freezables, and a Freezable belongs to the thread that made it: a window
+/// shown on any other thread dies with "Cannot use a DependencyObject that belongs to a different
+/// thread than its parent Freezable". While every caller got a throwaway thread, which thread won
+/// this race decided which test class could show a window - so the suite passed or failed on the
+/// order xUnit happened to pick. The application is therefore built on
+/// <see cref="UiThread.RunOnApplicationThread{T}"/>'s single long-lived thread, and anything that
+/// shows a window runs there too.
+/// </para>
 /// </summary>
 internal static class TestApplication
 {
-    private static readonly Lock Gate = new();
+    /// <summary>
+    /// Makes sure this host has an application, on the one thread that is allowed to own it.
+    /// Safe from any thread, and safe to call from that thread.
+    /// </summary>
+    internal static void Ensure() => UiThread.EnsureApplicationThread();
 
-    /// <summary>Creates the application if this host has none. Safe from any thread.</summary>
-    internal static void Ensure()
+    /// <summary>
+    /// Constructs the application. Called only by the thread that owns it - going through
+    /// <see cref="Ensure"/> from anywhere else is what keeps that true.
+    /// </summary>
+    internal static void CreateOnThisThread()
     {
-        lock (Gate)
+        if (Application.Current is not null)
         {
-            if (Application.Current is not null)
-            {
-                return;
-            }
-
-            App application = new();
-            application.InitializeComponent();
+            return;
         }
+
+        App application = new();
+        application.InitializeComponent();
     }
 }

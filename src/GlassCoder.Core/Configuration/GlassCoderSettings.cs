@@ -131,6 +131,7 @@ public sealed class GlassCoderSettings
         };
 
         settings.DeduplicateLists();
+        settings.ShowReviewerDefaults();
         return settings;
     }
 
@@ -195,8 +196,66 @@ public sealed class GlassCoderSettings
         }
 
         failures.AddRange(ValidateGit());
+        failures.AddRange(ValidateRetrospective());
 
         return failures;
+    }
+
+    /// <summary>
+    /// Tools that would turn a read-only reviewer into something able to change the machine it
+    /// is reviewing.
+    /// <para>
+    /// The retrospective and the file review both run a real Claude Code session on the host,
+    /// outside the sandbox every other command goes through. The only thing that makes that
+    /// defensible is that the session is handed read-only tools, and until the settings dialog
+    /// offered the list that was guarded by nothing except how unlikely anyone was to edit the
+    /// JSON. Now it is a text box, so it is guarded here.
+    /// </para>
+    /// </summary>
+    private static readonly string[] WritingTools =
+        ["Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"];
+
+    /// <summary>
+    /// The retrospective is only checked when it is switched on, for the reason
+    /// <see cref="ValidateGit"/> gives: a setting nothing can reach is not worth blocking a save
+    /// over. <see cref="FileReviewOptions"/> is deliberately not checked here - it has no tab, and
+    /// refusing a save over a value the dialog cannot show would leave an operator stuck.
+    /// </summary>
+    private IEnumerable<string> ValidateRetrospective()
+    {
+        if (!Retrospective.Enabled)
+        {
+            yield break;
+        }
+
+        foreach (string tool in Retrospective.AllowedTools.Where(
+            tool => WritingTools.Contains(tool.Trim(), StringComparer.OrdinalIgnoreCase)))
+        {
+            yield return
+                $"{RetrospectiveOptions.SectionName}:AllowedTools contains '{tool.Trim()}', which can change this " +
+                "machine. A retrospective stage runs on the host rather than in the sandbox, and read-only tools " +
+                "are what make that defensible - keep it to Read, Grep and Glob.";
+        }
+
+        // Zero is not rejected: ClaudeCliSession omits --max-budget-usd entirely below one, so
+        // zero means no ceiling. That is a real choice, and the tab says so rather than the
+        // validator second-guessing it.
+        if (Retrospective.MaxBudgetUsd < 0m)
+        {
+            yield return $"{RetrospectiveOptions.SectionName}:MaxBudgetUsd cannot be negative.";
+        }
+
+        if (Retrospective.TimeoutSeconds < 1)
+        {
+            yield return $"{RetrospectiveOptions.SectionName}:TimeoutSeconds must be at least 1.";
+        }
+
+        if (Retrospective.MaxRecommendations < 1)
+        {
+            yield return
+                $"{RetrospectiveOptions.SectionName}:MaxRecommendations must be at least 1, or the harness stage " +
+                "would run and then keep none of what it concluded.";
+        }
     }
 
     /// <summary>
@@ -281,6 +340,38 @@ public sealed class GlassCoderSettings
         Deduplicate(Telemetry.AdditionalSources);
         Deduplicate(Git.PushableBranches);
         Deduplicate(Git.ProtectedBranches);
+
+        // Both reviewers hold their tool list the same way, and both were doubling: this
+        // operator's saved file carried ["Read","Grep","Glob","Read","Grep","Glob"] by the time
+        // the retrospective got a settings tab. Harmless in a --allowedTools CSV, but the list
+        // is edited by hand now, and a box that shows six entries for three is a box nobody
+        // trusts.
+        Deduplicate(Retrospective.AllowedTools);
+        Deduplicate(FileReview.AllowedTools);
+    }
+
+    /// <summary>
+    /// Puts the reviewers' default tool list where an operator can see it.
+    /// <para>
+    /// Both reviewers default the list to empty and fall back at the point of use, because the
+    /// configuration binder appends to a non-empty collection and a removal would otherwise never
+    /// stick. That is right for the harness and wrong for the settings dialog, which would show
+    /// an empty box on an install that is in fact running Read, Grep and Glob. Filling it here
+    /// means the box shows what the stage gets, and a save writes it out explicitly - after which
+    /// there is nothing left to append to and taking a tool out works.
+    /// </para>
+    /// </summary>
+    private void ShowReviewerDefaults()
+    {
+        if (Retrospective.AllowedTools.Count == 0)
+        {
+            Retrospective.AllowedTools = [.. RetrospectiveOptions.DefaultAllowedTools];
+        }
+
+        if (FileReview.AllowedTools.Count == 0)
+        {
+            FileReview.AllowedTools = [.. FileReviewOptions.DefaultAllowedTools];
+        }
     }
 
     private static void Deduplicate(IList<string> values)
