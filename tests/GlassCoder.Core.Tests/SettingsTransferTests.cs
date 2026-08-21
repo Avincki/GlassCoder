@@ -226,7 +226,7 @@ public sealed class SettingsTransferTests
             "GlassCoder__Verification__ExtraReferenceDirectories__0", "from-the-environment");
         try
         {
-            HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            HostApplicationBuilder builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
             {
                 ContentRootPath = application.Root,
             });

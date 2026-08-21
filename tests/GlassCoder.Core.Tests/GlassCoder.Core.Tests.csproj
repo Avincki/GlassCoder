@@ -9,6 +9,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GlassCoder.Core\GlassCoder.Core.csproj" />
+
+    <!-- The console host, for the command line alone. Its verbs are the harness's public
+         surface, and until the workplan verb was added nothing asserted that adding one leaves
+         the others where they were. -->
+    <ProjectReference Include="..\..\src\GlassCoder.Host\GlassCoder.Host.csproj" />
     <ProjectReference Include="..\GlassCoder.TestSupport\GlassCoder.TestSupport.csproj" />
   </ItemGroup>
 

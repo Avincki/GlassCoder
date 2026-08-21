@@ -5,7 +5,7 @@ namespace GlassCoder.Host;
 /// <summary>What the host was asked to do.</summary>
 public sealed record HostCommand
 {
-    /// <summary>The verb: <c>run</c>, <c>suite</c>, <c>ablate</c>, <c>tools</c> or <c>help</c>.</summary>
+    /// <summary>The verb: <c>run</c>, <c>suite</c>, <c>ablate</c>, <c>workplan</c>, <c>tools</c> or <c>help</c>.</summary>
     public string Verb { get; init; } = "help";
 
     /// <summary>Extra configuration file layered over appsettings.json - this selects an arm.</summary>
@@ -29,6 +29,9 @@ public sealed record HostCommand
     /// <summary>Directory to materialise suite fixtures into.</summary>
     public string? WorkDirectory { get; init; }
 
+    /// <summary>The workplan file to execute, for <c>workplan</c>.</summary>
+    public string? PlanPath { get; init; }
+
     /// <summary>Whether parse succeeded.</summary>
     public string? Error { get; init; }
 }
@@ -44,6 +47,7 @@ public static class CommandLine
           glasscoder run    --goal "<goal>" [--task <id>] [options]
           glasscoder suite  [--suite-task <id>] [--work <dir>] [options]
           glasscoder ablate [--arms <names>] [--suite-task <id>] [--work <dir>] [options]
+          glasscoder workplan --plan <WORKPLAN.md> [options]
           glasscoder fixtures [--work <dir>] [options]
           glasscoder tools
           glasscoder help
@@ -58,6 +62,9 @@ public static class CommandLine
                             'default' (the harness levers) or 'capabilities' (each
                             dormant capability alone, then all together).
           --work <dir>      Where suite fixtures are materialised.
+          --plan <path>     Workplan to execute, one unticked task at a time. A task's box is
+                            ticked only when its own **Oracle:** filter passed, so re-running
+                            resumes where the oracles - not the model - left off.
 
         EXIT CODES
           0  success                 3  a limit stopped the run
@@ -105,13 +112,16 @@ public static class CommandLine
             SuiteTask = Value(options, "suite-task"),
             Arms = Value(options, "arms"),
             WorkDirectory = Value(options, "work"),
+            PlanPath = Value(options, "plan"),
         };
 
         return verb switch
         {
             "run" when string.IsNullOrWhiteSpace(command.Goal) =>
                 command with { Error = "run needs --goal." },
-            "run" or "suite" or "ablate" or "tools" or "fixtures" or "help" => command,
+            "workplan" when string.IsNullOrWhiteSpace(command.PlanPath) =>
+                command with { Error = "workplan needs --plan." },
+            "run" or "suite" or "ablate" or "workplan" or "tools" or "fixtures" or "help" => command,
             _ => command with { Error = $"Unknown command '{verb}'." },
         };
     }

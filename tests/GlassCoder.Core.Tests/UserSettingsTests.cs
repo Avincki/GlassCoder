@@ -135,7 +135,7 @@ public sealed class UserSettingsTests
         saved.Agent.MaxSteps = 42;
         store.Save(saved);
 
-        HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        HostApplicationBuilder builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
         {
             ContentRootPath = application.Root,
         });
@@ -164,7 +164,7 @@ public sealed class UserSettingsTests
         Environment.SetEnvironmentVariable("GlassCoder__Agent__MaxSteps", "77");
         try
         {
-            HostApplicationBuilder builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            HostApplicationBuilder builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
             {
                 ContentRootPath = application.Root,
             });

@@ -550,7 +550,11 @@ public sealed class AgentLoop : IAgentLoop
                 ContextFresh = stamp?.ContextFresh,
             };
         result = result with { Metrics = runMetrics };
-        _metrics.Record(runMetrics);
+
+        if (request.RecordMetrics)
+        {
+            _metrics.Record(runMetrics);
+        }
 
         runActivity?.SetTag("glasscoder.stop_reason", stopReason.ToString());
         runActivity?.SetTag("glasscoder.steps", budget.Steps);

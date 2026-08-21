@@ -2,6 +2,8 @@ using System.Globalization;
 using GlassCoder.Core.Agent;
 using GlassCoder.Core.Hosting;
 using GlassCoder.Core.Metrics;
+using GlassCoder.Core.Planning;
+using GlassCoder.Core.Verification;
 using GlassCoder.Host;
 using GlassCoder.Lab.Ablation;
 using GlassCoder.Lab.TaskSuite;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 // The headless surface (CLAUDE.md §17, workplan task 30). Same services as the desktop app,
 // no interaction, and exit codes CI can branch on.
@@ -66,6 +69,7 @@ try
         "suite" => await RunSuiteAsync(host, command, cancellation.Token).ConfigureAwait(false),
         "fixtures" => await CheckFixturesAsync(host, command, cancellation.Token).ConfigureAwait(false),
         "ablate" => await RunAblationAsync(host, command, cancellation.Token).ConfigureAwait(false),
+        "workplan" => await RunWorkplanAsync(host, command, cancellation.Token).ConfigureAwait(false),
         _ => HostExitCode.ConfigurationError,
     };
 
@@ -129,6 +133,64 @@ static async Task<int> RunGoalAsync(IHost host, HostCommand command, Cancellatio
     }
 
     return ExitCodeFor(result.StopReason);
+}
+
+/// <summary>
+/// Executes a workplan, one unticked task at a time (workplan tasks 79 and 80).
+/// <para>
+/// The exit code is what a pipeline branches on, so the states are kept apart: everything ticked
+/// is 0, an oracle that failed is 1, a limit that stopped a task is 3, and a task nothing here can
+/// judge is 1 as well - unticked work is not success, whatever the reason, and a pipeline told 0
+/// would move on to a plan that is not finished.
+/// </para>
+/// </summary>
+static async Task<int> RunWorkplanAsync(IHost host, HostCommand command, CancellationToken cancellationToken)
+{
+    string plan = Path.GetFullPath(command.PlanPath!);
+
+    if (!File.Exists(plan))
+    {
+        Console.Error.WriteLine($"No workplan at {plan}.");
+        return HostExitCode.ConfigurationError;
+    }
+
+    WorkplanRunner runner = new(
+        host.Services.GetRequiredService<IAgentLoop>(),
+        host.Services.GetRequiredService<IVerificationLadder>(),
+        host.Services.GetRequiredService<IMetricsRecorder>(),
+        host.Services.GetRequiredService<IOptions<MetricsOptions>>(),
+        host.Services.GetRequiredService<ILoggerFactory>().CreateLogger<WorkplanRunner>());
+
+    Progress<WorkplanTaskOutcome> progress = new(outcome => Console.WriteLine(WorkplanRunner.Describe(outcome)));
+
+    WorkplanRunReport report = await runner
+        .RunAsync(new WorkplanRunRequest(plan), progress, cancellationToken)
+        .ConfigureAwait(false);
+
+    Console.WriteLine();
+
+    if (report.Complete)
+    {
+        Console.WriteLine($"Every task in {Path.GetFileName(plan)} is ticked.");
+        return HostExitCode.Success;
+    }
+
+    Console.WriteLine(string.Create(
+        CultureInfo.InvariantCulture,
+        $"{report.Outcomes.Count(o => o.Ticked)} task(s) ticked this run, {report.Remaining} still open."));
+
+    if (report.Stopper is not { } stopper)
+    {
+        // Nothing was attempted and nothing failed: every remaining task was already ticked by
+        // the time the plan was re-read. Not an error, but not a finished plan either.
+        return HostExitCode.TaskFailed;
+    }
+
+    Console.WriteLine($"Stopped at '{stopper.Slug}': {stopper.Detail}");
+
+    return stopper.Status == WorkplanTaskStatus.LimitStopped
+        ? HostExitCode.LimitExceeded
+        : HostExitCode.TaskFailed;
 }
 
 static async Task<int> RunSuiteAsync(IHost host, HostCommand command, CancellationToken cancellationToken)

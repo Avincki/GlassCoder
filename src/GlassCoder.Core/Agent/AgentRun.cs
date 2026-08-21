@@ -103,6 +103,17 @@ public sealed record AgentRunRequest
     /// </para>
     /// </summary>
     public int Attempt { get; init; } = 1;
+
+    /// <summary>
+    /// Whether the loop writes this run's metrics row itself. True for every ordinary run.
+    /// <para>
+    /// Set false only by a caller that will write a richer row for the same run - the workplan
+    /// runner, which knows the oracle's verdict where the loop does not. Two rows for one run is
+    /// not merely redundant: a consumer that sums steps or tokens per task counts both, and
+    /// GlassContext's workplan importer does exactly that.
+    /// </para>
+    /// </summary>
+    public bool RecordMetrics { get; init; } = true;
 }
 
 /// <summary>Everything one run produced.</summary>
