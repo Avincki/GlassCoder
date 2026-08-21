@@ -178,6 +178,15 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 request.RunId, availability.Reason ?? "The reviewer is not available.", takenAt);
         }
 
+        // Read off the steps once, here, so every stage directive and every stage file says the
+        // same thing about which models produced the run. Done before the first stage rather than
+        // per stage: the answer cannot change while the review is running, and a stage that
+        // disagreed with its sibling about what it reviewed would be worse than one that is silent.
+        request = request with
+        {
+            Models = RetrospectiveTranscript.ModelsInUse(_transcript?.Steps ?? [], request.RunId),
+        };
+
         string directory = Directory(takenAt);
         List<RetrospectiveStage> stages = [];
         IReadOnlyList<ReviewAction> recommendations = [];
@@ -352,6 +361,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
                 Goal = first.Goal,
                 StopReason = first.StopReason,
                 Steps = first.Steps,
+                Models = first.RunModels,
             },
             new Retrospective
             {
@@ -611,6 +621,9 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         /// <summary>How many steps it took.</summary>
         public int Steps { get; init; }
 
+        /// <summary>Which models produced the run this stage judged.</summary>
+        public IReadOnlyList<ModelInUse> RunModels { get; init; } = [];
+
         /// <summary>The model that answered this stage.</summary>
         public string? Model { get; init; }
 
@@ -660,6 +673,7 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             Goal = Text(fields, "goal"),
             StopReason = Text(fields, "stopReason"),
             Steps = Number<int>(fields, "steps"),
+            RunModels = ParseModels(Text(fields, "runModels")),
             Model = Text(fields, "model"),
             CostUsd = Number<decimal>(fields, "costUsd"),
             DurationMs = Number<double>(fields, "durationMs"),
@@ -681,6 +695,46 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             T.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out T parsed)
                 ? parsed
                 : default;
+    }
+
+    /// <summary>
+    /// Renders the models for one front-matter line, or null when there are none to render.
+    /// <para>
+    /// Deliberately not the record's own <c>ToString</c>, which separates role from model with a
+    /// colon: this line is read back by splitting on the first colon, so a value that carries more
+    /// of them parses into something that only looks right. <c>=</c> and <c>;</c> are picked for
+    /// appearing in no model id anyone serves.
+    /// </para>
+    /// </summary>
+    private static string? FormatModels(IReadOnlyList<ModelInUse> models) =>
+        models.Count == 0
+            ? null
+            : string.Join("; ", models.Select(m => $"{m.Role}={m.ModelId ?? string.Empty}"));
+
+    /// <summary>Reads back what <see cref="FormatModels"/> wrote, skipping anything malformed.</summary>
+    private static IReadOnlyList<ModelInUse> ParseModels(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return [];
+        }
+
+        List<ModelInUse> models = [];
+
+        foreach (string entry in line.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int split = entry.IndexOf('=', StringComparison.Ordinal);
+            if (split <= 0)
+            {
+                continue;
+            }
+
+            string role = entry[..split].Trim();
+            string model = entry[(split + 1)..].Trim();
+            models.Add(new ModelInUse(role, model.Length > 0 ? model : null));
+        }
+
+        return models;
     }
 
     private static string Sanitise(string runId)
@@ -780,6 +834,15 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             }
 
             text.AppendLine(CultureInfo.InvariantCulture, $"steps: {request.Steps}");
+
+            // Which models produced the run, as against `model` below, which is the one that
+            // reviewed it. Two different questions that were one word apart from being confused,
+            // so the names are not.
+            if (FormatModels(request.Models) is { } runModels)
+            {
+                text.AppendLine(CultureInfo.InvariantCulture, $"runModels: {runModels}");
+            }
+
             text.AppendLine(CultureInfo.InvariantCulture, $"stage: {stage.Kind}");
             text.AppendLine(CultureInfo.InvariantCulture, $"model: {stage.Model}");
             text.AppendLine(CultureInfo.InvariantCulture,
@@ -976,6 +1039,25 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         "one small enough to accept on its own. Read WORKPLAN.md and HISTORY.md before proposing " +
         "anything, so you neither re-propose what is done nor re-propose what is already planned.";
 
+    /// <summary>
+    /// Names the models the run was produced by, for a directive to open with.
+    /// <para>
+    /// Worth its own paragraph rather than a field in a table, because of what it is for. This
+    /// harness frames capability as model x harness x context, and a review that cannot see the
+    /// first term spends its recommendations on the other two - which is how "the agent kept
+    /// re-reading the same file" becomes a proposal to change the tool rather than an observation
+    /// about the model that was behind the alias that day.
+    /// </para>
+    /// </summary>
+    private static string DescribeModels(RetrospectiveRequest request) =>
+        request.Models.Count == 0
+            ? "Nothing recorded which model answered during this run, so treat any conclusion " +
+              "about the model itself as unfounded."
+            : $"The run was produced by {string.Join(", ", request.Models)}. That is one of the " +
+              "three things capability depends on here - model, harness, context - so before " +
+              "attributing anything to the harness or the prompt, ask whether the model explains " +
+              "it, and say which you mean.";
+
     private string CodeDirective(RetrospectiveRequest request)
     {
         string extra = string.IsNullOrWhiteSpace(request.Instructions)
@@ -986,6 +1068,8 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             Review the code this session produced in this workspace. It may have taken more than
             one run to get here; the diffs below are every run's, and run `{request.RunId}` - the
             last of them, and the one this review is named for - is where it ended up.
+
+            {DescribeModels(request)}
 
             The goal that last run was given:
 
@@ -1022,6 +1106,8 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
 
         return $"""
             Review how this session went - the process, not the product.
+
+            {DescribeModels(request)}
 
             The retrospective was taken on run `{request.RunId}`, which stopped as
             `{request.StopReason ?? "unknown"}` after {request.Steps} steps and
@@ -1074,6 +1160,11 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
         $"""
             Two reviews of run `{request.RunId}` follow: one of the code it produced, one of how it
             worked. Say what GlassCoder - the harness that ran it - should learn from them.
+
+            {DescribeModels(request)} A recommendation that would only help the model that happened
+            to answer today is worth less than one that holds whichever model does, so where a
+            finding is really about the model, name it as that and propose accordingly - or do not
+            propose at all.
 
             ## The code review
 

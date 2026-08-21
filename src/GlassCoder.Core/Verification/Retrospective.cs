@@ -213,6 +213,24 @@ public sealed record Retrospective
         new() { RunId = runId, TakenAt = takenAt, Stages = [], Failure = reason };
 }
 
+/// <summary>
+/// Which model answered for a role, as the run itself recorded it.
+/// <para>
+/// The role is what the harness addressed; the model id is what the server said answered. They
+/// are separate because they disagree exactly when it matters - two roles can share one alias,
+/// and one alias can be served by a different checkpoint next week. A retrospective that named
+/// only the role would read the same whatever was behind it.
+/// </para>
+/// </summary>
+/// <param name="Role">The served role, as the harness addresses it.</param>
+/// <param name="ModelId">What the server reported, or null when it reported nothing.</param>
+public sealed record ModelInUse(string Role, string? ModelId)
+{
+    /// <summary>The pair as one phrase, saying so when the server named nothing.</summary>
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(ModelId) ? $"{Role} (the server reported no model id)" : $"{Role}: {ModelId}";
+}
+
 /// <summary>Which run to look back at, and what is known about it.</summary>
 /// <param name="RunId">The run whose steps and changes are the material.</param>
 public sealed record RetrospectiveRequest(string RunId)
@@ -234,6 +252,19 @@ public sealed record RetrospectiveRequest(string RunId)
 
     /// <summary>Extra direction from the operator, when they typed some.</summary>
     public string? Instructions { get; init; }
+
+    /// <summary>
+    /// The models that answered during this run, in the order they first did.
+    /// <para>
+    /// Empty means nothing recorded any, which is not the same as one model having run: a folder
+    /// written before this was carried says nothing here, and reads as unknown rather than as
+    /// none. Filled from the steps by the reviewer, and read back out of the stage front matter
+    /// when a retrospective is reopened - <c>capability ≈ model × harness × context</c> is the
+    /// frame every conclusion in these reports is read through, and a report that cannot say
+    /// which model produced the run has quietly dropped one of the three terms.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<ModelInUse> Models { get; init; } = [];
 }
 
 /// <summary>
@@ -298,6 +329,42 @@ public static class RetrospectiveTranscript
     /// <summary>The run id a step carries when it happened outside any run.</summary>
     private const string OutsideARun = "no-run";
 
+    /// <summary>
+    /// Which models answered, in the order they first did.
+    /// <para>
+    /// Read off the steps rather than off configuration, because configuration says what a role
+    /// is pointed at <em>now</em> and the steps say what actually answered <em>then</em>. Those
+    /// differ for every retrospective taken after the endpoint was repointed, which is precisely
+    /// the retrospective somebody takes when comparing two models.
+    /// </para>
+    /// </summary>
+    /// <param name="steps">The steps to read.</param>
+    /// <param name="runId">Restricts to one run. Null reads the whole session.</param>
+    public static IReadOnlyList<ModelInUse> ModelsInUse(IReadOnlyList<StepRecord> steps, string? runId = null)
+    {
+        ArgumentNullException.ThrowIfNull(steps);
+
+        List<ModelInUse> found = [];
+        HashSet<(string Role, string? ModelId)> seen = [];
+
+        foreach (StepRecord step in steps)
+        {
+            if (runId is not null && !string.Equals(step.RunId, runId, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Keyed on the pair: the same checkpoint serving worker and critic is two facts worth
+            // reporting, and one role that changed model mid-session is the fact this exists for.
+            if (seen.Add((step.Role, step.ModelId)))
+            {
+                found.Add(new ModelInUse(step.Role, step.ModelId));
+            }
+        }
+
+        return found;
+    }
+
     /// <summary>Renders the digest for a whole session, run by run.</summary>
     /// <param name="steps">Every step recorded this session, across every run in it.</param>
     /// <param name="request">The run the retrospective was taken on, and what is known about it.</param>
@@ -321,7 +388,7 @@ public static class RetrospectiveTranscript
         List<Section> sections = Split(steps, request, runs);
 
         StringBuilder text = new();
-        AppendSessionHeader(text, sections, request);
+        AppendSessionHeader(text, sections, request, ModelsInUse(steps));
 
         // The cap is a budget over the session rather than per run: a nine-step run beside a
         // forty-step one must not be cut in half to make room for a share it never needed. Each
@@ -453,11 +520,16 @@ public static class RetrospectiveTranscript
             // The plan carries from step to step so an update can be rendered as what it changed. A
             // reader of one step wants the plan as it then stood; a reader of the run wants to see
             // which step moved it. It does not carry across runs: each run plans for itself.
+            bool nameModels = ModelsInUse(mine)
+                .Select(m => m.ModelId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() > 1;
+
             List<string> rendered = [];
             List<PlanItem>? plan = null;
             foreach (StepRecord step in mine)
             {
-                rendered.Add(RenderStep(step, ref plan));
+                rendered.Add(RenderStep(step, ref plan, nameModels));
             }
 
             sections.Add(new Section(runId, outside ? 0 : numbered, subject, head.ToString(), rendered));
@@ -472,7 +544,10 @@ public static class RetrospectiveTranscript
     /// reader has to be able to find it among the others.
     /// </summary>
     private static void AppendSessionHeader(
-        StringBuilder text, IReadOnlyList<Section> sections, RetrospectiveRequest request)
+        StringBuilder text,
+        IReadOnlyList<Section> sections,
+        RetrospectiveRequest request,
+        IReadOnlyList<ModelInUse> models)
     {
         int runs = sections.Count(s => s.Number > 0);
         Section? subject = sections.FirstOrDefault(s => s.Subject);
@@ -484,7 +559,29 @@ public static class RetrospectiveTranscript
         string place = subject is { Number: > 0 } ? $", which is run {subject.Number} of {runs}." : ".";
         text.AppendLine(CultureInfo.InvariantCulture,
             $"- The retrospective was taken on run `{request.RunId}`{place}");
+
+        // Only where there is more than one run to summarise. A single-run session would have the
+        // same names here and again in the run header three lines down, which is the duplication
+        // this renderer refuses everywhere else.
+        if (models.Count > 0 && runs > 1)
+        {
+            text.AppendLine(CultureInfo.InvariantCulture,
+                $"- Models that answered, across the session: {string.Join(", ", models)}");
+        }
+
         text.AppendLine();
+
+        // Said once, at the top, where it changes how everything below is read. This harness
+        // frames capability as model x harness x context, so a session that changed model
+        // partway is not one run of evidence about the harness - it is two.
+        if (models.Select(m => m.ModelId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+        {
+            text.AppendLine(
+                "More than one model answered in this session. Where a difference between runs " +
+                "could be the model rather than the harness or the context, say so rather than " +
+                "attributing it to the code.");
+            text.AppendLine();
+        }
 
         if (runs > 1)
         {
@@ -504,8 +601,15 @@ public static class RetrospectiveTranscript
     /// <param name="Steps">Completed iterations.</param>
     /// <param name="Tokens">Total tokens across the run.</param>
     /// <param name="Goal">The goal it was given, when something recorded one.</param>
+    /// <param name="Models">Which models answered in it, in the order they first did.</param>
     private sealed record RunHeader(
-        string RunId, string TaskId, string Stopped, int Steps, long Tokens, string? Goal);
+        string RunId,
+        string TaskId,
+        string Stopped,
+        int Steps,
+        long Tokens,
+        string? Goal,
+        IReadOnlyList<ModelInUse> Models);
 
     /// <summary>
     /// What is known about one run, from whichever record carries it: the request for the run the
@@ -515,16 +619,27 @@ public static class RetrospectiveTranscript
     private static RunHeader Describe(
         string runId, IReadOnlyList<StepRecord> steps, RunRecord? record, RetrospectiveRequest? request)
     {
+        IReadOnlyList<ModelInUse> models = ModelsInUse(steps);
+
         if (request is not null)
         {
             return new RunHeader(
-                runId, request.TaskId, request.StopReason ?? "unknown", request.Steps, request.TotalTokens, request.Goal);
+                runId,
+                request.TaskId,
+                request.StopReason ?? "unknown",
+                request.Steps,
+                request.TotalTokens,
+                request.Goal,
+
+                // The steps win over the request even for the subject run: the request describes
+                // the run, but only the steps witnessed which model answered.
+                models.Count > 0 ? models : request.Models);
         }
 
         if (record is not null)
         {
             return new RunHeader(
-                runId, record.TaskId, record.StopReason, record.Steps, record.TotalTokens, record.Goal);
+                runId, record.TaskId, record.StopReason, record.Steps, record.TotalTokens, record.Goal, models);
         }
 
         return new RunHeader(
@@ -536,7 +651,8 @@ public static class RetrospectiveTranscript
             "no ending recorded - the run either is still going or ended without writing one",
             steps.Count,
             steps.Sum(s => s.TotalTokens ?? 0),
-            null);
+            null,
+            models);
     }
 
     private static void AppendRunHeader(StringBuilder text, RunHeader run, int number, int total, bool subject)
@@ -548,6 +664,11 @@ public static class RetrospectiveTranscript
         text.AppendLine(CultureInfo.InvariantCulture, $"- Stopped: {run.Stopped}");
         text.AppendLine(CultureInfo.InvariantCulture, $"- Steps: {run.Steps}");
         text.AppendLine(CultureInfo.InvariantCulture, $"- Tokens: {run.Tokens:N0}");
+
+        if (run.Models.Count > 0)
+        {
+            text.AppendLine(CultureInfo.InvariantCulture, $"- Models: {string.Join(", ", run.Models)}");
+        }
 
         if (subject)
         {
@@ -862,10 +983,25 @@ public static class RetrospectiveTranscript
     /// nothing can say so instead of reprinting a list the reader has already read: this
     /// repository has spent runs on re-announcements that looked like progress.
     /// </param>
-    private static string RenderStep(StepRecord step, ref List<PlanItem>? plan)
+    /// <param name="nameModel">
+    /// Whether to put the model on the heading. True only where the run used more than one, so
+    /// the one thing telling two steps apart is never left off, and never repeated when it is
+    /// the same name every time.
+    /// </param>
+    private static string RenderStep(StepRecord step, ref List<PlanItem>? plan, bool nameModel = false)
     {
         StringBuilder text = new();
-        text.AppendLine(CultureInfo.InvariantCulture, $"#### Step {step.StepIndex} · {step.Role} · {step.Outcome}");
+
+        // The model is on the heading only where the run had more than one to tell apart. The
+        // run header names it otherwise, and a name repeated down forty steps is the kind of
+        // re-announcement this renderer exists to keep out.
+        string model = nameModel && !string.IsNullOrWhiteSpace(step.ModelId)
+            ? $" · {step.ModelId}"
+            : string.Empty;
+
+        text.AppendLine(
+            CultureInfo.InvariantCulture,
+            $"#### Step {step.StepIndex} · {step.Role}{model} · {step.Outcome}");
 
         if (!string.IsNullOrWhiteSpace(step.ResponseText))
         {
