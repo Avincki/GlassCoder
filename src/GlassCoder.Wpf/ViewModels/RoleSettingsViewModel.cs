@@ -69,6 +69,31 @@ public sealed class RoleSettingsViewModel : ViewModelBase
         set => SetProperty(ref _name, value);
     }
 
+    /// <summary>
+    /// Where this role is served from.
+    /// <para>
+    /// Wrapped rather than bound straight through to <see cref="ModelRoleOptions"/>, which is a
+    /// plain options object and raises nothing: the role list shows this string too, and without
+    /// a notification here it went on showing the endpoint the dialog opened on while the editor
+    /// showed the new one.
+    /// </para>
+    /// </summary>
+    public string Endpoint
+    {
+        get => Options.Endpoint;
+        set
+        {
+            string trimmed = value?.Trim() ?? string.Empty;
+            if (string.Equals(Options.Endpoint, trimmed, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            Options.Endpoint = trimmed;
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>The API key, or null when this role has none.</summary>
     public string? ApiKey
     {

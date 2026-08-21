@@ -268,6 +268,7 @@ public sealed class GlassCoderSettings
     /// </summary>
     private void DeduplicateLists()
     {
+        Deduplicate(Models.KnownEndpoints);
         Deduplicate(Workspace.ReadablePaths);
         Deduplicate(Workspace.WritablePaths);
         Deduplicate(Workspace.DeniedGlobs);

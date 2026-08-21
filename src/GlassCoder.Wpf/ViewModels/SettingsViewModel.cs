@@ -69,6 +69,8 @@ public sealed class SettingsViewModel : ViewModelBase
         SaveAndRestartCommand = new RelayCommand(() => Save(restart: true), () => !IsBusy);
         AddRoleCommand = new RelayCommand(AddRole);
         RemoveRoleCommand = new RelayCommand(RemoveRole, () => SelectedRole is not null && Roles.Count > 1);
+        AddEndpointCommand = new RelayCommand(AddEndpoint, () => !IsKnownEndpoint(SelectedRole?.Endpoint));
+        RemoveEndpointCommand = new RelayCommand(RemoveEndpoint, () => IsKnownEndpoint(SelectedRole?.Endpoint));
         TestAllCommand = new RelayCommand(async () => await TestAllAsync().ConfigureAwait(true), () => !IsBusy);
         OpenFolderCommand = new RelayCommand(() => _shell.OpenFolder(_store.DirectoryPath));
         ResetCommand = new RelayCommand(Reset, () => _store.Exists);
@@ -96,6 +98,13 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>Role names, for the pickers that have to name one.</summary>
     public IReadOnlyList<string> RoleNames => [.. Roles.Select(role => role.Name)];
+
+    /// <summary>
+    /// The endpoints every role's picker offers. Curated by the operator, not discovered: adding
+    /// one remembers an address worth typing again, removing one forgets it, and neither touches
+    /// what any role is currently served by.
+    /// </summary>
+    public ObservableCollection<string> Endpoints { get; } = [];
 
     /// <summary>Where commands may run.</summary>
     public IReadOnlyList<SandboxMode> SandboxModes { get; } = [SandboxMode.Docker, SandboxMode.Local];
@@ -282,6 +291,12 @@ public sealed class SettingsViewModel : ViewModelBase
 
     /// <summary>Removes the selected role.</summary>
     public RelayCommand RemoveRoleCommand { get; }
+
+    /// <summary>Remembers the endpoint the selected role is pointed at.</summary>
+    public RelayCommand AddEndpointCommand { get; }
+
+    /// <summary>Forgets the endpoint the selected role is pointed at.</summary>
+    public RelayCommand RemoveEndpointCommand { get; }
 
     /// <summary>Checks every role against its server.</summary>
     public RelayCommand TestAllCommand { get; }
@@ -656,6 +671,106 @@ public sealed class SettingsViewModel : ViewModelBase
         }
 
         SelectedRole = Roles.Count > 0 ? Roles[0] : null;
+        BuildEndpoints();
+    }
+
+    /// <summary>
+    /// Fills the endpoint picker from the saved list, or from the roles themselves when there is
+    /// no saved list.
+    /// <para>
+    /// The seeding is what carries a configuration written before this list existed: every such
+    /// file has roles with endpoints and no list, and a picker that opened empty would look like
+    /// the endpoints had been lost. An emptied list refills the same way for the same reason -
+    /// a blank picker is not a state worth preserving - so forgetting the last remaining endpoint
+    /// lasts until the dialog is next opened.
+    /// </para>
+    /// </summary>
+    private void BuildEndpoints()
+    {
+        Endpoints.Clear();
+        foreach (string endpoint in Settings.Models.KnownEndpoints)
+        {
+            Remember(endpoint);
+        }
+
+        if (Endpoints.Count > 0)
+        {
+            return;
+        }
+
+        foreach (RoleSettingsViewModel role in Roles)
+        {
+            Remember(role.Endpoint);
+        }
+    }
+
+    /// <summary>Adds an endpoint to the picker unless it is unusable or already there.</summary>
+    private void Remember(string? endpoint)
+    {
+        string trimmed = endpoint?.Trim() ?? string.Empty;
+        if (ModelsOptionsValidator.IsUsableEndpoint(trimmed) && !IsKnownEndpoint(trimmed))
+        {
+            Endpoints.Add(trimmed);
+        }
+    }
+
+    private bool IsKnownEndpoint(string? endpoint) =>
+        !string.IsNullOrWhiteSpace(endpoint) &&
+        Endpoints.Contains(endpoint.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Remembers what the selected role is pointed at. The endpoint is checked against the rule
+    /// the startup validator applies, so the picker cannot fill up with addresses that would fail
+    /// validation the moment a role was pointed at one.
+    /// </summary>
+    private void AddEndpoint()
+    {
+        string endpoint = SelectedRole?.Endpoint?.Trim() ?? string.Empty;
+
+        if (!ModelsOptionsValidator.IsUsableEndpoint(endpoint))
+        {
+            Status = $"'{endpoint}' was not added: an endpoint has to be an absolute http(s) URL.";
+            return;
+        }
+
+        if (IsKnownEndpoint(endpoint))
+        {
+            return;
+        }
+
+        Endpoints.Add(endpoint);
+        Status = $"{endpoint} is now offered to every role. Save to keep it.";
+    }
+
+    /// <summary>
+    /// Forgets an endpoint. The role stays pointed at it - this list is what the picker offers,
+    /// never what a role is served by - so removing the one in front of you costs nothing but the
+    /// shortcut back to it.
+    /// </summary>
+    private void RemoveEndpoint()
+    {
+        string endpoint = SelectedRole?.Endpoint?.Trim() ?? string.Empty;
+        int index = IndexOfEndpoint(endpoint);
+        if (index < 0)
+        {
+            return;
+        }
+
+        Endpoints.RemoveAt(index);
+        Status = $"{endpoint} is no longer offered. Roles already on it are unchanged.";
+    }
+
+    private int IndexOfEndpoint(string endpoint)
+    {
+        for (int index = 0; index < Endpoints.Count; index++)
+        {
+            if (string.Equals(Endpoints[index], endpoint, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -686,6 +801,18 @@ public sealed class SettingsViewModel : ViewModelBase
     /// </summary>
     private List<string> CollectRoles()
     {
+        // The picker is the edited copy; the settings own the list that gets written. Folded back
+        // here because this is the step every writer shares - Save reaches it directly and the
+        // export and project paths reach it through Collect - and folding it in one of those
+        // instead would have saved a curated list on some buttons and dropped it on others. It is
+        // deliberately not folded on each add and remove, so cancelling the dialog still leaves
+        // the saved list exactly as it was found: the bargain every other field here makes.
+        Settings.Models.KnownEndpoints.Clear();
+        foreach (string endpoint in Endpoints)
+        {
+            Settings.Models.KnownEndpoints.Add(endpoint);
+        }
+
         List<string> failures = [];
         Dictionary<string, ModelRoleOptions> rebuilt = new(StringComparer.OrdinalIgnoreCase);
 
@@ -726,7 +853,11 @@ public sealed class SettingsViewModel : ViewModelBase
 
         ModelRoleOptions options = new()
         {
-            Endpoint = SelectedRole?.Options.Endpoint ?? "http://localhost:8001/v1",
+            // The role in front of the operator, then whatever the picker offers first: a new
+            // role is nearly always another alias on a server that is already configured.
+            Endpoint = SelectedRole?.Options.Endpoint
+                ?? Endpoints.FirstOrDefault()
+                ?? "http://localhost:8001/v1",
             ModelAlias = name,
         };
 

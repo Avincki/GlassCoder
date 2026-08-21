@@ -156,7 +156,7 @@
                   <DataTemplate>
                     <StackPanel Margin="2,4">
                       <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                      <TextBlock Text="{Binding Options.Endpoint}" FontSize="11" Foreground="#78909C"
+                      <TextBlock Text="{Binding Endpoint}" FontSize="11" Foreground="#78909C"
                                  TextTrimming="CharacterEllipsis" />
                       <TextBlock Text="{Binding CheckSummary}" FontSize="11" TextTrimming="CharacterEllipsis"
                                  Foreground="{Binding Outcome, Converter={StaticResource OutcomeBrush}}" />
@@ -178,10 +178,22 @@
                     </DockPanel>
                     <DockPanel Style="{StaticResource Field}">
                       <TextBlock Style="{StaticResource Label}" Text="Endpoint" />
-                      <TextBox Text="{Binding Options.Endpoint, UpdateSourceTrigger=PropertyChanged}" />
+                      <Button DockPanel.Dock="Right" Content="Forget"
+                              Command="{Binding DataContext.RemoveEndpointCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              Margin="6,0,0,0" MinWidth="56"
+                              ToolTip="Stop offering this endpoint. The role stays pointed at it." />
+                      <Button DockPanel.Dock="Right" Content="Remember"
+                              Command="{Binding DataContext.AddEndpointCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                              Margin="6,0,0,0" MinWidth="56"
+                              ToolTip="Offer this endpoint to every role." />
+                      <!-- Editable, so an endpoint that has never been used here can still just be
+                           typed and tested. The list is recall, not a whitelist. -->
+                      <ComboBox x:Name="EndpointPicker" IsEditable="True"
+                                ItemsSource="{Binding DataContext.Endpoints, RelativeSource={RelativeSource AncestorType=Window}}"
+                                Text="{Binding Endpoint, UpdateSourceTrigger=PropertyChanged}" />
                     </DockPanel>
                     <TextBlock Style="{StaticResource Hint}"
-                               Text="The base URL. OpenAI transport: ends in /v1, for example http://localhost:8001/v1. Anthropic transport: the host root, for example https://api.anthropic.com. Which server answers it - local or hosted - is configuration, never architecture." />
+                               Text="The base URL. OpenAI transport: ends in /v1, for example http://localhost:8001/v1. Anthropic transport: the host root, for example https://api.anthropic.com. Which server answers it - local or hosted - is configuration, never architecture. Remember adds the address to the list every role picks from; Forget takes it back out and leaves the roles alone." />
                     <DockPanel Style="{StaticResource Field}">
                       <TextBlock Style="{StaticResource Label}" Text="Transport" />
                       <ComboBox ItemsSource="{Binding DataContext.Transports, RelativeSource={RelativeSource AncestorType=Window}}"

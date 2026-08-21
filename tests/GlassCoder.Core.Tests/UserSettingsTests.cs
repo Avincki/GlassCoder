@@ -432,6 +432,28 @@ public sealed class UserSettingsTests
     }
 
     [Fact]
+    public void The_endpoints_offered_by_the_dialog_survive_a_save_and_do_not_multiply()
+    {
+        using TempWorkspace workspace = new();
+        UserSettingsStore store = new(new DpapiSecretProtector(), workspace.Root);
+
+        // The picker is a list on the Models section, so it is subject to the same append-on-bind
+        // behaviour that doubles every other list. Three visits, because doubling needs two to
+        // show and a wrong fix can still be wrong on the third.
+        GlassCoderSettings settings = Settings();
+        settings.Models.KnownEndpoints.Add("http://localhost:9001/v1");
+        settings.Models.KnownEndpoints.Add("https://api.anthropic.com");
+
+        for (int visit = 0; visit < 3; visit++)
+        {
+            store.Save(settings);
+            settings = GlassCoderSettings.ReadFrom(Configuration(store));
+        }
+
+        settings.Models.KnownEndpoints.ShouldBe(["http://localhost:9001/v1", "https://api.anthropic.com"]);
+    }
+
+    [Fact]
     public void Settings_that_would_stop_the_harness_from_starting_are_reported_before_they_are_saved()
     {
         GlassCoderSettings settings = Settings();

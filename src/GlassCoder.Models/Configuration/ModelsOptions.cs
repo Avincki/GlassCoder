@@ -17,6 +17,18 @@ public sealed class ModelsOptions
     public string DefaultRole { get; set; } = ModelRoles.Worker;
 
     /// <summary>
+    /// Endpoints the settings dialog offers for any role to point at.
+    /// <para>
+    /// Shared across roles rather than held per role, because the thing an operator does with it
+    /// is aim <c>worker</c> and <c>critic</c> at the <em>same</em> server. Nothing in the harness
+    /// reads this: it is a list of addresses that have been worth typing once, and a role is only
+    /// ever served by its own <see cref="ModelRoleOptions.Endpoint"/>. The dialog keeps every
+    /// in-use endpoint in here, so the list can never fail to show what a role is actually on.
+    /// </para>
+    /// </summary>
+    public IList<string> KnownEndpoints { get; } = [];
+
+    /// <summary>
     /// ActivitySource name for the <c>.UseOpenTelemetry()</c> stage of the client pipeline
     /// (CLAUDE.md §9). The tracer provider must subscribe to this same name.
     /// </summary>

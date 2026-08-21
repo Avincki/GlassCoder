@@ -11,6 +11,19 @@ public sealed class ModelsOptionsValidator : IValidateOptions<ModelsOptions>
 {
     private static readonly char[] PathIndicators = ['/', '\\'];
 
+    /// <summary>
+    /// Whether an endpoint is one a role could actually be served by: an absolute http(s) URI.
+    /// <para>
+    /// Public because the settings dialog offers an endpoint list to add to, and a dialog that
+    /// accepts what startup would reject just moves the failure to the next launch. One rule,
+    /// asked in both places.
+    /// </para>
+    /// </summary>
+    public static bool IsUsableEndpoint(string? endpoint) =>
+        !string.IsNullOrWhiteSpace(endpoint) &&
+        Uri.TryCreate(endpoint, UriKind.Absolute, out Uri? uri) &&
+        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, ModelsOptions options)
     {
@@ -29,8 +42,7 @@ public sealed class ModelsOptionsValidator : IValidateOptions<ModelsOptions>
             {
                 failures.Add($"{prefix}:Endpoint is required.");
             }
-            else if (!Uri.TryCreate(settings.Endpoint, UriKind.Absolute, out Uri? endpoint) ||
-                     (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
+            else if (!IsUsableEndpoint(settings.Endpoint))
             {
                 failures.Add($"{prefix}:Endpoint '{settings.Endpoint}' must be an absolute http(s) URI.");
             }
