@@ -30,6 +30,10 @@ public static class ModelsServiceCollectionExtensions
         services.TryAddSingleton<IServedModelDirectory, ServedModelDirectory>();
         services.TryAddSingleton<IModelConnectionProbe, ModelConnectionProbe>();
 
+        // Singleton for the cache rather than for the socket: asked once per role, then answered
+        // from memory for the life of the process.
+        services.TryAddSingleton<IServedModelIdentity, ServedModelIdentity>();
+
         return services;
     }
 }

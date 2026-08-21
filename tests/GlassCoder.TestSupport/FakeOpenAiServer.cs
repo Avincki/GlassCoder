@@ -43,8 +43,20 @@ public sealed class FakeOpenAiServer : IDisposable
     /// <summary>Base endpoint to configure a role with.</summary>
     public string Endpoint => $"http://127.0.0.1:{Port}/v1";
 
-    /// <summary>Every request body the server received, in order.</summary>
+    /// <summary>
+    /// Every <em>completion</em> body the server received, in order.
+    /// <para>
+    /// Model-list calls are deliberately absent. Every caller here indexes this to assert about a
+    /// step - what the third request asked for - and a run now reads the model list on its way in
+    /// to find out which checkpoint is behind its alias. Recording that here shifted every index
+    /// by one and broke a dozen tests that were right about the thing they were testing. A GET
+    /// with no body was never what this list was for.
+    /// </para>
+    /// </summary>
     public List<string> Requests { get; } = [];
+
+    /// <summary>Every path the server was asked for, in order, model lists included.</summary>
+    public List<string> Paths { get; } = [];
 
     /// <summary>Every <c>Authorization</c> header the server received, in order. Null when absent.</summary>
     public List<string?> AuthorizationHeaders { get; } = [];
@@ -200,15 +212,21 @@ public sealed class FakeOpenAiServer : IDisposable
                 using NetworkStream stream = client.GetStream();
                 ReceivedRequest received = await ReadRequestAsync(stream).ConfigureAwait(false);
 
-                lock (_gate)
-                {
-                    Requests.Add(received.Body);
-                    AuthorizationHeaders.Add(received.Authorization);
-                }
-
                 // Routed by path so a connection check can ask what is served before it asks for
                 // a completion; everything else keeps answering chat completions as before.
                 bool modelList = received.Path.EndsWith("/models", StringComparison.Ordinal);
+
+                lock (_gate)
+                {
+                    Paths.Add(received.Path);
+
+                    if (!modelList)
+                    {
+                        Requests.Add(received.Body);
+                    }
+
+                    AuthorizationHeaders.Add(received.Authorization);
+                }
                 int status = modelList ? ModelsStatusCode : ChatStatusCode;
                 byte[] payload = Encoding.UTF8.GetBytes(
                     modelList ? ModelList(status)

@@ -176,8 +176,20 @@ public sealed record StepRecord
     /// <summary>Served role that produced the response.</summary>
     public required string Role { get; init; }
 
-    /// <summary>Model id the server reported, when it reports one.</summary>
+    /// <summary>Model id the server reported, when it reports one. Usually the alias.</summary>
     public string? ModelId { get; init; }
+
+    /// <summary>
+    /// The checkpoint behind the alias, when the server names one.
+    /// <para>
+    /// Separate from <see cref="ModelId"/> because they answer different questions and an
+    /// OpenAI-compatible server gives the same string for both: it echoes back the alias it was
+    /// asked for. A run on <c>worker</c> therefore recorded that <c>worker</c> produced it, which
+    /// is true and says nothing - and it is precisely what a retrospective comparing two
+    /// checkpoints needs to tell apart.
+    /// </para>
+    /// </summary>
+    public string? ModelCheckpoint { get; init; }
 
     /// <summary>When the step started.</summary>
     public required DateTimeOffset StartedAt { get; init; }

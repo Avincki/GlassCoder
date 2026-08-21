@@ -33,6 +33,7 @@ namespace GlassCoder.Core.Agent;
 public sealed class AgentLoop : IAgentLoop
 {
     private readonly IChatClientFactory _clients;
+    private readonly IServedModelIdentity? _identity;
     private readonly IToolRegistry _tools;
     private readonly IStepLogger _stepLogger;
     private readonly IContextAssembler _context;
@@ -74,11 +75,13 @@ public sealed class AgentLoop : IAgentLoop
         AbandonedIntents? intents = null,
         AdvisoryNotices? notices = null,
         IOptions<WorkspaceOptions>? workspace = null,
-        GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null)
+        GlassCoder.Tools.Retrieval.IRetrievalPolicy? retrieval = null,
+        IServedModelIdentity? identity = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         _clients = clients;
+        _identity = identity;
         _tools = tools;
         _stepLogger = stepLogger;
         _context = context;
@@ -115,6 +118,13 @@ public sealed class AgentLoop : IAgentLoop
         // goes over the wire each step is the assembled window, which may be compacted.
         List<ChatMessage> messages =
             [.. _context.CreateInitialMessages(request.SystemPrompt ?? limits.SystemPrompt, request.Goal)];
+
+        // Asked once, here, rather than per step: it is a fact about the server rather than about
+        // the step, and a lookup between every thought would be a network call the run does not
+        // need. Null when nothing could answer, which the record reports as unknown.
+        string? checkpoint = _identity is null
+            ? null
+            : await _identity.ResolveAsync(role, cancellationToken).ConfigureAwait(false);
 
         RunBudget budget = new(limits, roleOptions, _time);
         RunMetricsCollector metrics = new();
@@ -196,7 +206,7 @@ public sealed class AgentLoop : IAgentLoop
 
             // Observe: assemble the leanest window that still contains what the agent needs.
             AssembledContext window = _context.Assemble(messages);
-            StepContext step = new(request, role, budget.Steps, _time.GetUtcNow(), requestProperties)
+            StepContext step = new(request, role, budget.Steps, _time.GetUtcNow(), requestProperties, checkpoint)
             {
                 Context = window,
             };
@@ -1144,6 +1154,7 @@ public sealed class AgentLoop : IAgentLoop
             StepIndex = step.Index,
             Role = step.Role,
             ModelId = response?.ModelId,
+            ModelCheckpoint = step.Checkpoint,
             StartedAt = step.StartedAt,
             Prompt = [.. (step.Prompt ?? messages).Select(Describe)],
             ResponseText = response?.Text,
@@ -1260,7 +1271,8 @@ public sealed class AgentLoop : IAgentLoop
         string Role,
         int Index,
         DateTimeOffset StartedAt,
-        IReadOnlyDictionary<string, object?>? RequestProperties)
+        IReadOnlyDictionary<string, object?>? RequestProperties,
+        string? Checkpoint = null)
     {
         public IReadOnlyList<ChatMessage>? Prompt { get; init; }
 

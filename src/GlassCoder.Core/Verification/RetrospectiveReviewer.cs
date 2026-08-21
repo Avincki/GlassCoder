@@ -702,14 +702,19 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
     /// <para>
     /// Deliberately not the record's own <c>ToString</c>, which separates role from model with a
     /// colon: this line is read back by splitting on the first colon, so a value that carries more
-    /// of them parses into something that only looks right. <c>=</c> and <c>;</c> are picked for
-    /// appearing in no model id anyone serves.
+    /// of them parses into something that only looks right. Each entry is
+    /// <c>role=alias|checkpoint</c>, and <c>=</c>, <c>;</c> and <c>|</c> are picked for appearing
+    /// in no model id or checkpoint path anyone serves.
     /// </para>
     /// </summary>
     private static string? FormatModels(IReadOnlyList<ModelInUse> models) =>
         models.Count == 0
             ? null
-            : string.Join("; ", models.Select(m => $"{m.Role}={m.ModelId ?? string.Empty}"));
+            : string.Join(
+                "; ",
+                models.Select(m => string.IsNullOrWhiteSpace(m.Checkpoint)
+                    ? $"{m.Role}={m.ModelId ?? string.Empty}"
+                    : $"{m.Role}={m.ModelId ?? string.Empty}|{m.Checkpoint}"));
 
     /// <summary>Reads back what <see cref="FormatModels"/> wrote, skipping anything malformed.</summary>
     private static IReadOnlyList<ModelInUse> ParseModels(string? line)
@@ -730,8 +735,18 @@ public sealed class ClaudeCodeRetrospectiveReviewer : IRetrospectiveReviewer
             }
 
             string role = entry[..split].Trim();
-            string model = entry[(split + 1)..].Trim();
-            models.Add(new ModelInUse(role, model.Length > 0 ? model : null));
+            string rest = entry[(split + 1)..].Trim();
+
+            // The alias, then the checkpoint behind it. A line written before checkpoints were
+            // recorded carries no bar, and reads as an alias with none - which is what it was.
+            int bar = rest.IndexOf('|', StringComparison.Ordinal);
+            string model = bar < 0 ? rest : rest[..bar].Trim();
+            string checkpoint = bar < 0 ? string.Empty : rest[(bar + 1)..].Trim();
+
+            models.Add(new ModelInUse(
+                role,
+                model.Length > 0 ? model : null,
+                checkpoint.Length > 0 ? checkpoint : null));
         }
 
         return models;

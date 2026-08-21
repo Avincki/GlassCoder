@@ -125,6 +125,62 @@ public sealed class SeamIntegrationTests : IDisposable
         result.Error.ShouldContain("http://127.0.0.1:1/v1");
     }
 
+    [Fact]
+    public async Task A_run_records_the_checkpoint_behind_its_alias_rather_than_the_alias()
+    {
+        // The end of the chain, across the real seam: the server echoes "worker" as the model id
+        // for the completion, and only its model list knows what is loaded. Before this, every
+        // step of every run recorded that "worker" produced it, and a retrospective comparing two
+        // checkpoints on one alias had nothing to compare.
+        _server.ServedCheckpoint = "org/Qwen3.8-27B-NVFP4";
+        _server.EnqueueText("done");
+
+        using ServiceProvider provider = BuildProvider();
+        ITranscriptBus transcript = provider.GetRequiredService<ITranscriptBus>();
+
+        await provider.GetRequiredService<IAgentLoop>()
+            .RunAsync(new AgentRunRequest { TaskId = "seam", Goal = "Say done." });
+
+        StepRecord step = transcript.Steps.ShouldHaveSingleItem();
+        step.ModelId.ShouldBe("worker");
+        step.ModelCheckpoint.ShouldBe("org/Qwen3.8-27B-NVFP4");
+    }
+
+    [Fact]
+    public async Task A_server_that_names_no_checkpoint_leaves_it_unrecorded()
+    {
+        // Unknown, never invented. The absence is what lets a report say the server did not name
+        // one instead of printing the alias as though it were the weights.
+        _server.ServedCheckpoint = null;
+        _server.EnqueueText("done");
+
+        using ServiceProvider provider = BuildProvider();
+        ITranscriptBus transcript = provider.GetRequiredService<ITranscriptBus>();
+
+        await provider.GetRequiredService<IAgentLoop>()
+            .RunAsync(new AgentRunRequest { TaskId = "seam", Goal = "Say done." });
+
+        transcript.Steps.ShouldHaveSingleItem().ModelCheckpoint.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task The_model_list_is_read_once_however_many_steps_the_run_takes()
+    {
+        // A lookup between every thought would be a network call the run does not need, and this
+        // is a fact about the server rather than about the step.
+        _server.ServedCheckpoint = "org/Qwen3.8-27B-NVFP4";
+        _server.EnqueueToolCall("glob", """{"pattern":"**/*.cs"}""");
+        _server.EnqueueText("done");
+
+        using ServiceProvider provider = BuildProvider();
+
+        await provider.GetRequiredService<IAgentLoop>()
+            .RunAsync(new AgentRunRequest { TaskId = "seam", Goal = "List then stop." });
+
+        _server.Paths.Count(path => path.EndsWith("/models", StringComparison.Ordinal)).ShouldBe(1);
+        _server.Requests.Count.ShouldBe(2);
+    }
+
     private ServiceProvider BuildProvider(string? endpoint = null)
     {
         // A real endpoint if one is configured, otherwise the socket-level fake.

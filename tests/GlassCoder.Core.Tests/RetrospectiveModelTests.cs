@@ -29,6 +29,51 @@ public sealed class RetrospectiveModelTests
     }
 
     [Fact]
+    public void The_checkpoint_leads_and_the_alias_follows_it()
+    {
+        // The line the whole feature is for. Before this, an OpenAI-compatible server echoing its
+        // own alias made every report say "worker: worker" - true, and no help at all to somebody
+        // asking which of two checkpoints wrote the better code.
+        string digest = Render([Step(0, "worker", "worker", "org/Qwen3.8-27B-NVFP4")]);
+
+        digest.ShouldContain("- Models: worker: org/Qwen3.8-27B-NVFP4 (alias \"worker\")");
+        digest.ShouldNotContain("worker: worker");
+    }
+
+    [Fact]
+    public void An_unnamed_checkpoint_says_the_alias_is_all_there_is()
+    {
+        // Honest about which of the two it has. A bare alias printed as though it were a
+        // checkpoint is what made the absence invisible in the first place.
+        string digest = Render([Step(0, "worker", "worker", null)]);
+
+        digest.ShouldContain("worker: worker (an alias - the server did not name the checkpoint)");
+    }
+
+    [Fact]
+    public void One_alias_on_two_checkpoints_is_two_models()
+    {
+        // Repointing an endpoint and running again is the comparison this supports, and the alias
+        // is identical across it. Comparing aliases would call these the same model.
+        string digest = RetrospectiveTranscript.Render(
+            [Step(0, "worker", "worker", "org/Qwen3.8-27B", runId: "run-1"),
+             Step(0, "worker", "worker", "org/Llama-70B", runId: "run-2")],
+            new RetrospectiveRequest("run-2") { StopReason = "Completed", Steps = 1 });
+
+        digest.ShouldContain("More than one model answered in this session.");
+    }
+
+    [Fact]
+    public void A_step_heading_names_the_weights_rather_than_the_alias()
+    {
+        string digest = Render(
+            [Step(0, "worker", "worker", "org/Qwen3.8-27B"), Step(1, "worker", "worker", "org/Llama-70B")]);
+
+        digest.ShouldContain("#### Step 0 · worker · org/Qwen3.8-27B · continued");
+        digest.ShouldContain("#### Step 1 · worker · org/Llama-70B · continued");
+    }
+
+    [Fact]
     public void Two_roles_on_two_models_are_both_named()
     {
         // The case the feature exists for: a local worker judged by a hosted critic. Reading a
@@ -154,6 +199,23 @@ public sealed class RetrospectiveModelTests
     }
 
     [Fact]
+    public async Task A_stage_file_carries_the_checkpoint_and_hands_it_back()
+    {
+        // The alias reproduces the run; the checkpoint distinguishes it. The front matter keeps
+        // both, because a folder is the only thing that outlives the session.
+        using TempWorkspace workspace = new();
+
+        Retrospective written = await Reviewer(workspace, [Step(0, "worker", "worker", "org/Qwen3.8-27B")])
+            .ReviewAsync(new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = 1 });
+
+        File.ReadAllText(StageFile(written, "1-code"))
+            .ShouldContain("runModels: worker=worker|org/Qwen3.8-27B");
+
+        Reviewer(workspace, []).LoadFrom(written.Directory!).ShouldNotBeNull()
+            .Run.Models.ShouldBe([new ModelInUse("worker", "worker", "org/Qwen3.8-27B")]);
+    }
+
+    [Fact]
     public async Task A_folder_written_before_this_was_carried_reads_as_unknown()
     {
         // Every field in that block is optional on purpose, and a retrospective somebody kept from
@@ -208,13 +270,15 @@ public sealed class RetrospectiveModelTests
         RetrospectiveTranscript.Render(
             steps, new RetrospectiveRequest("run-1") { StopReason = "Completed", Steps = steps.Count });
 
-    private static StepRecord Step(int index, string role, string? modelId, string runId = "run-1") => new()
+    private static StepRecord Step(
+        int index, string role, string? modelId, string? checkpoint = null, string runId = "run-1") => new()
     {
         RunId = runId,
         TaskId = "desktop",
         StepIndex = index,
         Role = role,
         ModelId = modelId,
+        ModelCheckpoint = checkpoint,
         StartedAt = DateTimeOffset.UnixEpoch,
         Prompt = [],
         ToolCalls = [],

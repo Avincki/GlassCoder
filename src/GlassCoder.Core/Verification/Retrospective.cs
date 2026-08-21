@@ -224,11 +224,35 @@ public sealed record Retrospective
 /// </summary>
 /// <param name="Role">The served role, as the harness addresses it.</param>
 /// <param name="ModelId">What the server reported, or null when it reported nothing.</param>
-public sealed record ModelInUse(string Role, string? ModelId)
+/// <param name="Checkpoint">The weights behind the alias, when the server named them.</param>
+public sealed record ModelInUse(string Role, string? ModelId, string? Checkpoint = null)
 {
-    /// <summary>The pair as one phrase, saying so when the server named nothing.</summary>
-    public override string ToString() =>
-        string.IsNullOrWhiteSpace(ModelId) ? $"{Role} (the server reported no model id)" : $"{Role}: {ModelId}";
+    /// <summary>
+    /// The role and what answered for it, as one phrase.
+    /// <para>
+    /// The checkpoint leads where there is one, because it is the fact that distinguishes two
+    /// runs; the alias follows in brackets, because it is the fact that reproduces them. Where
+    /// there is no checkpoint the phrase says so rather than printing the alias twice - a line
+    /// reading "worker: worker" is what this whole field was added to stop.
+    /// </para>
+    /// </summary>
+    public override string ToString()
+    {
+        if (!string.IsNullOrWhiteSpace(Checkpoint))
+        {
+            return string.IsNullOrWhiteSpace(ModelId) ||
+                   string.Equals(ModelId, Checkpoint, StringComparison.OrdinalIgnoreCase)
+                ? $"{Role}: {Checkpoint}"
+                : $"{Role}: {Checkpoint} (alias \"{ModelId}\")";
+        }
+
+        if (string.IsNullOrWhiteSpace(ModelId))
+        {
+            return $"{Role} (the server reported no model id)";
+        }
+
+        return $"{Role}: {ModelId} (an alias - the server did not name the checkpoint)";
+    }
 }
 
 /// <summary>Which run to look back at, and what is known about it.</summary>
@@ -345,7 +369,7 @@ public static class RetrospectiveTranscript
         ArgumentNullException.ThrowIfNull(steps);
 
         List<ModelInUse> found = [];
-        HashSet<(string Role, string? ModelId)> seen = [];
+        HashSet<(string Role, string? ModelId, string? Checkpoint)> seen = [];
 
         foreach (StepRecord step in steps)
         {
@@ -356,9 +380,9 @@ public static class RetrospectiveTranscript
 
             // Keyed on the pair: the same checkpoint serving worker and critic is two facts worth
             // reporting, and one role that changed model mid-session is the fact this exists for.
-            if (seen.Add((step.Role, step.ModelId)))
+            if (seen.Add((step.Role, step.ModelId, step.ModelCheckpoint)))
             {
-                found.Add(new ModelInUse(step.Role, step.ModelId));
+                found.Add(new ModelInUse(step.Role, step.ModelId, step.ModelCheckpoint));
             }
         }
 
@@ -412,6 +436,14 @@ public static class RetrospectiveTranscript
 
         return text.ToString();
     }
+
+    /// <summary>
+    /// What actually tells two models apart: the checkpoint where the server named one, and the
+    /// alias only where it did not. Comparing aliases would report two runs on one alias as the
+    /// same model however far apart the weights behind it were.
+    /// </summary>
+    private static string Distinguishing(ModelInUse model) =>
+        string.IsNullOrWhiteSpace(model.Checkpoint) ? model.ModelId ?? string.Empty : model.Checkpoint;
 
     /// <summary>One run of the session, rendered but not yet fitted to the budget.</summary>
     /// <param name="RunId">The run this section is of.</param>
@@ -521,7 +553,7 @@ public static class RetrospectiveTranscript
             // reader of one step wants the plan as it then stood; a reader of the run wants to see
             // which step moved it. It does not carry across runs: each run plans for itself.
             bool nameModels = ModelsInUse(mine)
-                .Select(m => m.ModelId)
+                .Select(Distinguishing)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count() > 1;
 
@@ -574,7 +606,7 @@ public static class RetrospectiveTranscript
         // Said once, at the top, where it changes how everything below is read. This harness
         // frames capability as model x harness x context, so a session that changed model
         // partway is not one run of evidence about the harness - it is two.
-        if (models.Select(m => m.ModelId).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+        if (models.Select(Distinguishing).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
         {
             text.AppendLine(
                 "More than one model answered in this session. Where a difference between runs " +
@@ -995,9 +1027,8 @@ public static class RetrospectiveTranscript
         // The model is on the heading only where the run had more than one to tell apart. The
         // run header names it otherwise, and a name repeated down forty steps is the kind of
         // re-announcement this renderer exists to keep out.
-        string model = nameModel && !string.IsNullOrWhiteSpace(step.ModelId)
-            ? $" · {step.ModelId}"
-            : string.Empty;
+        string? named = string.IsNullOrWhiteSpace(step.ModelCheckpoint) ? step.ModelId : step.ModelCheckpoint;
+        string model = nameModel && !string.IsNullOrWhiteSpace(named) ? $" · {named}" : string.Empty;
 
         text.AppendLine(
             CultureInfo.InvariantCulture,
