@@ -110,6 +110,58 @@ public sealed class RetrospectiveModelTests
     }
 
     [Fact]
+    public void The_operators_own_steps_are_not_models_that_produced_the_run()
+    {
+        // A file review or a retrospective stage is recorded as a step with role "human", and it
+        // carries the reviewer's own model id. Listing claude-opus-5 among "the models that
+        // produced this run" puts the reviewer into the evidence about the run it reviewed.
+        string digest = Render(
+            [Step(0, "worker", "worker", "org/Qwen3.8-27B"), Step(1, "human", "claude-opus-5")]);
+
+        digest.ShouldNotContain("claude-opus-5");
+        digest.ShouldContain("- Models: worker: org/Qwen3.8-27B (alias \"worker\")");
+    }
+
+    [Fact]
+    public void A_run_of_nothing_but_operator_steps_reports_no_models()
+    {
+        string digest = Render([Step(0, "human", "claude-opus-5")]);
+
+        digest.ShouldNotContain("- Models:");
+    }
+
+    [Fact]
+    public void The_critic_that_judged_is_named_beside_the_worker_it_judged()
+    {
+        // A panel's verdict is recorded inside the step it judged rather than as a step of its
+        // own, so a run reviewed by a hosted critic named only the worker - and which oracle
+        // spoke is half of what a critique means.
+        string digest = Render([Judged("worker", "org/Qwen3.8-27B", "critic", "claude-opus-5")]);
+
+        digest.ShouldContain("worker: org/Qwen3.8-27B");
+        digest.ShouldContain("critic: claude-opus-5");
+    }
+
+    [Fact]
+    public void A_critic_on_another_model_is_not_a_session_that_changed_model()
+    {
+        // The ordinary setup - a local worker judged by a hosted critic - and not the event the
+        // warning is for. The critic wrote no step; it cannot explain a difference between runs.
+        string digest = Render([Judged("worker", "org/Qwen3.8-27B", "critic", "claude-opus-5")]);
+
+        digest.ShouldNotContain("More than one model answered");
+        digest.ShouldContain("#### Step 0 · worker · continued");
+    }
+
+    [Fact]
+    public void A_critic_that_named_no_model_is_still_named_as_the_role_that_judged()
+    {
+        string digest = Render([Judged("worker", "org/Qwen3.8-27B", "critic", null)]);
+
+        digest.ShouldContain("critic (the server reported no model id)");
+    }
+
+    [Fact]
     public void A_server_that_reported_no_model_says_so_rather_than_being_dropped()
     {
         // Absent reads as unknown and never as none. Dropping the role here would report a run
@@ -288,6 +340,33 @@ public sealed class RetrospectiveModelTests
     };
 
     /// <summary>One stage's file, in the folder the retrospective says it wrote.</summary>
+    /// <summary>A step the panel judged, carrying who judged it.</summary>
+    private static StepRecord Judged(
+        string role, string? checkpoint, string criticRole, string? criticModel) =>
+        Step(0, role, role, checkpoint) with
+        {
+            Verification = new StepVerificationRecord(
+                Passed: true,
+                HighestRungReached: "UnitTests",
+                FailedRung: null,
+                DurationMs: 10,
+                Summary: "passed (4 tests)",
+                CritiqueCostUsd: 0m)
+            {
+                Critique = new StepCritiqueRecord(
+                    criticRole,
+                    Refuted: false,
+                    Inconclusive: false,
+                    RefutingVotes: 0,
+                    RespondingVotes: 1,
+                    UnavailableVotes: 0,
+                    Votes: [new ReviewVoteRecord(false, 0.9, "Reads correctly.", Available: true, "correctness")])
+                {
+                    CriticModelId = criticModel,
+                },
+            },
+        };
+
     private static string StageFile(Retrospective written, string stage) =>
         Path.Combine(written.Directory.ShouldNotBeNull(), $"{stage}.md");
 

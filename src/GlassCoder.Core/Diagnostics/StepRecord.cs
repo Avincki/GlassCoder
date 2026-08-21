@@ -123,6 +123,12 @@ public sealed record StepCritiqueRecord(
     /// </para>
     /// </summary>
     public bool EvidenceUnchanged { get; init; }
+
+    /// <summary>The alias the critic role addressed.</summary>
+    public string? CriticModelId { get; init; }
+
+    /// <summary>The weights behind that alias, when the server named them.</summary>
+    public string? CriticCheckpoint { get; init; }
 }
 
 /// <summary>What one automatic verification climb concluded (workplan task 36).</summary>

@@ -53,6 +53,19 @@ public sealed record CritiqueResult(bool Refuted, IReadOnlyList<CritiqueVerdict>
     /// <summary>The role the critics ran on, so the transcript records which oracle spoke.</summary>
     public string Role { get; init; } = string.Empty;
 
+    /// <summary>The alias that role addresses. Empty when nothing configured the role.</summary>
+    public string ModelId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The weights behind that alias, when the server names them.
+    /// <para>
+    /// The role alone was never enough: <c>critic</c> says which seat voted, not who sat in it,
+    /// and the whole reason a panel is worth reading is that its judgement is a model's. A remote
+    /// critic and a local one leave the same word in the transcript.
+    /// </para>
+    /// </summary>
+    public string? Checkpoint { get; init; }
+
     /// <summary>Prompt tokens across the panel.</summary>
     public long InputTokens { get; init; }
 
@@ -168,6 +181,7 @@ public sealed class CriticPanel : ICriticPanel
     ];
 
     private readonly IChatClientFactory _clients;
+    private readonly IServedModelIdentity? _identity;
     private readonly CritiqueOptions _options;
     private readonly ILogger<CriticPanel> _logger;
 
@@ -175,11 +189,13 @@ public sealed class CriticPanel : ICriticPanel
     public CriticPanel(
         IChatClientFactory clients,
         IOptions<CritiqueOptions> options,
-        ILogger<CriticPanel>? logger = null)
+        ILogger<CriticPanel>? logger = null,
+        IServedModelIdentity? identity = null)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         _clients = clients;
+        _identity = identity;
         _options = options.Value;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<CriticPanel>.Instance;
     }
@@ -263,7 +279,35 @@ public sealed class CriticPanel : ICriticPanel
             outputTokens += answer.OutputTokens;
         }
 
-        return Tally(votes, criticCount, resolved, inputTokens, outputTokens);
+        // Stamped after the tally rather than inside it, so every way out of Tally - a full
+        // panel, an inconclusive one - carries it without the tally knowing about model identity
+        // at all. The role says which seat voted; this says who was sitting in it.
+        return await Describe(Tally(votes, criticCount, resolved, inputTokens, outputTokens), resolved, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Names the model that judged, so a verdict is attributable to something more specific than
+    /// a role. A critic that could not be resolved leaves both fields absent, which reads as
+    /// unknown rather than as the alias standing in for the weights.
+    /// </summary>
+    private async Task<CritiqueResult> Describe(
+        CritiqueResult result, string role, CancellationToken cancellationToken)
+    {
+        if (!_clients.ContainsRole(role))
+        {
+            return result;
+        }
+
+        string? checkpoint = _identity is null
+            ? null
+            : await _identity.ResolveAsync(role, cancellationToken).ConfigureAwait(false);
+
+        return result with
+        {
+            ModelId = _clients.GetRoleOptions(role).ModelAlias,
+            Checkpoint = checkpoint,
+        };
     }
 
     /// <summary>

@@ -354,6 +354,18 @@ public static class RetrospectiveTranscript
     private const string OutsideARun = "no-run";
 
     /// <summary>
+    /// The role on a step the operator took themselves - a commit, a rating, a file review.
+    /// <para>
+    /// Excluded from the models, and the exclusion is the point rather than tidiness. These steps
+    /// carry a model id like any other, and it is the id of whatever reviewed <em>on the
+    /// operator's behalf</em> - the file reviewer's <c>claude-opus-5</c>. Listing it under "the
+    /// models that produced this run" put the reviewer's own model in the run's evidence, which is
+    /// the one confusion this whole surface exists to prevent.
+    /// </para>
+    /// </summary>
+    private const string OperatorRole = "human";
+
+    /// <summary>
     /// Which models answered, in the order they first did.
     /// <para>
     /// Read off the steps rather than off configuration, because configuration says what a role
@@ -378,15 +390,34 @@ public static class RetrospectiveTranscript
                 continue;
             }
 
-            // Keyed on the pair: the same checkpoint serving worker and critic is two facts worth
-            // reporting, and one role that changed model mid-session is the fact this exists for.
-            if (seen.Add((step.Role, step.ModelId, step.ModelCheckpoint)))
+            if (!string.Equals(step.Role, OperatorRole, StringComparison.OrdinalIgnoreCase))
             {
-                found.Add(new ModelInUse(step.Role, step.ModelId, step.ModelCheckpoint));
+                // Keyed on the triple: the same checkpoint serving worker and critic is two facts
+                // worth reporting, and one role that changed model mid-run is the fact this
+                // exists for.
+                Add(step.Role, step.ModelId, step.ModelCheckpoint);
+            }
+
+            // The critic is not a step of its own - a panel's verdict is recorded inside the step
+            // it judged - so a run reviewed by a hosted critic named only the worker, and the
+            // second model in the room went unreported. Which oracle spoke is half of what a
+            // critique means.
+            if (step.Verification?.Critique is { } critique &&
+                !string.IsNullOrWhiteSpace(critique.CriticRole))
+            {
+                Add(critique.CriticRole, critique.CriticModelId, critique.CriticCheckpoint);
             }
         }
 
         return found;
+
+        void Add(string role, string? modelId, string? checkpoint)
+        {
+            if (seen.Add((role, modelId, checkpoint)))
+            {
+                found.Add(new ModelInUse(role, modelId, checkpoint));
+            }
+        }
     }
 
     /// <summary>Renders the digest for a whole session, run by run.</summary>
@@ -412,7 +443,7 @@ public static class RetrospectiveTranscript
         List<Section> sections = Split(steps, request, runs);
 
         StringBuilder text = new();
-        AppendSessionHeader(text, sections, request, ModelsInUse(steps));
+        AppendSessionHeader(text, sections, request, ModelsInUse(steps), StepModels(steps));
 
         // The cap is a budget over the session rather than per run: a nine-step run beside a
         // forty-step one must not be cut in half to make room for a share it never needed. Each
@@ -442,8 +473,22 @@ public static class RetrospectiveTranscript
     /// alias only where it did not. Comparing aliases would report two runs on one alias as the
     /// same model however far apart the weights behind it were.
     /// </summary>
-    private static string Distinguishing(ModelInUse model) =>
-        string.IsNullOrWhiteSpace(model.Checkpoint) ? model.ModelId ?? string.Empty : model.Checkpoint;
+    private static string Distinguishing(string? modelId, string? checkpoint) =>
+        string.IsNullOrWhiteSpace(checkpoint) ? modelId ?? string.Empty : checkpoint;
+
+    /// <summary>
+    /// The models that actually produced steps, one entry per step.
+    /// <para>
+    /// Narrower than <see cref="ModelsInUse"/> on purpose, and both narrowings matter. The
+    /// operator's own steps are not the run. And the critic did not write any step, so counting it
+    /// would answer "did the model change?" with yes on every run that was reviewed by a different
+    /// model from the one it reviewed - which is the ordinary setup, not the event worth flagging.
+    /// </para>
+    /// </summary>
+    private static IEnumerable<string> StepModels(IEnumerable<StepRecord> steps) =>
+        steps
+            .Where(s => !string.Equals(s.Role, OperatorRole, StringComparison.OrdinalIgnoreCase))
+            .Select(s => Distinguishing(s.ModelId, s.ModelCheckpoint));
 
     /// <summary>One run of the session, rendered but not yet fitted to the budget.</summary>
     /// <param name="RunId">The run this section is of.</param>
@@ -552,10 +597,7 @@ public static class RetrospectiveTranscript
             // The plan carries from step to step so an update can be rendered as what it changed. A
             // reader of one step wants the plan as it then stood; a reader of the run wants to see
             // which step moved it. It does not carry across runs: each run plans for itself.
-            bool nameModels = ModelsInUse(mine)
-                .Select(Distinguishing)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count() > 1;
+            bool nameModels = StepModels(mine).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
 
             List<string> rendered = [];
             List<PlanItem>? plan = null;
@@ -579,7 +621,8 @@ public static class RetrospectiveTranscript
         StringBuilder text,
         IReadOnlyList<Section> sections,
         RetrospectiveRequest request,
-        IReadOnlyList<ModelInUse> models)
+        IReadOnlyList<ModelInUse> models,
+        IEnumerable<string> stepModels)
     {
         int runs = sections.Count(s => s.Number > 0);
         Section? subject = sections.FirstOrDefault(s => s.Subject);
@@ -606,7 +649,7 @@ public static class RetrospectiveTranscript
         // Said once, at the top, where it changes how everything below is read. This harness
         // frames capability as model x harness x context, so a session that changed model
         // partway is not one run of evidence about the harness - it is two.
-        if (models.Select(Distinguishing).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+        if (stepModels.Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
         {
             text.AppendLine(
                 "More than one model answered in this session. Where a difference between runs " +

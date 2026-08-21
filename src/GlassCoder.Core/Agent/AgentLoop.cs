@@ -1099,7 +1099,11 @@ public sealed class AgentLoop : IAgentLoop
         critique.RefutingVotes,
         critique.RespondingVotes,
         critique.UnavailableVotes,
-        [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available, v.Lens))]);
+        [.. critique.Votes.Select(v => new ReviewVoteRecord(v.Refuted, v.Confidence, v.Reason, v.Available, v.Lens))])
+    {
+        CriticModelId = string.IsNullOrWhiteSpace(critique.ModelId) ? null : critique.ModelId,
+        CriticCheckpoint = critique.Checkpoint,
+    };
 
     private static string Cap(string text, int limit) =>
         text.Length <= limit ? text : text[..limit] + " [...]";

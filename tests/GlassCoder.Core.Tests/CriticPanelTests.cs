@@ -306,6 +306,39 @@ public sealed class CriticPanelTests
         users[0].ShouldContain(launch, Case.Sensitive);
     }
 
+    [Fact]
+    public async Task A_verdict_names_the_model_that_reached_it()
+    {
+        // The role says which seat voted, not who sat in it - and a local critic and a hosted one
+        // leave the same word in the transcript. A panel's judgement is a model's judgement.
+        CritiqueResult result = await Panel(_ => Verdict(refuted: false, "fine"))
+            .CritiqueAsync("goal", "change", "evidence");
+
+        result.Role.ShouldBe("critic");
+        result.ModelId.ShouldBe("critic");
+    }
+
+    [Fact]
+    public async Task The_remote_critic_is_named_by_the_alias_it_actually_addresses()
+    {
+        // The point of naming it at all: swapping to the hosted critic changes who judged, and
+        // "critic-remote" alone does not say to what.
+        CritiqueResult result = await Panel(_ => Verdict(refuted: false, "fine"))
+            .CritiqueAsync("goal", "change", "evidence", role: "critic-remote");
+
+        result.ModelId.ShouldBe("claude-opus-4-8");
+    }
+
+    [Fact]
+    public async Task A_role_nothing_configures_names_no_model_rather_than_inventing_one()
+    {
+        CritiqueResult result = await Panel(_ => Verdict(refuted: false, "fine"))
+            .CritiqueAsync("goal", "change", "evidence", role: "nobody");
+
+        result.ModelId.ShouldBeEmpty();
+        result.Checkpoint.ShouldBeNull();
+    }
+
     private static CriticPanel Panel(Func<string, ChatResponse> respond, List<string>? userMessages = null) =>
         new(Factory(respond, userMessages: userMessages), Options.Create(Settings()));
 
