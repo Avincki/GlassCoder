@@ -1,0 +1,1761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Setup and operating guide for the GlassContext / GlassCoder pairing: how to configure each application, what the workflow looks like on a small C# solution, which documents and code each side produces, and how the two halves meet on the task slug.">
+<title>GlassContext + GlassCoder — setup and workflow guide</title>
+<style>
+  :root {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Consolas", "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --rail: 15rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0F1418;
+      --surface: #161C21;
+      --sunk: #1B2329;
+      --ink: #E8EDF0;
+      --muted: #93A3AD;
+      --faint: #6B7A84;
+      --rule: #26313A;
+      --rule-strong: #3A4852;
+      --signal: #63B3DC;
+      --signal-soft: #14262F;
+      --pass: #4FB37A;
+      --warn: #D9A227;
+      --fail: #E4715F;
+      --pass-soft: #14251C;
+      --warn-soft: #26200F;
+      --fail-soft: #2A1815;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0F1418;
+    --surface: #161C21;
+    --sunk: #1B2329;
+    --ink: #E8EDF0;
+    --muted: #93A3AD;
+    --faint: #6B7A84;
+    --rule: #26313A;
+    --rule-strong: #3A4852;
+    --signal: #63B3DC;
+    --signal-soft: #14262F;
+    --pass: #4FB37A;
+    --warn: #D9A227;
+    --fail: #E4715F;
+    --pass-soft: #14251C;
+    --warn-soft: #26200F;
+    --fail-soft: #2A1815;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #F4F6F7;
+    --surface: #FFFFFF;
+    --sunk: #EAEEF0;
+    --ink: #131A1F;
+    --muted: #5B6B75;
+    --faint: #8A99A3;
+    --rule: #D5DDE1;
+    --rule-strong: #B9C5CB;
+    --signal: #1A6E9E;
+    --signal-soft: #E4EFF6;
+    --pass: #2E7D4F;
+    --warn: #9A6B00;
+    --fail: #B23A2B;
+    --pass-soft: #E6F1EA;
+    --warn-soft: #F7EEDA;
+    --fail-soft: #F8E9E6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .masthead { border-bottom: 1px solid var(--rule); background: var(--surface); }
+
+  .masthead-inner {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2.75rem 2rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.4vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    max-width: 54ch;
+    margin: 0;
+    font-size: 1.09rem;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+
+  .specstrip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 2.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .specstrip b {
+    color: var(--faint);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    display: block;
+  }
+
+  .backlinks { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+  .backlinks a { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-decoration: none; }
+  .backlinks a:hover { color: var(--signal); }
+
+  .shell {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 0 2rem 5rem;
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    gap: 3.5rem;
+    align-items: start;
+  }
+
+  .rail { position: sticky; top: 0; padding: 2.5rem 0; max-height: 100vh; overflow-y: auto; }
+
+  .rail h2 {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 0.85rem;
+    font-weight: 400;
+  }
+
+  .rail ol { list-style: none; margin: 0 0 1.9rem; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+
+  .rail a {
+    display: block;
+    padding: 0.28rem 0 0.28rem 0.85rem;
+    border-left: 2px solid var(--rule);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.87rem;
+  }
+
+  .rail a:hover { color: var(--ink); border-left-color: var(--rule-strong); }
+  .rail a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+  main { padding: 2.5rem 0 0; min-width: 0; }
+
+  .part { margin-bottom: 4rem; scroll-margin-top: 1.5rem; }
+
+  .part-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 1.9rem;
+  }
+
+  .part-head .num { font-family: var(--mono); font-size: 0.78rem; color: var(--signal); letter-spacing: 0.08em; }
+
+  .part-head h2 {
+    font-family: var(--serif);
+    font-size: 1.72rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  h3 { font-family: var(--serif); font-size: 1.24rem; font-weight: 600; margin: 2.4rem 0 0.7rem; text-wrap: balance; }
+
+  h4 {
+    font-family: var(--sans);
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin: 1.8rem 0 0.6rem;
+  }
+
+  p, ul, ol.prose { max-width: var(--measure); }
+  p { margin: 0 0 1rem; text-wrap: pretty; }
+
+  ul.prose, ol.prose {
+    margin: 0 0 1.1rem;
+    padding-left: 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  a { color: var(--signal); text-underline-offset: 0.16em; }
+  a:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--sunk);
+    padding: 0.1em 0.36em;
+    border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+
+  pre {
+    margin: 0 0 1.2rem;
+    padding: 1rem 1.15rem;
+    background: var(--sunk);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    border-radius: 4px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 0.84rem;
+    line-height: 1.62;
+  }
+
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--faint); }
+  pre .k { color: var(--signal); }
+
+  .note {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--signal);
+    background: var(--surface);
+    border-radius: 4px;
+    padding: 1rem 1.2rem;
+    margin: 0 0 1.4rem;
+    max-width: var(--measure);
+  }
+
+  .note.refuse { border-left-color: var(--warn); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+
+  .note.refuse .tag { color: var(--warn); }
+
+  .scroller { overflow-x: auto; margin: 0 0 1.4rem; }
+
+  table.doc { border-collapse: collapse; width: 100%; min-width: 32rem; font-size: 0.9rem; }
+
+  table.doc th {
+    text-align: left;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 0 1rem 0.5rem 0;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+
+  table.doc td {
+    padding: 0.62rem 1rem 0.62rem 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    color: var(--muted);
+  }
+
+  table.doc td:first-child { color: var(--ink); }
+  table.doc td.m, table.doc th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.08rem 0.45rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+
+  .pill.pass { color: var(--pass); background: var(--pass-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.fail { color: var(--fail); background: var(--fail-soft); }
+  .pill.info { color: var(--signal); background: var(--signal-soft); }
+
+  footer {
+    max-width: 78rem;
+    margin: 0 auto;
+    padding: 2rem;
+    border-top: 1px solid var(--rule);
+    color: var(--faint);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+  }
+
+  @media (max-width: 60rem) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0 1.35rem 4rem; }
+    .rail { position: static; max-height: none; padding: 2rem 0 0; }
+    .rail ol { flex-direction: row; flex-wrap: wrap; gap: 0.35rem 1.1rem; margin-bottom: 1.2rem; }
+    .rail a { border-left: none; padding-left: 0; }
+    .masthead-inner { padding: 2rem 1.35rem 1.35rem; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+<style>
+  /* Additions for this page: the flow figure, the two-column key/value list. */
+  figure.flow { margin: 0 0 1.6rem; }
+  figure.flow svg { width: 100%; height: auto; max-width: 56rem; display: block; }
+  figure.flow figcaption {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--faint);
+    margin-top: 0.6rem; letter-spacing: 0.02em;
+  }
+  .flow .box { fill: var(--surface); stroke: var(--rule-strong); }
+  .flow .box.accent { stroke: var(--signal); }
+  .flow .chip { fill: var(--sunk); stroke: var(--rule); }
+  .flow .edge { stroke: var(--rule-strong); fill: none; }
+  .flow .edge.accent { stroke: var(--signal); }
+  .flow text { font-family: var(--sans); fill: var(--ink); }
+  .flow text.t { font-size: 14px; font-weight: 600; }
+  .flow text.s { font-size: 11.5px; fill: var(--muted); font-family: var(--mono); }
+  .flow text.e { font-size: 11px; fill: var(--faint); font-family: var(--mono); }
+  .flow text.e.on { fill: var(--signal); }
+
+  dl.kv { max-width: var(--measure); margin: 0 0 1.4rem; }
+  dl.kv dt {
+    font-family: var(--mono); font-size: 0.84rem; color: var(--ink);
+    margin-top: 0.9rem; font-weight: 600;
+  }
+  dl.kv dd { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.95rem; }
+
+  .steps { counter-reset: step; list-style: none; padding: 0; max-width: var(--measure); }
+  .steps > li {
+    counter-increment: step; position: relative; padding-left: 2.6rem; margin-bottom: 1.5rem;
+  }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0.05rem;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--signal);
+    border: 1px solid var(--rule-strong); border-radius: 999px;
+    width: 1.7rem; height: 1.7rem; display: grid; place-items: center;
+  }
+  .steps h4 { margin: 0 0 0.35rem; }
+  .steps p { margin-bottom: 0.6rem; }
+  .steps pre { margin-top: 0.7rem; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="eyebrow">Guide · configuration · workflow · artifacts</div>
+    <h1>Producer and consumer</h1>
+    <p class="standfirst">
+      GlassContext documents the code your project will <em>call</em>, and plans the code your
+      project still <em>needs</em>. GlassCoder then writes that code and reports what an oracle
+      said about it. This is how to configure both, what the loop looks like on one small C#
+      application, and exactly which files change hands — including the one field that, if it is
+      wrong, makes every number the pair produces quietly meaningless.
+    </p>
+    <div class="specstrip">
+      <div><b>Producer</b> GlassContext — .NET&nbsp;8, WPF + UI-free Core</div>
+      <div><b>Consumer</b> GlassCoder — .NET&nbsp;10, WPF + console host</div>
+      <div><b>Handover</b> CLAUDE.agent.md · WORKPLAN.md&nbsp;v2 · docs/llms/</div>
+      <div><b>Return path</b> metrics.jsonl, joined on the task slug</div>
+      <div><b>Ground truth</b> the per-task <code>Oracle:</code> line</div>
+      <div><b>Date</b> 2026-08-22</div>
+    </div>
+    <div class="backlinks">
+      <a href="index.html">← Operator&rsquo;s guide</a>
+      <a href="NewFeatures/glasscontext-preprocessor.html">The preprocessor analysis</a>
+      <a href="NewFeatures/glasscontext-csharp-apps.html">Small–medium C# apps →</a>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <h2>Sections</h2>
+    <ol>
+      <li><a href="#seam">0 · The seam</a></li>
+      <li><a href="#context">1 · Configuring GlassContext</a></li>
+      <li><a href="#coder">2 · Configuring GlassCoder</a></li>
+      <li><a href="#workflow">3 · The workflow, end to end</a></li>
+      <li><a href="#artifacts">4 · What lands on disk</a></li>
+      <li><a href="#loop">5 · Closing the loop</a></li>
+      <li><a href="#status">6 · What is built today</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- ============ 0 ============ -->
+    <section class="part" id="seam">
+      <div class="part-head"><span class="num">00</span><h2>The seam</h2></div>
+
+      <p>
+        <b>GlassContext</b> is a Windows desktop preprocessor. It reads source it will never
+        write to and produces the context a coding agent needs before it can write anything:
+        a root <code>CLAUDE.md</code> for Claude Code, a budgeted <code>CLAUDE.agent.md</code>
+        for a local worker, a <code>docs/llms/</code> documentation tree, and a
+        <code>WORKPLAN.md</code> of dependency-ordered tasks carrying stable slugs and per-task
+        test oracles. Every step is human-gated: Claude drafts, a second-provider reviewer scores
+        against a rubric, the developer accepts, and only then does GlassContext write the file.
+      </p>
+
+      <p>
+        <b>GlassCoder</b> is a local AI coding-agent harness. It runs a worker model against a
+        repository through a sandboxed tool set and a verification ladder — syntax, compile,
+        analyzers, tests, critique — and records what happened to <code>metrics.jsonl</code>.
+        It has a WPF front end and a console host
+        (<code>glasscoder run | suite | ablate | workplan | fixtures | tools</code>).
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">read this before the diagram</span>
+        <p>
+          <code>docs/llms/</code> is <b>not</b> documentation of the code GlassCoder is about to
+          write. It cannot be: that code does not exist when the plan is generated. It is
+          documentation of the code the new project will <b>consume</b> — a sibling library whose
+          source you have but whose binary you link, an archived legacy tree, an internal
+          framework. It is an API reference for the dependency surface, produced so the worker
+          can look a signature up instead of inventing one.
+        </p>
+        <p>
+          The project&rsquo;s own source is what comes out of the other end of the pipeline, and
+          it is GlassCoder that writes it.
+        </p>
+      </div>
+
+      <figure class="flow">
+        <svg viewBox="0 0 900 470" role="img" aria-label="GlassContext reads dependency sources and produces context artifacts; GlassCoder consumes those artifacts and writes the target repository's source; metrics return to GlassContext joined on the task slug.">
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect class="box" x="30" y="40" width="210" height="100" rx="6"/>
+          <text class="t" x="46" y="68">Dependency sources</text>
+          <text class="s" x="46" y="90">sibling library source</text>
+          <text class="s" x="46" y="108">example projects · legacy</text>
+          <text class="s" x="46" y="126">read-only, already exist</text>
+
+          <rect class="box accent" x="310" y="40" width="200" height="100" rx="6"/>
+          <text class="t" x="326" y="68">GlassContext</text>
+          <text class="s" x="326" y="90">Modules A–F · WPF</text>
+          <text class="s" x="326" y="108">draft → review → accept</text>
+          <text class="s" x="326" y="126">writes no source, ever</text>
+
+          <rect class="chip" x="590" y="40" width="270" height="100" rx="6"/>
+          <text class="s" x="606" y="66">CLAUDE.agent.md — identity</text>
+          <text class="s" x="606" y="86">WORKPLAN.md v2 — the tasks</text>
+          <text class="s" x="606" y="106">docs/llms/ — the dependency API</text>
+          <text class="s" x="606" y="126">CLAUDE.md · module briefs</text>
+
+          <rect class="box accent" x="310" y="250" width="200" height="100" rx="6"/>
+          <text class="t" x="326" y="278">GlassCoder</text>
+          <text class="s" x="326" y="300">workplan runner</text>
+          <text class="s" x="326" y="318">agent loop + ladder</text>
+          <text class="s" x="326" y="336">sandboxed tools</text>
+
+          <rect class="box" x="620" y="250" width="240" height="100" rx="6"/>
+          <text class="t" x="636" y="278">Target repository</text>
+          <text class="s" x="636" y="300">src/ · tests/</text>
+          <text class="s" x="636" y="318">empty or skeletal at the start</text>
+          <text class="s" x="636" y="336">written by GlassCoder</text>
+
+          <rect class="chip" x="620" y="390" width="240" height="56" rx="6"/>
+          <text class="s" x="636" y="414">metrics.jsonl</text>
+          <text class="s" x="636" y="433">taskId = slug</text>
+
+          <path class="edge" d="M240 90 L304 90" marker-end="url(#ah)" color="currentColor"/>
+          <path class="edge accent" d="M510 90 L584 90" marker-end="url(#ah)" color="currentColor"/>
+
+          <path class="edge accent" d="M725 140 L725 196 L410 196 L410 244" marker-end="url(#ah)" color="currentColor"/>
+          <text class="e on" x="448" y="188">root context + plan</text>
+
+          <path class="edge" d="M510 300 L614 300" marker-end="url(#ah)" color="currentColor"/>
+          <text class="e" x="516" y="290">creates src/**</text>
+
+          <path class="edge" d="M740 350 L740 384" marker-end="url(#ah)" color="currentColor"/>
+
+          <path class="edge accent" d="M614 418 L150 418 L150 162 L360 162 L360 146" marker-end="url(#ah)" color="currentColor"/>
+          <text class="e on" x="162" y="184">joined on the slug</text>
+        </svg>
+        <figcaption>
+          One cycle. GlassContext also reads the target repository — for its solution graph and
+          its existing rules — but documents the dependency surface, not the source that is still
+          to be written.
+        </figcaption>
+      </figure>
+
+      <h3>The contract, artifact by artifact</h3>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead>
+            <tr><th>Artifact</th><th>Describes</th><th>Consumed by</th><th>Purpose</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="m">CLAUDE.agent.md</td>
+              <td>the project being built</td>
+              <td class="m">Context:RootContextFiles</td>
+              <td>identity, solution graph, build and test commands, the rules that constrain an edit</td>
+            </tr>
+            <tr>
+              <td class="m">WORKPLAN.md</td>
+              <td>the work still to do</td>
+              <td class="m">glasscoder workplan --plan</td>
+              <td>one task, one agent run</td>
+            </tr>
+            <tr>
+              <td class="m">&lt;!-- task:slug --&gt;</td>
+              <td>one task, stably</td>
+              <td class="m">AgentRunRequest.TaskId</td>
+              <td>the join key, and the only one</td>
+            </tr>
+            <tr>
+              <td class="m">**Oracle:** …</td>
+              <td>what &ldquo;done&rdquo; means</td>
+              <td class="m">VerificationRequest.TestFilter</td>
+              <td>what decides the checkbox</td>
+            </tr>
+            <tr>
+              <td class="m">docs/llms/**.md<br>CLAUDEDOCS_&lt;sibling&gt;/</td>
+              <td><b>the dependency surface</b> — sibling library, legacy tree</td>
+              <td class="m">read_file, on demand</td>
+              <td>signatures, intent and gotchas for code the agent calls but cannot see</td>
+            </tr>
+            <tr>
+              <td class="m">metrics.jsonl</td>
+              <td>what the runs did</td>
+              <td class="m">WorkplanMetricsImporter</td>
+              <td>attempts, stop reason, pass@1, tokens</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">the one rule</span>
+        <p>
+          <code>AgentRunRequest.TaskId</code> must be the task&rsquo;s <b>slug</b>, never its
+          position. GlassContext joins run outcomes onto plan tasks by that key and by nothing
+          else, because a plan is renumbered whenever it is reordered. A runner that passes
+          <code>"workplan-3"</code> produces metrics that silently attach to whatever is third
+          next week — and neither application will tell you.
+        </p>
+      </div>
+
+      <p>
+        There is a second coupling, running the other way: GlassContext can <em>call</em>
+        GlassCoder as the worker behind its own <code>IIntentAgentRunner</code> seam, so its
+        documentation passes run on the local box instead of on a metered API. See
+        <a href="#reverse">§5.3</a>.
+      </p>
+    </section>
+
+    <!-- ============ 1 ============ -->
+    <section class="part" id="context">
+      <div class="part-head"><span class="num">01</span><h2>Configuring GlassContext</h2></div>
+
+      <p>
+        GlassContext keeps three kinds of state, in three places, and the distinction matters
+        the first time you move a machine or share a project with a colleague.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>What</th><th>Where</th><th>Travels with the project?</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Active configuration</td>
+              <td class="m">%APPDATA%\GlassContext\settings.json</td>
+              <td>No — one active project per machine</td>
+            </tr>
+            <tr>
+              <td>Saved project bundle</td>
+              <td class="m">&lt;anywhere&gt;\&lt;Name&gt;.glassproj</td>
+              <td>Yes — commit it beside the repo it describes</td>
+            </tr>
+            <tr>
+              <td>API keys</td>
+              <td class="m">Windows Credential Manager<br>GlassContext:Claude · :OpenAI · :Grok</td>
+              <td>Never — no key is written to any file or log</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>1.1 Four kinds of input, and what each one becomes</h3>
+
+      <p>
+        This is the part of Module A that decides what <code>docs/llms/</code> ends up containing,
+        and it is worth being deliberate about. The four source roots are not interchangeable —
+        they travel by different routes and end up in different places.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Setting</th><th>What you point it at</th><th>What GlassContext does with it</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">RepoRoot</td>
+              <td>the project being built</td>
+              <td>Reads the solution graph and any existing rules; writes the managed
+                  <code>CLAUDE.*</code> files, <code>WORKPLAN.md</code> and the docs tree.
+                  <b>Never writes into its source tree</b> — <code>PathGuard</code> enforces that
+                  at every write point.</td>
+            </tr>
+            <tr>
+              <td class="m">SiblingRepoRoots</td>
+              <td>the library your project links against, whose source you have</td>
+              <td>Walks its <code>src/</code> and writes one documentation page per file.
+                  <b>This is the dependency reference</b>, and where it lands decides whether
+                  GlassCoder can read it — see <a href="#coder">§2.2</a>. An ordinary local clone
+                  is writable, so the pages go into the sibling&rsquo;s own
+                  <code>docs/llms/</code>; only a genuinely read-only sibling falls back to
+                  <code class="m">CLAUDEDOCS_&lt;name&gt;/</code> inside your repository.</td>
+            </tr>
+            <tr>
+              <td class="m">LegacySourceFolders</td>
+              <td>archived reference source you must not edit</td>
+              <td>Copies it to <code>legacy/</code> in your repository and documents it into
+                  <code>docs/llms/legacy/</code>, so it shows up in the catalogue.</td>
+            </tr>
+            <tr>
+              <td class="m">ExamplesFolders</td>
+              <td>small projects showing how the library is meant to be used</td>
+              <td><b>Not documented at all.</b> Inlined verbatim into the drafting prompt as
+                  <code>&lt;example_project&gt;</code> blocks, and offered as read-only roots to
+                  the intent-enrichment agent. They shape the generated context; they do not
+                  become pages.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Module B exposes the first three as independent switches — <b>main repo</b>,
+        <b>sibling DLL</b>, <b>legacy</b> — plus <b>examples</b> for the prompt. On a project
+        whose source GlassCoder has not written yet, <b>main repo</b> produces nothing useful and
+        can be left off; the passes that matter are the sibling and the legacy trees.
+      </p>
+
+      <h3>1.2 The rest of Module A</h3>
+
+      <dl class="kv">
+        <dt>SrcSubFolder</dt>
+        <dd>Usually <code>src</code>. Defines what counts as a module, and sets the mirror root
+          for every documentation tree — the sibling&rsquo;s included.</dd>
+
+        <dt>FileExtensions</dt>
+        <dd>Default <code>[".h", ".cs"]</code>. If the dependency is a C# library, trim it to
+          <code>[".cs"]</code>; a header walker on a repository with no headers is cost with no
+          output.</dd>
+
+        <dt>GitUsername</dt>
+        <dd>From <code>git config user.name</code>, lowercased, spaces to hyphens. It must never
+          normalise to <code>agent</code>: <code>CLAUDE.agent.md</code> is regenerated on every
+          run and would silently eat <code>CLAUDE.&lt;username&gt;.md</code>.
+          <code>ProjectConfigService.Validate</code> rejects that configuration rather than
+          letting it happen.</dd>
+
+        <dt>ClaudeModel · ReviewerProvider · ReviewerModel</dt>
+        <dd>Drafting is Claude; reviewing is a <em>different</em> provider (OpenAI or Grok) on
+          purpose, so the reviewer is not scoring its own prose. <code>ScoreThreshold</code>
+          (default 7.0) is advisory — it never blocks an accept.</dd>
+
+        <dt>UniversalRules</dt>
+        <dd>Up to eight bullets that constrain every edit in this repository. They live in the
+          configuration rather than only in the generated <code>CLAUDE.md</code>, because that
+          file is regenerated on every run — and they are what FILE 8 carries to
+          GlassCoder&rsquo;s worker as &ldquo;rules that constrain an edit&rdquo;.</dd>
+      </dl>
+
+      <h3>1.3 The knobs with no UI</h3>
+
+      <p>
+        The agent block and the per-file intent block are set by hand in
+        <code>settings.json</code>. They survive <b>Apply Settings</b> — Project Setup clones the
+        loaded configuration and assigns only its own fields, so properties it does not know
+        about round-trip untouched.
+      </p>
+
+      <pre><code><span class="c">// %APPDATA%\GlassContext\settings.json  — camelCase, no secrets, ever</span>
+{
+  <span class="k">"repoRoot"</span>: "C:\\repos\\InvoiceKit",              <span class="c">// the project to be built</span>
+  <span class="k">"siblingRepoRoots"</span>: [ "C:\\repos\\Acme.Billing" ], <span class="c">// the library it will call</span>
+  <span class="k">"examplesFolders"</span>: [
+    "C:\\repos\\Acme.Samples\\QuickInvoice",
+    "C:\\repos\\Acme.Samples\\BatchExport"
+  ],
+  <span class="k">"srcSubFolder"</span>: "src",
+  <span class="k">"fileExtensions"</span>: [".cs"],
+  <span class="k">"gitUsername"</span>: "alex-vinckier",
+  <span class="k">"claudeModel"</span>: "claude-sonnet-4-6",
+  <span class="k">"reviewerProvider"</span>: "OpenAI",
+  <span class="k">"reviewerModel"</span>: "o3",
+  <span class="k">"universalRules"</span>: [
+    "Core has no UI dependency; WPF types stay in the App project.",
+    "Money is decimal, never double. Use Acme.Billing.Money where it fits.",
+    "Never reimplement arithmetic Acme.Billing already provides."
+  ],
+
+  <span class="c">// Documentation-agent knobs — hand-edited, no UI</span>
+  <span class="k">"agentEnabled"</span>: true,
+  <span class="k">"agentPermissionMode"</span>: "plan",     <span class="c">// non-writing, always</span>
+  <span class="k">"agentMaxBudgetUsd"</span>: 2.0,
+  <span class="k">"agentProvider"</span>: "ClaudeCode",       <span class="c">// or "GlassCoder" — see §5.3</span>
+  <span class="k">"glassCoderCliPath"</span>: "",             <span class="c">// empty = "glasscoder" on PATH</span>
+  <span class="k">"intentEnrichmentEnabled"</span>: true,
+  <span class="k">"intentMaxConcurrency"</span>: 3
+}</code></pre>
+
+      <div class="note">
+        <span class="tag">two CLI paths, on purpose</span>
+        <p>
+          <code>agentCliPath</code> names a Claude Code install; <code>glassCoderCliPath</code>
+          names GlassCoder&rsquo;s console host. One shared path would launch the wrong binary
+          the moment <code>agentProvider</code> changed.
+        </p>
+      </div>
+
+      <p>
+        Source files reach an API only when you tick the per-session consent box, and the boxes
+        reset every session — no silent opt-in carried over from last time. Prompts, drafts and
+        reviewer responses are never logged; <code>LogRedaction</code> is applied at the single
+        logging choke point and to every HTTP error body.
+      </p>
+    </section>
+    <!-- ============ 2 ============ -->
+    <section class="part" id="coder">
+      <div class="part-head"><span class="num">02</span><h2>Configuring GlassCoder</h2></div>
+
+      <p>
+        No endpoint, alias, budget or limit is hardcoded anywhere in GlassCoder. Everything comes
+        from configuration, layered in a fixed order — and the order is the part people get
+        wrong, because a saved setting that outranked an ablation arm would make an arm mean
+        something different on every machine.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>#</th><th>Layer</th><th>Where</th><th>Scope</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">1</td><td>Shipped defaults</td>
+              <td class="m">config/appsettings.json</td>
+              <td>lowest — the documented baseline</td>
+            </tr>
+            <tr>
+              <td class="m">2</td><td>Per-user settings</td>
+              <td class="m">%APPDATA%\GlassCoder\settings.json<br>(the WPF Settings dialog)</td>
+              <td>this machine, every project</td>
+            </tr>
+            <tr>
+              <td class="m">3</td><td>Per-project settings</td>
+              <td class="m">&lt;RepoRoot&gt;\.glasscoder.json</td>
+              <td>this repository — commit it</td>
+            </tr>
+            <tr>
+              <td class="m">4</td><td>Environment</td>
+              <td class="m">GlassCoder__Agent__MaxSteps=50</td>
+              <td>this shell</td>
+            </tr>
+            <tr>
+              <td class="m">5</td><td>Arm file</td>
+              <td class="m">--config config/arm-*.json</td>
+              <td>highest — this run only</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Generated data — logs, metrics, transcripts — anchors to
+        <code>%LOCALAPPDATA%\GlassCoder</code>, not to the working directory, so a
+        <code>dotnet clean</code> cannot erase run history. Override with
+        <code>GLASSCODER_DATA_DIR</code>; an absolute path in configuration is honoured as-is.
+        That detail matters in <a href="#loop">§5</a>, where GlassContext goes looking for the
+        metrics file.
+      </p>
+
+      <h3>2.1 The six settings this pairing turns on</h3>
+
+      <p>
+        Out of the box, GlassCoder is configured as a self-contained ablation harness: nothing is
+        writable, no root context is loaded, and the only readable root is the repository itself.
+        Consuming a GlassContext-managed project means changing six things.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Setting</th><th>Default</th><th>Set it to</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">Context:RootContextFiles</td>
+              <td class="m">[]</td>
+              <td class="m">["CLAUDE.agent.md"]</td>
+              <td>Without it the worker has no product identity unless the goal string carries
+                  one. This is the whole GlassContext value proposition, expressed as one array —
+                  and a file that cannot be found is <b>skipped, not fatal</b>. See below.</td>
+            </tr>
+            <tr>
+              <td class="m">Context:MaxRootContextTokens</td>
+              <td class="m">6000</td>
+              <td class="m">leave it</td>
+              <td>FILE 8 is budgeted to sit far below this. A document that needs the ceiling
+                  raised is the wrong document — fix the profile, not the budget.</td>
+            </tr>
+            <tr>
+              <td class="m">Workspace:RepoRoot</td>
+              <td class="m">"."</td>
+              <td class="m">the target repo</td>
+              <td>Or pass <code>--repo</code>. Resolved against the process working directory.</td>
+            </tr>
+            <tr>
+              <td class="m">Workspace:WritablePaths</td>
+              <td class="m">[]</td>
+              <td class="m">["src", "tests"]</td>
+              <td><b>Empty means nothing is writable.</b> A workplan run against the default
+                  produces no code at all — the most common first-run surprise.</td>
+            </tr>
+            <tr>
+              <td class="m">Workspace:ReadablePaths</td>
+              <td class="m">[] <span class="pill info">= the repo root</span></td>
+              <td class="m">see below</td>
+              <td>The dependency documentation has to be inside a readable root, or the worker
+                  cannot retrieve the page the profile just told it to read.</td>
+            </tr>
+            <tr>
+              <td class="m">VerificationLadder:TestFilter</td>
+              <td class="m">null</td>
+              <td class="m">leave it null</td>
+              <td>The workplan runner overrides it per task from the <code>Oracle:</code> line.
+                  A global filter here would fight the plan.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>2.2 Getting the dependency docs inside the workspace</h3>
+
+      <p>
+        This is the step that most often goes wrong, and it goes wrong quietly. GlassCoder&rsquo;s
+        workspace is <b>one repository</b>: with <code>ReadablePaths</code> empty, the only
+        readable root is <code>RepoRoot</code>. GlassContext, meanwhile, decides where a
+        sibling&rsquo;s documentation lands by probing whether the sibling is writable — it writes
+        a temporary file and deletes it. <b>An ordinary local clone passes that probe</b>, so the
+        default outcome is that the pages are written into the sibling repository, outside the
+        workspace GlassCoder will run in.
+      </p>
+
+      <p>
+        Neither application is wrong; they simply have different ideas of where the boundary is.
+        Pick one of these two layouts on purpose.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Layout</th><th>How you get it</th><th>Trade-off</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><b>Default.</b> Docs stay in
+                  <code class="m">C:\repos\Acme.Billing\docs\llms\</code></td>
+              <td>happens on its own; then add the root to GlassCoder:<br>
+                  <code class="m">"ReadablePaths": [ ".", "C:\\repos\\Acme.Billing\\docs" ]</code></td>
+              <td><span class="pill pass">one copy</span> shared by every consumer of the library
+                  and regenerated where it belongs — but the <code>.</code> must be listed too,
+                  because a non-empty list <b>replaces</b> the default root rather than adding to
+                  it, and the absolute path is machine-specific</td>
+            </tr>
+            <tr>
+              <td>Docs land in <code class="m">CLAUDEDOCS_Acme.Billing/</code> inside the target repo</td>
+              <td>only when the sibling is genuinely read-only — a checked-out tag, a
+                  network share, ACLs</td>
+              <td><span class="pill warn">must be forced</span> everything is inside one
+                  workspace and <code>.glasscoder.json</code> stays portable, but you cannot ask
+                  for this layout: it is a consequence of the sibling&rsquo;s permissions</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The worked example below takes the first. Whichever you choose, check it after the first
+        Module B run rather than assuming — the log line says which one happened
+        (<code>Writing docs into sibling repo</code> or <code>falling back to
+        CLAUDEDOCS_…</code>).
+      </p>
+
+      <p>
+        The absolute path is needed only in the configuration. What the <em>worker</em> passes to
+        <code>read_file</code> is resolved against the repository root before the readable-root
+        check, so a plan can say
+        <code>../Acme.Billing/docs/llms/Billing/VatCalculator.md</code> and stay portable across
+        machines that check the two repositories out side by side.
+      </p>
+
+      <pre><code><span class="c">// C:\repos\InvoiceKit\.glasscoder.json — committed, no secrets.
+// The file's own location is the repository root; nothing inside it names a path
+// that would go stale the moment the repo is cloned somewhere else — except
+// ReadablePaths, which has to, because the dependency lives outside this tree.</span>
+{
+  <span class="k">"GlassCoder"</span>: {
+    <span class="k">"Context"</span>: {
+      <span class="k">"RootContextFiles"</span>: [ "CLAUDE.agent.md" ]
+    },
+    <span class="k">"Workspace"</span>: {
+      <span class="k">"WritablePaths"</span>: [ "src", "tests" ],
+      <span class="c">// "." first: a non-empty list REPLACES the default root, it does not extend it.
+      // Drop the second entry and every retrieval of a dependency page is denied.</span>
+      <span class="k">"ReadablePaths"</span>: [ ".", "C:\\repos\\Acme.Billing\\docs" ]
+    },
+    <span class="k">"VerificationLadder"</span>: {
+      <span class="k">"VerifyAppliedChanges"</span>: true,
+      <span class="k">"ProjectPath"</span>: null        <span class="c">// null works it out from the edited files</span>
+    },
+    <span class="k">"Agent"</span>: {
+      <span class="k">"MaxSteps"</span>: 30,
+      <span class="k">"MaxWallClockSeconds"</span>: 900
+    }
+  }
+}</code></pre>
+
+      <div class="note refuse">
+        <span class="tag">both failure modes are silent</span>
+        <p>
+          A root context file that cannot be resolved is <b>skipped with a log warning</b>, not
+          treated as an error. Misspell the name, forget to regenerate it, or point
+          <code>--repo</code> somewhere else, and the run proceeds happily with no product
+          identity at all — which is to say, as an unlabelled <code>no-context</code> arm whose
+          numbers will be compared against everything else as though it were not.
+        </p>
+        <p>
+          A denied documentation path fails the same way: the <code>read_file</code> call is
+          refused, the model moves on, and the run looks like one where the documentation simply
+          did not help. Before trusting a first comparison, check the log for
+          <code>Root context file … was skipped</code> and confirm the transcript shows at least
+          one dependency page actually being read.
+        </p>
+      </div>
+
+      <h3>2.3 The rest, briefly</h3>
+
+      <p>
+        The WPF Settings dialog covers the same surface in ten tabs — <b>Models, Workspace,
+        Agent, Verification, Retrospective, Sandbox, Retrieval, Git, Logging, Telemetry</b> — and
+        writes to layer 2. Four are worth a deliberate decision before the first workplan run:
+      </p>
+
+      <ul class="prose">
+        <li><b>Models</b> — one entry per served role. <code>worker</code> at
+          <code>:8002</code> and <code>critic</code> at <code>:8003</code> are local;
+          <code>critic-remote</code> speaks the Anthropic transport and is offered only when its
+          key is present, so a configured-but-unreachable critic does not become a button that
+          fails on press.</li>
+        <li><b>Sandbox</b> — <code>Mode: "Docker"</code> with
+          <code>AllowUnsandboxedExecution: true</code>. Leave both. The alternative to a host
+          fallback is not a safer build, it is no build at all: with Docker absent every build
+          refuses in milliseconds and the agent writes code with zero compiler feedback, then
+          reports a success it could not have verified.</li>
+        <li><b>Retrieval</b> — off by default, and it can stay off here. The point of the
+          documentation tree is that the dependency API is already in the workspace; reaching
+          Microsoft Learn is a different question, and worth measuring separately.</li>
+        <li><b>Approval</b> — <code>RequireApprovalForWrites: false</code> for the console host,
+          which cannot ask a human and fails closed if told to. Push approval stays on: a write
+          can be reverted from the change log, a push has left the machine.</li>
+      </ul>
+
+      <div class="note refuse">
+        <span class="tag">check before the first run</span>
+        <p>
+          <code>glasscoder tools</code> prints the tool surface the model will see, and
+          <code>glasscoder help</code> is the cheapest launchable verb — GlassContext uses
+          exactly that to decide whether the host is on PATH. If <code>WritablePaths</code> is
+          still empty, the run will complete, report progress, and change nothing.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3 ============ -->
+    <section class="part" id="workflow">
+      <div class="part-head"><span class="num">03</span><h2>The workflow, end to end</h2></div>
+
+      <p>
+        A worked example, small enough to hold in one head.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Repository</th><th>Role</th><th>State at the start</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="m">C:\repos\InvoiceKit</td>
+              <td>the project to be built — WPF app + Core library + xUnit tests</td>
+              <td>solution, three empty projects, a handful of tests written by hand</td>
+            </tr>
+            <tr>
+              <td class="m">C:\repos\Acme.Billing</td>
+              <td>in-house billing library — ships to InvoiceKit as a DLL</td>
+              <td>finished, read-only, ~200 source files the agent will never see compiled</td>
+            </tr>
+            <tr>
+              <td class="m">C:\repos\Acme.Samples\*</td>
+              <td>two sample apps showing how the library is meant to be used</td>
+              <td>finished; prompt material, not documentation input</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The job: <em>build InvoiceKit&rsquo;s invoicing core on top of Acme.Billing, without
+        reimplementing arithmetic the library already provides.</em> That last clause is the
+        whole reason the documentation pass exists — a worker that cannot see
+        <code>Acme.Billing.VatCalculator</code> will cheerfully write its own, and it will be
+        subtly wrong about rounding.
+      </p>
+
+      <ol class="steps">
+        <li>
+          <h4>Point GlassContext at all of it — Module A</h4>
+          <p>
+            <code>RepoRoot = C:\repos\InvoiceKit</code>,
+            <code>SiblingRepoRoots = [C:\repos\Acme.Billing]</code>,
+            <code>ExamplesFolders = [QuickInvoice, BatchExport]</code>,
+            <code>FileExtensions = [".cs"]</code>. Enter the Claude and OpenAI keys once; they go
+            to Credential Manager. <b>Project → Save As</b> →
+            <code>InvoiceKit.glassproj</code>.
+          </p>
+        </li>
+
+        <li>
+          <h4>Document the dependency — Module B</h4>
+          <p>
+            Tick <b>sibling DLL</b>; leave <b>main repo</b> off, because InvoiceKit&rsquo;s
+            <code>src/</code> is what GlassCoder is about to write and there is nothing there to
+            document. DocGen walks <code>Acme.Billing/src/</code> and writes one page per file,
+            path-mirrored, with a machine-readable <code>.intent.json</code> beside each.
+            <code>Acme.Billing</code> is an ordinary writable clone, so the pages land in
+            <code>C:\repos\Acme.Billing\docs\llms\</code> — <b>outside</b> the repository
+            GlassCoder will run in. That is what <a href="#coder">§2.2</a>&rsquo;s
+            <code>ReadablePaths</code> entry is for; without it every retrieval of one of these
+            pages is denied, and the run looks like one where the documentation did not help.
+          </p>
+          <p>
+            With <code>intentEnrichmentEnabled</code>, each page also gets an agent-written
+            purpose, behaviour and gotcha section — the things a signature does not say. This is
+            the expensive pass; it runs once per dependency release, not once per task.
+          </p>
+        </li>
+
+        <li>
+          <h4>Draft, review, accept the context — Modules C and E</h4>
+          <p>
+            Module C runs the human-gated loop: Claude drafts from the project description, the
+            solution graph and the inlined <code>&lt;example_project&gt;</code> blocks; the
+            reviewer scores it on six criteria and returns remarks; you tick the remarks worth
+            incorporating and press <b>Go</b> again. On <b>Accept</b>, GlassContext writes
+            <code>CLAUDE.md</code> (FILE 1) and regenerates <code>CLAUDE.agent.md</code>
+            (FILE 8). FILE 8 is what GlassCoder loads, so review it on its own rubric —
+            conciseness and actionability are the criteria that matter, and the token count is
+            reported beside the score.
+          </p>
+        </li>
+
+        <li>
+          <h4>Generate the plan — Module D</h4>
+          <p>
+            Claude proposes dependency-ordered tasks from the accepted context. Edit them until
+            each is a single agent&rsquo;s worth of work, then make sure of the two v2 fields
+            that matter: a stable <code>&lt;!-- task:slug --&gt;</code>, and an
+            <code>**Oracle:**</code> line naming the test class that decides completion. Save →
+            <code>WORKPLAN.md</code> at the repository root.
+          </p>
+          <div class="note refuse">
+            <span class="tag">the generator cannot see the dependency</span>
+            <p>
+              Module D&rsquo;s prompt is given <b>one</b> input: the accepted Module C draft.
+              The documentation tree you just spent Module B generating, the
+              <code>.intent.json</code> sidecars and the example projects are all absent from it.
+              Whatever the plan knows about <code>Acme.Billing</code> is whatever survived into
+              <code>CLAUDE.md</code> as prose.
+            </p>
+            <p>
+              In practice that means editing the generated tasks to name the pages the worker
+              should read, as the task in <a href="#artifacts">§4.2</a> does. The plan is the only
+              place that pointer can currently come from.
+            </p>
+          </div>
+          <div class="note refuse">
+            <span class="tag">who writes the tests — decide this explicitly</span>
+            <p>
+              The shipped prompt tells Claude the oracle may name <em>&ldquo;a real test class
+              from the context, <b>or one the task itself creates</b>&rdquo;</em>. On a project
+              being built from near-nothing the second branch is the common one — and it means the
+              agent writes both the implementation and the test that grades it. The checkbox then
+              records that the model agreed with itself.
+            </p>
+            <p>
+              The harness cannot detect this: a passing filter is a passing filter. So it is a
+              decision you make when reviewing the plan. Where a task&rsquo;s correctness actually
+              matters, the test has to come from somewhere the agent is not — written by hand
+              before the run, generated by Module F from a finished reference project, or carried
+              in from the sample apps — and <code>tests/</code> should come out of
+              <code>WritablePaths</code> for that run so it stays ground truth.
+            </p>
+            <p>
+              A task with no oracle at all is still allowed: the harness runs it and refuses to
+              tick it, because the checkbox records oracle outcomes and not the model&rsquo;s
+              opinion. An unticked box you have to judge yourself is more honest than a ticked one
+              that means nothing.
+            </p>
+          </div>
+        </li>
+
+        <li>
+          <h4>Wire the harness</h4>
+          <p>
+            Drop the <code>.glasscoder.json</code> from <a href="#coder">§2.1</a> into
+            <code>InvoiceKit</code> and commit it. That is the entire integration: no plugin, no
+            build step, no shared assembly. Both applications talk through files.
+          </p>
+        </li>
+
+        <li>
+          <h4>Run the plan</h4>
+<pre><code><span class="c">> cd C:\repos\InvoiceKit</span>
+<span class="c">> glasscoder workplan --plan WORKPLAN.md</span>
+
+  workplan  4 unticked of 5
+  <span class="k">[1/4]</span> invoice-line-model              attempt 1
+        ladder: syntax ok · compile ok · analyzers clean · tests 6/6
+        oracle: InvoiceLineTests              <span class="k">PASSED</span>   ticked
+        11 steps · 23,400 tokens · 2.6m
+  <span class="k">[2/4]</span> totals-via-acme-billing         attempt 1
+        read C:\repos\Acme.Billing\docs\llms\Billing\VatCalculator.md  (step 4)
+        ladder: compile ok · tests 8/9
+        oracle: InvoiceTotalsTests            FAILED   not ticked
+        InvoiceTotalsTests.UsesLibraryRounding — expected 12.35, got 12.34
+        22 steps · 58,900 tokens · 6.1m
+  stopped at totals-via-acme-billing (task 2 of 4)
+<span class="c">> echo %ERRORLEVEL%
+1</span></code></pre>
+          <p>
+            The runner stops at the first failure, and that is arithmetic rather than caution:
+            the tasks are dependency-ordered, so everything after a failed prerequisite measures
+            the prerequisite rather than itself. Re-invoking resumes at the first unticked task —
+            the file on disk <em>is</em> the state — with the attempt number incremented in the
+            metrics.
+          </p>
+        </li>
+
+        <li>
+          <h4>Read the failure — it is usually about the dependency</h4>
+          <p>
+            Task 2 rounded the total itself instead of letting
+            <code>Acme.Billing.Money</code> do it. The agent did read the page, so the failure is
+            not that the documentation was missing — it is that the page did not say
+            <em>&ldquo;never round a Money; it rounds on construction&rdquo;</em>. That is a
+            gotcha, and gotchas are what the intent-enrichment pass exists to capture. Fix it in
+            the source of truth — re-run Module B for that one file, or add the constraint to the
+            task description — and re-run:
+          </p>
+          <pre><code><span class="c">> glasscoder workplan --plan WORKPLAN.md</span>
+  workplan  3 unticked of 5
+  <span class="k">[1/3]</span> totals-via-acme-billing         attempt 2
+        oracle: InvoiceTotalsTests            <span class="k">PASSED</span>   ticked</code></pre>
+        </li>
+
+        <li>
+          <h4>Import the outcomes — back to Module D</h4>
+          <p>
+            <b>Import metrics</b> reads <code>metrics.jsonl</code> and annotates the plan by
+            slug: attempts, last stop reason, whether the oracle passed on attempt 1. Two
+            attempts on one task is a signal about how that task — or that documentation page —
+            was written. See <a href="#loop">§5</a>.
+          </p>
+        </li>
+      </ol>
+
+      <h3>3.1 Exit codes</h3>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th class="m">Code</th><th>Meaning</th><th>What to do</th></tr></thead>
+          <tbody>
+            <tr><td class="m">0</td><td>every task passed its oracle</td><td>nothing</td></tr>
+            <tr><td class="m">1</td><td>a task did not pass</td><td>read the ladder output; the plan or the docs is where the fix goes</td></tr>
+            <tr><td class="m">2</td><td>bad configuration</td><td>usually a path or a role that does not resolve</td></tr>
+            <tr><td class="m">3</td><td>a limit stopped a run</td><td>steps, tokens, wall-clock or cost — raise it, or split the task</td></tr>
+            <tr><td class="m">4</td><td>the model endpoint failed</td><td>the local server is not serving that alias</td></tr>
+            <tr><td class="m">5</td><td>cancelled</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <!-- ============ 4 ============ -->
+    <section class="part" id="artifacts">
+      <div class="part-head"><span class="num">04</span><h2>What lands on disk</h2></div>
+
+      <p>
+        Split the output by who wrote it and the pairing stops being confusing. GlassContext
+        writes <em>about</em> code — the project&rsquo;s identity, the dependency&rsquo;s API, the
+        plan for what is missing. GlassCoder writes <em>the</em> code. Nothing writes both.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>File</th><th>Written by</th><th>About</th><th>Overwrite rule</th></tr></thead>
+          <tbody>
+            <tr><td class="m">CLAUDE.md</td><td>GlassContext (FILE 1)</td><td>the project</td><td><span class="pill warn">always regenerate</span></td></tr>
+            <tr><td class="m">CLAUDE.agent.md</td><td>GlassContext (FILE 8)</td><td>the project</td><td><span class="pill warn">always regenerate</span></td></tr>
+            <tr><td class="m">CLAUDE.&lt;user&gt;.md</td><td>GlassContext (FILE 2)</td><td>you</td><td><span class="pill info">skip if exists</span></td></tr>
+            <tr><td class="m">CLAUDE.&lt;user&gt;.history.md</td><td>stub by GlassContext, entries by Claude Code (FILE 3/6)</td><td>past sessions</td><td><span class="pill info">append only</span></td></tr>
+            <tr><td class="m">src/&lt;Module&gt;/CLAUDE.md</td><td>GlassContext (FILE 5)</td><td>one module</td><td><span class="pill info">skip if exists</span></td></tr>
+            <tr><td class="m">WORKPLAN.md</td><td>GlassContext Module D (FILE 7)<br>checkboxes ticked by GlassCoder</td><td>the work still to do</td><td><span class="pill info">skip if exists</span></td></tr>
+            <tr><td class="m">&lt;sibling&gt;/docs/llms/**.md<br>…/**.intent.json<br><span class="pill warn">or</span> CLAUDEDOCS_&lt;sibling&gt;/**</td><td>GlassContext Module B</td><td><b>the dependency</b></td><td><span class="pill info">regenerated per file</span><br>location depends on the sibling&rsquo;s permissions — <a href="#coder">§2.2</a></td></tr>
+            <tr><td class="m">docs/llms/legacy/**</td><td>GlassContext Module B</td><td>archived reference source</td><td><span class="pill info">regenerated per file</span></td></tr>
+            <tr><td class="m">src/**, tests/**</td><td><b>GlassCoder only</b></td><td>—</td><td>—</td></tr>
+            <tr><td class="m">metrics.jsonl</td><td><b>GlassCoder only</b></td><td>the runs</td><td><span class="pill info">append only</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>4.1 CLAUDE.agent.md — the profile the worker carries</h3>
+
+      <p>
+        The same facts as <code>CLAUDE.md</code>, written for a model on a token budget rather
+        than for a session with a human in it. It omits everything FILE 1 carries as ritual —
+        personal-context reads, history appends, ticket formats — because each of those costs a
+        step and a harness does them by construction. It never lists files: a harness enumerates
+        a tree far more cheaply than a document can restate it.
+      </p>
+
+<pre><code><span class="c">&lt;!-- AUTO-GENERATED by GlassContext — agent profile (FILE 8). Do not edit manually. --&gt;</span>
+
+# InvoiceKit
+
+## What this is
+
+InvoiceKit is a .NET 8 WPF desktop application for issuing customer invoices. It is a
+front end over Acme.Billing, which owns every monetary calculation. InvoiceKit models
+the document, the workflow and the print layout; it does not do arithmetic.
+
+## Build and test
+
+- Build: `dotnet build InvoiceKit.sln`
+- Test: `dotnet test InvoiceKit.sln`
+- One class: `dotnet test InvoiceKit.sln --filter &lt;TestClassName&gt;` — prefer this while iterating.
+
+## Solution
+
+| Project | Kind | Framework | References | Tested by |
+|---|---|---|---|---|
+| `InvoiceKit.App`   | WPF app | net8.0-windows | InvoiceKit.Core  | InvoiceKit.Tests |
+| `InvoiceKit.Core`  | library | net8.0         | Acme.Billing.dll | InvoiceKit.Tests |
+| `InvoiceKit.Tests` | tests   | net8.0-windows | App, Core        | — |
+
+## Rules that constrain an edit
+
+- Core has no UI dependency. WPF types stay in InvoiceKit.App.
+- Money is `decimal`, never `double`. Use `Acme.Billing.Money` where it fits.
+- Never reimplement arithmetic Acme.Billing already provides.
+- Every monetary path is covered by a test in InvoiceKit.Tests.
+
+## Finding out about a file
+
+Per-file documentation mirrors the source tree: `src/foo/Bar.cs` → `docs/llms/foo/Bar.md`.
+Read that page when you touch a file — it carries purpose, gotchas and test-mined
+examples that the signatures do not. A `.intent.json` sidecar beside it holds the same
+content in machine-readable form.
+
+Do not read the documentation tree up front. Retrieve one page when you open the file
+it describes.
+
+## Outside this repository
+
+- `Acme.Billing` — sibling repository, documented at `../Acme.Billing/docs/llms/`:
+  `foo/Bar.cs` under its source root → `../Acme.Billing/docs/llms/foo/Bar.md`.</code></pre>
+
+      <p>
+        That is roughly 470 tokens against a 6,000-token ceiling. The headroom is deliberate: the
+        goal, the workspace map and the tool schemas all have to fit beside it.
+      </p>
+
+      <div class="note">
+        <span class="tag">the sibling line is resolved, not assumed</span>
+        <p>
+          That last section is derived from where the documentation actually went.
+          <code>AgentProfileEmitter.Emit</code> takes the resolved
+          <code>siblingLocations</code> — the same list <code>RootClaudeEmitter</code> already
+          received — and renders each sibling&rsquo;s real documentation root plus the mirror
+          rule for it, computed from the directory DocGen wrote to. Both layouts of
+          <a href="#coder">§2.2</a> therefore come out right, and a sibling the run produced no
+          pages for is named without a path rather than pointed at an empty directory:
+        </p>
+        <pre><code>- `Acme.Billing` — sibling repository. No documentation generated for it.</code></pre>
+        <p>
+          One fixed string remains above it: the <b>&ldquo;Finding out about a file&rdquo;</b>
+          rule always names <em>this</em> repository&rsquo;s <code>docs/llms/</code>, whether or
+          not the main-repo documentation pass ever ran. On a project whose source GlassCoder is
+          writing, that pass is usually off (<a href="#workflow">§3</a>, step 2) and the line
+          points at nothing. It costs a worker at most one failed retrieval, and the profile is
+          otherwise silent about a tree that does not exist — but it is the one claim in the file
+          still made without evidence. See <a href="#status">§6.2</a>.
+        </p>
+      </div>
+
+      <h3>4.2 WORKPLAN.md — one task, in format v2</h3>
+
+      <p>
+        All four v2 fields are optional, and a plan carrying none of them renders
+        byte-identically to v1. The reader tolerates both, deriving a slug from the title when
+        the marker is absent — so the join key exists either way. Note that the target file does
+        not exist yet: this task creates it.
+      </p>
+
+<pre><code># Workplan
+
+<span class="c">&lt;!-- Generated by GlassContext — review and adjust before creating YouTrack tickets --&gt;</span>
+
+**Total estimated time:** 11h (~1.4d)
+
+## 2. Compute invoice totals through Acme.Billing
+
+<span class="c">&lt;!-- task:totals-via-acme-billing --&gt;</span>       <span class="c">&lt;- the join key</span>
+
+- [ ] **Estimated time:** 3h · **Steps:** ~20   <span class="c">&lt;- hours for the ticket, steps for the run</span>
+
+**Target files:** `src/Core/InvoiceTotals.cs`     <span class="c">&lt;- to be created</span>
+
+**Oracle:** `dotnet test --filter InvoiceTotalsTests`   <span class="c">&lt;- exists already; do not edit</span>
+
+Add `InvoiceTotals` to InvoiceKit.Core: given an `Invoice`, produce its net, VAT and
+gross totals. Delegate every calculation to `Acme.Billing.VatCalculator` and
+`Acme.Billing.Money` — read `../Acme.Billing/docs/llms/Billing/VatCalculator.md` before
+writing any arithmetic. Mixed VAT rates on one invoice must work; the library handles
+this and InvoiceKit must not second-guess it. `InvoiceTotalsTests` is the specification
+and is already written — it is not yours to change. Depends on task 1.</code></pre>
+
+      <div class="note">
+        <span class="tag">only the filter is taken</span>
+        <p>
+          The runner extracts the <code>--filter</code> expression from the Oracle line and
+          passes it as <code>VerificationRequest.TestFilter</code>. It never shells out to the
+          command verbatim — that line lives in a file the agent it supervises is able to edit.
+          And a filter matching <em>zero</em> tests fails the task loudly rather than passing
+          vacuously, which is the failure mode that would make an oracle worse than no oracle.
+        </p>
+      </div>
+
+      <h3>4.3 The dependency page and its sidecar</h3>
+
+      <p>
+        Two representations of the same thing: Markdown for a model reading it, JSON for a tool
+        consuming it. Both mirror the <em>dependency&rsquo;s</em> source layout, so the worker can
+        construct the path from a type name without an index. This is code InvoiceKit calls and
+        never compiles.
+      </p>
+
+<pre><code><span class="c">C:\repos\Acme.Billing\docs\llms\Billing\VatCalculator.md
+  (mirrors C:\repos\Acme.Billing\src\Billing\VatCalculator.cs — outside the
+   target repo, reachable only because ReadablePaths names it)</span>
+
+# VatCalculator
+
+Applies VAT to invoice lines. Stateless; safe to call from any thread.
+
+## `Money GrossOf(Money net, VatRate rate)`
+
+**Intent** — the single place VAT is applied in the Acme stack.
+**Behaviour** — multiplies by `1 + rate.Fraction` and returns a new `Money`.
+**Gotchas** — `Money` rounds on construction, to the currency's minor unit, away from
+zero. Do **not** round the result again: a second rounding of an already-rounded value
+is where the classic one-cent drift comes from. Callers that need per-line VAT should
+call this per line rather than once on the sum — see `GrossOfLines`.
+**Example** (from `VatCalculatorTests.MixedRatesSumIndependently`) …</code></pre>
+
+<pre><code><span class="c">C:\repos\Acme.Billing\docs\llms\Billing\VatCalculator.intent.json</span>
+{
+  <span class="k">"file"</span>: "src/Billing/VatCalculator.cs",
+  <span class="k">"members"</span>: [
+    {
+      <span class="k">"signature"</span>: "Money GrossOf(Money net, VatRate rate)",
+      <span class="k">"intent"</span>: "The single place VAT is applied in the Acme stack.",
+      <span class="k">"behavior"</span>: "Multiplies by 1 + rate.Fraction; returns a new Money.",
+      <span class="k">"returns"</span>: "The gross amount, already rounded by Money's constructor.",
+      <span class="k">"side_effects"</span>: [],
+      <span class="k">"gotchas"</span>: [ "Money rounds on construction — never round the result again." ],
+      <span class="k">"examples"</span>: [ "VatCalculatorTests.MixedRatesSumIndependently" ]
+    }
+  ]
+}</code></pre>
+
+      <h3>4.4 What GlassCoder produces</h3>
+
+      <p>
+        New source, under <code>WritablePaths</code> and nowhere else, verified before it reaches
+        disk — the edit is compiled in memory first and refused if it would break something that
+        was not already broken.
+      </p>
+
+<pre><code><span class="c">src/Core/InvoiceTotals.cs  (new file, created by the run)</span>
+
+using Acme.Billing;
+
+namespace InvoiceKit.Core;
+
+<span class="c">/// &lt;summary&gt;Totals for one invoice. Arithmetic belongs to Acme.Billing.&lt;/summary&gt;</span>
+public static class InvoiceTotals
+{
+    public static InvoiceTotal Of(Invoice invoice)
+    {
+        var net   = invoice.Lines.Aggregate(Money.Zero(invoice.Currency),
+                        (sum, line) =&gt; sum + line.Net);
+        var gross = invoice.Lines.Aggregate(Money.Zero(invoice.Currency),
+                        (sum, line) =&gt; sum + VatCalculator.GrossOf(line.Net, line.VatRate));
+
+        <span class="c">// No rounding here: Money rounds on construction.</span>
+        return new InvoiceTotal(net, gross - net, gross);
+    }
+}</code></pre>
+
+      <p>And one edit to the plan itself — the checkbox, and only after the oracle passed:</p>
+
+<pre><code>## 2. Compute invoice totals through Acme.Billing
+
+<span class="c">&lt;!-- task:totals-via-acme-billing --&gt;</span>
+
+<span class="k">- [x]</span> **Estimated time:** 3h · **Steps:** ~20</code></pre>
+
+      <p>And one line appended to the run record:</p>
+
+<pre><code><span class="c">%LOCALAPPDATA%\GlassCoder\metrics\metrics.jsonl</span>
+{"runId":"7c1f…","<span class="k">taskId":"totals-via-acme-billing</span>","role":"worker","<span class="k">attempt":2</span>,
+ "source":"workplan","recordedAt":"2026-08-22T09:41:17Z","stopReason":"Completed",
+ "<span class="k">oraclePassed":true</span>,"steps":14,"totalTokens":33800,"wallClockMs":198420,"costUsd":0.0,
+ "edits":2,"builds":3,"buildFailures":1,"testRuns":2,"testFailures":0,"editsToGreen":1,
+ "repoCommit":"a19c…","configHash":"dd794be4","contextFresh":true}</code></pre>
+
+      <p>
+        <code>taskId</code> is the slug. <code>oraclePassed</code> is the fact the checkbox was
+        ticked on; it is <code>null</code>, never <code>false</code>, when nothing graded the
+        run — an ungraded run is not a failed one, and reporting it as one would poison every
+        pass@1 computed downstream.
+      </p>
+    </section>
+
+    <!-- ============ 5 ============ -->
+    <section class="part" id="loop">
+      <div class="part-head"><span class="num">05</span><h2>Closing the loop</h2></div>
+
+      <h3>5.1 Importing the outcomes</h3>
+
+      <p>
+        Module D&rsquo;s <b>Import metrics</b> reads the harness&rsquo;s
+        <code>metrics.jsonl</code>, reduces it per slug and annotates the loaded plan. It is
+        strictly read-only and strictly advisory: it never rewrites the plan, because deciding
+        that a task was too big is a judgement and the human gate exists so a machine does not
+        make it.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Column</th><th>From</th><th>What it tells you</th></tr></thead>
+          <tbody>
+            <tr><td class="m">Attempts</td><td>count of runs on the slug</td><td>&gt;1 means the task description, or the page it pointed at, left something out</td></tr>
+            <tr><td class="m">Passed first attempt</td><td><code>oraclePassed</code> on attempt 1</td><td>pass@1 — the number a plan is actually judged on</td></tr>
+            <tr><td class="m">Ever passed</td><td>any attempt</td><td>separates &ldquo;hard&rdquo; from &ldquo;impossible as written&rdquo;</td></tr>
+            <tr><td class="m">Last stop reason</td><td><code>stopReason</code></td><td><code>StepLimit</code> / <code>TimeLimit</code> means the task was too big, not that the model was wrong</td></tr>
+            <tr><td class="m">Tokens</td><td><code>totalTokens</code></td><td>the cost of how this task was written</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        A malformed final line is skipped with a diagnostic rather than failing the import — a
+        partially written last line is normal for a file a live harness is appending to.
+      </p>
+
+      <div class="note refuse">
+        <span class="tag">the one path to set</span>
+        <p>
+          The importer looks first at
+          <code>&lt;RepoRoot&gt;\telemetry\metrics\metrics.jsonl</code> and falls back to a file
+          picker. GlassCoder writes to
+          <code>%LOCALAPPDATA%\GlassCoder\metrics\metrics.jsonl</code>. Those are not the same
+          place. Either point the picker at the real file each time, set
+          <code>Metrics:Directory</code> to an absolute path under the repository&rsquo;s
+          <code>telemetry/metrics</code>, or snapshot it the way this repository does with
+          <code>scripts/publish-logs.ps1</code>.
+        </p>
+      </div>
+
+      <h3>5.2 What the numbers are for</h3>
+
+      <p>
+        A reviewer score is an opinion about a document; an oracle outcome is a fact about it.
+        Until the two meet, neither side knows whether the context was good enough. Three
+        readings are worth acting on:
+      </p>
+
+      <ul class="prose">
+        <li><b>Two or more attempts, and the transcript shows the page was read</b> — the
+          documentation was thin, not absent. That is a Module B finding: re-enrich that file, or
+          add the missing gotcha. It is the most valuable signal the pairing produces, because it
+          is the only one that says <em>which page</em> to improve.</li>
+        <li><b>Two or more attempts, and the page was never opened</b> — the pointer failed, not
+          the prose. Check that the docs are inside a readable root and that the profile names
+          the path they are actually at (see <a href="#artifacts">§4.1</a>).</li>
+        <li><b><code>StepLimit</code> or <code>TimeLimit</code></b> — the task is more than one
+          agent&rsquo;s worth of work. Split it in Module D; the slugs of the halves become new
+          join keys and the original&rsquo;s history stays attached to the original.</li>
+      </ul>
+
+      <h3 id="reverse">5.3 The other direction — GlassCoder as GlassContext&rsquo;s worker</h3>
+
+      <p>
+        Set <code>agentProvider: "GlassCoder"</code> and GlassContext&rsquo;s own agent work —
+        per-file intent enrichment, principally, which is the expensive pass in
+        <a href="#workflow">step 2</a> — runs on the local box through <code>glasscoder</code>
+        instead of through metered Claude Code. Same seam, same contract, different tokens. On a
+        two-hundred-file dependency that is the difference between a documentation pass you run
+        per release and one you run once.
+      </p>
+
+      <p>
+        The contract is the interesting part: <b>the runner never writes files.</b> It returns
+        text, and GlassContext performs every write through <code>SafeFileWriter</code>. That is
+        enforced rather than trusted — each run is handed a generated arm configuration with an
+        empty <code>WritablePaths</code>, which the host reads as &ldquo;nothing is
+        writable&rdquo;, so the agent physically cannot edit the repository it is reading. The
+        two applications exchange a command line and stdout rather than an assembly reference,
+        because both Core libraries define a type called <code>AgentRunRequest</code> and putting
+        two meanings of that name into one compilation is a problem neither needs.
+      </p>
+
+      <pre><code><span class="c">// What GlassContext checks before offering the provider:</span>
+glasscoder help        <span class="c">// the cheapest launchable verb; prints its own name,
+                       // so a wrong executable on PATH is caught rather than trusted</span></code></pre>
+    </section>
+
+    <!-- ============ 6 ============ -->
+    <section class="part" id="status">
+      <div class="part-head"><span class="num">06</span><h2>What is built today</h2></div>
+
+      <p>
+        As of <code>2026-08-22</code>, on the <code>glasscontext-rename</code> branch. The
+        producing side is complete — GlassContext emits every artifact above and the format tests
+        pass on both sides. On the consuming side, the reader, the runner and the oracle are in;
+        four smaller pieces of <code>WORKPLAN-glasscontext.md</code> are not.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th class="m">Task</th><th>What</th><th>State</th></tr></thead>
+          <tbody>
+            <tr><td class="m">78</td><td><code>Workplan</code> / <code>WorkplanTask</code> — format v2 reader, round-trip tested against GlassContext&rsquo;s own fixtures</td><td><span class="pill pass">built</span></td></tr>
+            <tr><td class="m">79</td><td><code>WorkplanRunner</code> and the <code>workplan</code> verb</td><td><span class="pill pass">built</span></td></tr>
+            <tr><td class="m">80</td><td>Oracle line honoured as the run&rsquo;s test filter; zero-match fails loudly</td><td><span class="pill pass">built</span></td></tr>
+            <tr><td class="m">77</td><td><code>RootContextFiles</code> pointed at a real <code>CLAUDE.agent.md</code>, and the pass@1 delta measured against <code>no-context</code></td><td><span class="pill warn">config only — do this first</span></td></tr>
+            <tr><td class="m">81</td><td>Content hash of the root context in <code>ProvenanceStamp</code>, so a fresh-versus-stale comparison keys on what the run saw rather than on mtimes</td><td><span class="pill warn">not started — rescope</span></td></tr>
+            <tr><td class="m">82</td><td>A one-line documentation hint on first read of a source file</td><td><span class="pill warn">not started — see below</span></td></tr>
+            <tr><td class="m">83</td><td>Seed <code>update_todos</code> from the task and re-inject after compaction</td><td><span class="pill warn">not started</span></td></tr>
+            <tr><td class="m">84</td><td>A Module F tutorial workplan run from an empty directory as a project-scale benchmark</td><td><span class="pill warn">not started</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Task 77 is the one to do first, and it is a configuration change rather than code:
+        <code>Context:RootContextFiles</code> still defaults to <code>[]</code>, so until it is
+        pointed at a generated profile, the whole pairing is a plausibility argument rather than
+        a measurement. Everything in <a href="#coder">§2</a> is what doing it looks like.
+      </p>
+
+      <h3>6.1 Two pending tasks need their scope adjusted</h3>
+
+      <div class="note refuse">
+        <span class="tag">task 81, rescoped</span>
+        <p>
+          Task 81 hashes the concatenated <code>RootContextFiles</code>, so that two runs
+          carrying identical context share a hash whatever their timestamps say. That is the
+          right idea and the wrong set of files for this workflow: the root context here is one
+          small profile that changes rarely, while the thing that actually varies between runs is
+          the <b>documentation tree</b> — and that is retrieved on demand, so it never appears in
+          <code>RootContextFiles</code> at all.
+        </p>
+        <p>
+          A re-run of Module B can change every page the worker reads and leave the hash
+          identical. To make a fresh-versus-stale ablation mean anything here, the stamp needs to
+          cover what was <em>retrieved</em> as well as what was resident: hash the pages the run
+          actually opened, or the docs tree as a whole, alongside the root.
+        </p>
+      </div>
+
+      <div class="note refuse">
+        <span class="tag">task 82, restated</span>
+        <p>
+          As written, task 82 fires its hint on first touch of a workspace source file, mapping
+          <code>src/foo/Bar.cs</code> to <code>docs/llms/foo/Bar.md</code>. That mapping is for a
+          repository whose <em>own</em> source is documented. In this pairing the documented tree
+          is the dependency&rsquo;s, and the files the agent touches most are ones it is creating —
+          for which no page exists and none should. Implemented literally, the hint would append a
+          dead path to most observations.
+        </p>
+        <p>
+          The version worth building points the other way: when the agent references a type it
+          did not declare, name that type&rsquo;s page. Same one line, same budget, aimed at the
+          retrieval that actually pays — and still worth deleting rather than keeping out of
+          politeness if it does not move tokens-to-solve.
+        </p>
+      </div>
+
+      <h3>6.2 Four gaps that are not on anyone&rsquo;s plan yet</h3>
+
+      <p>
+        These are not pending tasks — they are places where the shipped code assumes a workflow
+        slightly different from this one. Each is small, and each currently costs a manual
+        workaround described earlier in this guide.
+      </p>
+
+      <div class="scroller">
+        <table class="doc">
+          <thead><tr><th>Gap</th><th>Where</th><th>Costs you</th><th>Shape of the fix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><s>The agent profile cannot name the dependency docs&rsquo; real location</s>
+                  <span class="pill pass">fixed</span></td>
+              <td class="m">AgentProfileEmitter.Emit</td>
+              <td>nothing — <code>siblingLocations</code> is now a parameter and the sibling
+                  line renders the resolved root (<a href="#artifacts">§4.1</a>)</td>
+              <td>done; five tests cover the writable layout, the fallback, no-documentation,
+                  an empty walk, and matching locations to siblings by path rather than order</td>
+            </tr>
+            <tr>
+              <td>The main-repo path rule is still emitted unconditionally</td>
+              <td class="m">AgentProfileEmitter.AppendRetrieval</td>
+              <td>one dead pointer when the main-repo documentation pass was off, which on this
+                  workflow is the normal case</td>
+              <td>the same treatment: the emitter would need to know whether that pass produced
+                  anything, which the call site knows and does not pass</td>
+            </tr>
+            <tr>
+              <td>Module D never sees the documentation it is planning against</td>
+              <td class="m">WorkplanViewModel.SourceContext</td>
+              <td>generated tasks that do not mention the pages the worker needs
+                  (<a href="#workflow">§3</a>, step 4)</td>
+              <td>add the docs index — page titles and one-line purposes, not the pages — to
+                  the generation prompt beside the Module C draft</td>
+            </tr>
+            <tr>
+              <td>The plan prompt permits an oracle the agent will itself author</td>
+              <td class="m">WorkplanViewModel — the Oracle guideline</td>
+              <td>checkboxes that record self-agreement (<a href="#workflow">§3</a>, step 4)</td>
+              <td>a decision, not a patch: either forbid it in the prompt, or mark such tasks so
+                  the runner can report them as ungraded rather than passed</td>
+            </tr>
+            <tr>
+              <td>The sibling-versus-fallback routing has no test</td>
+              <td class="m">DocGenServiceTests</td>
+              <td>the branch this whole workflow depends on is unverified</td>
+              <td>two cases against a temp tree — writable sibling and read-only sibling —
+                  asserting where the pages land and what the emitted documents say about it</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <span class="tag">the acceptance test for the pair</span>
+        <p>
+          Running the suite with <code>CLAUDE.agent.md</code> as root context and the dependency
+          docs in the workspace produces a measured pass@1 and tokens-to-solve delta against
+          <code>no-context</code> — a number, not an opinion. Everything else here is plumbing in
+          service of that one comparison.
+        </p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <p>
+    GlassContext (.NET&nbsp;8, WPF) — documents the dependency, plans the work.
+    GlassCoder (.NET&nbsp;10, WPF + console host) — writes the code, grades it against the oracle.
+    Verified against this repository and <code>C:\repos\GlassContext</code> on 2026-08-22.
+    See <code>WORKPLAN-glasscontext.md</code> for the tasks behind §6.
+  </p>
+</footer>
+
+</body>
+</html>
